@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
@@ -28,7 +30,7 @@ class _AuthScreenState extends State<AuthScreen> {
   void _continueWithPhone() {
     if (_phoneController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a phone number')),
+        SnackBar(content: Text('Please enter a phone number'.translate())),
       );
       return;
     }
@@ -42,7 +44,7 @@ class _AuthScreenState extends State<AuthScreen> {
     // TODO: Implement social login logic
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text('Login with $provider')));
+    ).showSnackBar(SnackBar(content: Text('${'Login'.translate()} $provider')));
   }
 
   @override
@@ -95,24 +97,24 @@ class _AuthScreenState extends State<AuthScreen> {
                     children: [
                       SizedBox(height: isTablet ? 20 : 12),
                       Text(
-                        'Join Meezan',
+                        'Join Meezan'.translate(),
                         style: TextStyle(
-                          fontSize: isTablet ? 34 : 28,
+                          fontSize: (isTablet ? 34 : 28).sp,
                           fontWeight: FontWeight.bold,
                           color: AppColors.navyBlue,
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8.h),
                       Text(
-                        'Your Legal Partner',
+                        'Your Legal Partner'.translate(),
                         style: TextStyle(
-                          fontSize: isTablet ? 18 : 16,
+                          fontSize: (isTablet ? 18 : 16).sp,
                           color: AppColors.textDark.withValues(alpha: 0.6),
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      SizedBox(height: isTablet ? 44 : 30),
+                      SizedBox(height: (isTablet ? 44 : 30).h),
                       TextField(
                         controller: _phoneController,
                         keyboardType: TextInputType.phone,
@@ -121,25 +123,25 @@ class _AuthScreenState extends State<AuthScreen> {
                           hintText: '+1 (555) 123-4567',
                           prefixIcon: const Icon(Icons.phone_outlined),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(8.r),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      SizedBox(height: 16.h),
                       SizedBox(
-                        height: isTablet ? 56 : 52,
+                        height: (isTablet ? 56 : 52).h,
                         child: ElevatedButton(
                           onPressed: _continueWithPhone,
-                          child: const Text(
-                            'Continue with Phone',
+                          child: Text(
+                            'Continue with Phone'.translate(),
                             style: TextStyle(
-                              fontSize: 16,
+                              fontSize: 16.sp,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
                       ),
-                      SizedBox(height: isTablet ? 34 : 28),
+                      SizedBox(height: (isTablet ? 34 : 28).h),
                       Row(
                         children: [
                           Expanded(
@@ -149,14 +151,14 @@ class _AuthScreenState extends State<AuthScreen> {
                             ),
                           ),
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            padding: EdgeInsets.symmetric(horizontal: 12.w),
                             child: Text(
-                              'Or continue with',
+                              'Or continue with'.translate(),
                               style: TextStyle(
                                 color: AppColors.textDark.withValues(
                                   alpha: 0.6,
                                 ),
-                                fontSize: 14,
+                                fontSize: 14.sp,
                               ),
                             ),
                           ),
@@ -168,11 +170,11 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                         ],
                       ),
-                      SizedBox(height: isTablet ? 28 : 20),
+                      SizedBox(height: (isTablet ? 28 : 20).h),
                       Wrap(
                         alignment: WrapAlignment.spaceEvenly,
-                        spacing: isTablet ? 20 : 12,
-                        runSpacing: 14,
+                        spacing: (isTablet ? 20 : 12).w,
+                        runSpacing: 14.h,
                         children: [
                           SizedBox(
                             width: socialButtonWidth,
@@ -209,7 +211,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                         ],
                       ),
-                      SizedBox(height: isTablet ? 48 : 34),
+                      SizedBox(height: (isTablet ? 48 : 34).h),
                       Align(
                         alignment: Alignment.center,
                         child: ConstrainedBox(
@@ -227,12 +229,12 @@ class _AuthScreenState extends State<AuthScreen> {
                                             color: AppColors.navyBlue,
                                             width: 2,
                                           ),
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 14,
+                                          padding: EdgeInsets.symmetric(
+                                            vertical: 14.h,
                                           ),
                                           shape: RoundedRectangleBorder(
                                             borderRadius: BorderRadius.circular(
-                                              8,
+                                              8.r,
                                             ),
                                           ),
                                         ),
@@ -242,28 +244,28 @@ class _AuthScreenState extends State<AuthScreen> {
                                             AppRoutes.login,
                                           );
                                         },
-                                        child: const Text(
-                                          'Login',
+                                        child: Text(
+                                          'Login'.translate(),
                                           style: TextStyle(
-                                            fontSize: 16,
+                                            fontSize: 16.sp,
                                             fontWeight: FontWeight.w600,
                                             color: AppColors.navyBlue,
                                           ),
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
+                                    SizedBox(height: 10.h),
                                     SizedBox(
                                       width: double.infinity,
                                       child: ElevatedButton(
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: AppColors.legalGold,
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 14,
+                                          padding: EdgeInsets.symmetric(
+                                            vertical: 14.h,
                                           ),
                                           shape: RoundedRectangleBorder(
                                             borderRadius: BorderRadius.circular(
-                                              8,
+                                              8.r,
                                             ),
                                           ),
                                         ),
@@ -273,10 +275,10 @@ class _AuthScreenState extends State<AuthScreen> {
                                             AppRoutes.register,
                                           );
                                         },
-                                        child: const Text(
-                                          'Create New Account',
+                                        child: Text(
+                                          'Create New Account'.translate(),
                                           style: TextStyle(
-                                            fontSize: 16,
+                                            fontSize: 16.sp,
                                             fontWeight: FontWeight.w600,
                                             color: Colors.white,
                                           ),
@@ -309,8 +311,8 @@ class _AuthScreenState extends State<AuthScreen> {
                                             AppRoutes.login,
                                           );
                                         },
-                                        child: const Text(
-                                          'Login',
+                                        child: Text(
+                                          'Login'.translate(),
                                           style: TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w600,
@@ -339,8 +341,8 @@ class _AuthScreenState extends State<AuthScreen> {
                                             AppRoutes.register,
                                           );
                                         },
-                                        child: const Text(
-                                          'Create New Account',
+                                        child: Text(
+                                          'Create New Account'.translate(),
                                           style: TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w600,

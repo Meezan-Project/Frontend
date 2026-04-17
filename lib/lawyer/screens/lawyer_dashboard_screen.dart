@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/auth/auth_state.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
@@ -9,25 +11,28 @@ class LawyerDashboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Lawyer Interface')),
+      appBar: AppBar(title: Text('Lawyer Interface'.translate())),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Welcome Lawyer'),
-            const SizedBox(height: 16),
+            Text(
+              'Welcome Lawyer'.translate(),
+              style: TextStyle(fontSize: 16.sp),
+            ),
+            SizedBox(height: 16.h),
             ElevatedButton(
               onPressed: () =>
                   LoadingNavigator.pushNamed(context, AppRoutes.adminHome),
-              child: const Text('Try Admin Dashboard'),
+              child: Text('Try Admin Dashboard'.translate()),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             ElevatedButton(
               onPressed: () =>
                   LoadingNavigator.pushNamed(context, AppRoutes.userHome),
-              child: const Text('Try User Dashboard'),
+              child: Text('Try User Dashboard'.translate()),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             ElevatedButton(
               onPressed: () {
                 authState.logout();
@@ -37,7 +42,7 @@ class LawyerDashboardScreen extends StatelessWidget {
                   (route) => false,
                 );
               },
-              child: const Text('Logout'),
+              child: Text('Logout'.translate()),
             ),
           ],
         ),

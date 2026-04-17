@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:get/get.dart';
 import 'package:mezaan/shared/auth/auth_state.dart';
+import 'package:mezaan/shared/localization/localization_controller.dart';
+import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/shared/widgets/language_toggle_button.dart';
 
 enum LoginMethod { phone, email }
 
@@ -71,157 +76,194 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _handleGuestSignIn() {
+    authState.loginAs(AppRole.user);
+    LoadingNavigator.pushNamedAndRemoveUntil(
+      context,
+      AppRoutes.userHome,
+      (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final bool isTablet = size.width > 600;
+    final localizationController = LocalizationController.instance;
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // 1. المودرن هيدر الأصلي مع الـ Slogan
-            const _ModernLoginHeader(),
+    return Obx(() {
+      localizationController.currentLanguage.value;
 
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: isTablet ? 500 : double.infinity,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Welcome Back',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.navyBlue,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Sign in to access your legal dashboard',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: AppColors.textDark.withOpacity(0.5),
-                      ),
-                    ),
-                    const SizedBox(height: 32),
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: SingleChildScrollView(
+          child: Column(
+            children: [
+              // 1. المودرن هيدر الأصلي مع الـ Slogan
+              const _ModernLoginHeader(),
 
-                    // 2. الـ Login Form
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: AppColors.backgroundGrey,
-                        borderRadius: BorderRadius.circular(28),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.03),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24.w),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: isTablet ? 500 : double.infinity,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(height: 16.h),
+                      Text(
+                        'Welcome Back'.translate(),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 32.sp,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.navyBlue,
+                        ),
                       ),
-                      child: Column(
-                        children: [
-                          _AuthMethodTabs(
-                            selectedMethod: _selectedMethod,
-                            onMethodChanged: (method) =>
-                                setState(() => _selectedMethod = method),
-                          ),
-                          const SizedBox(height: 28),
-                          if (_selectedMethod == LoginMethod.phone)
-                            _PhoneField(
-                              controller: _phoneController,
-                              isValid: _isPhoneValid,
-                              onChanged: (val) => setState(
-                                () => _isPhoneValid = val.length == 11,
-                              ),
+                      SizedBox(height: 8.h),
+                      Text(
+                        'Sign in to access your legal dashboard'.translate(),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16.sp,
+                          color: AppColors.textDark.withOpacity(0.5),
+                        ),
+                      ),
+                      SizedBox(height: 32.h),
+
+                      // 2. الـ Login Form
+                      Container(
+                        padding: EdgeInsets.all(24.r),
+                        decoration: BoxDecoration(
+                          color: AppColors.backgroundGrey,
+                          borderRadius: BorderRadius.circular(28.r),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.03),
+                              blurRadius: 20,
+                              offset: Offset(0, 10.h),
                             ),
-                          if (_selectedMethod == LoginMethod.email) ...[
-                            _EmailField(
-                              controller: _emailController,
-                              isValid: _isEmailValid,
-                              onChanged: (val) => setState(
-                                () => _isEmailValid = val
-                                    .toLowerCase()
-                                    .endsWith('@gmail.com'),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            _PasswordField(controller: _passwordController),
                           ],
-                        ],
+                        ),
+                        child: Column(
+                          children: [
+                            _AuthMethodTabs(
+                              selectedMethod: _selectedMethod,
+                              onMethodChanged: (method) =>
+                                  setState(() => _selectedMethod = method),
+                            ),
+                            SizedBox(height: 28.h),
+                            if (_selectedMethod == LoginMethod.phone)
+                              _PhoneField(
+                                controller: _phoneController,
+                                isValid: _isPhoneValid,
+                                onChanged: (val) => setState(
+                                  () => _isPhoneValid = val.length == 11,
+                                ),
+                              ),
+                            if (_selectedMethod == LoginMethod.email) ...[
+                              _EmailField(
+                                controller: _emailController,
+                                isValid: _isEmailValid,
+                                onChanged: (val) => setState(
+                                  () => _isEmailValid = val
+                                      .toLowerCase()
+                                      .endsWith('@gmail.com'),
+                                ),
+                              ),
+                              SizedBox(height: 16.h),
+                              _PasswordField(controller: _passwordController),
+                            ],
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 32),
+                      SizedBox(height: 32.h),
 
-                    // 3. زرار الـ Sign In
-                    SizedBox(
-                      height: 58,
-                      child: ElevatedButton(
-                        onPressed: _handleSignIn,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.navyBlue,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                      // 3. زرار الـ Sign In
+                      SizedBox(
+                        height: 58.h,
+                        child: ElevatedButton(
+                          onPressed: _handleSignIn,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.navyBlue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16.r),
+                            ),
+                            elevation: 0,
                           ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-                          _selectedMethod == LoginMethod.phone
-                              ? 'Sign In'
-                              : 'Sign In',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          "Don't have an account? ",
-                          style: TextStyle(
-                            color: AppColors.textDark.withOpacity(0.6),
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: () => LoadingNavigator.pushNamed(
-                            context,
-                            AppRoutes.register,
-                          ),
-                          child: const Text(
-                            'Create',
+                          child: Text(
+                            'Sign In'.translate(),
                             style: TextStyle(
-                              color: AppColors.legalGold,
+                              fontSize: 18.sp,
                               fontWeight: FontWeight.bold,
-                              fontSize: 16,
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 40),
-                  ],
+                      ),
+
+                      SizedBox(height: 12.h),
+                      SizedBox(
+                        height: 52.h,
+                        child: OutlinedButton(
+                          onPressed: _handleGuestSignIn,
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(
+                              color: AppColors.navyBlue,
+                              width: 1.6,
+                            ),
+                            foregroundColor: AppColors.navyBlue,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16.r),
+                            ),
+                          ),
+                          child: Text(
+                            'Sign in as Guest'.translate(),
+                            style: TextStyle(
+                              fontSize: 16.sp,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      SizedBox(height: 24.h),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            "Don't have an account? ".translate(),
+                            style: TextStyle(
+                              color: AppColors.textDark.withOpacity(0.6),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => LoadingNavigator.pushNamed(
+                              context,
+                              AppRoutes.register,
+                            ),
+                            child: Text(
+                              'Create'.translate(),
+                              style: TextStyle(
+                                color: AppColors.legalGold,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16.sp,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 40.h),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 }
 
@@ -246,6 +288,20 @@ class _ModernLoginHeader extends StatelessWidget {
       ),
       child: Stack(
         children: [
+          const Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: LanguageToggleButton(
+                  backgroundColor: Colors.white24,
+                  iconColor: Colors.white,
+                ),
+              ),
+            ),
+          ),
           // شكل جمالي دائري خلفي
           Positioned(
             top: -20,
@@ -295,7 +351,7 @@ class _ModernLoginHeader extends StatelessWidget {
                 const SizedBox(height: 4),
                 // الـ Slogan اللي طلبته
                 Text(
-                  'Justice at Your Fingertips',
+                  'Justice at Your Fingertips'.translate(),
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.8),
                     fontSize: 14,
@@ -399,7 +455,7 @@ class _AuthMethodTabs extends StatelessWidget {
           borderRadius: BorderRadius.circular(99),
         ),
         child: Text(
-          label,
+          label.translate(),
           style: TextStyle(
             color: isSelected ? Colors.white : Colors.grey,
             fontWeight: FontWeight.bold,
@@ -435,7 +491,7 @@ class _PhoneField extends StatelessWidget {
           Icons.phone_android_rounded,
           color: AppColors.navyBlue,
         ),
-        hintText: '11-digit mobile number',
+        hintText: '11-digit mobile number'.translate(),
         filled: true,
         fillColor: Colors.white,
         enabledBorder: OutlineInputBorder(
@@ -475,7 +531,7 @@ class _EmailField extends StatelessWidget {
       keyboardType: TextInputType.emailAddress,
       decoration: InputDecoration(
         prefixIcon: const Icon(Icons.email_outlined, color: AppColors.navyBlue),
-        hintText: 'example@gmail.com',
+        hintText: 'example@gmail.com'.translate(),
         filled: true,
         fillColor: Colors.white,
         enabledBorder: OutlineInputBorder(
@@ -523,7 +579,7 @@ class _PasswordFieldState extends State<_PasswordField> {
           ),
           onPressed: () => setState(() => _isObscured = !_isObscured),
         ),
-        hintText: 'Password',
+        hintText: 'Password'.translate(),
         filled: true,
         fillColor: Colors.white,
         border: OutlineInputBorder(

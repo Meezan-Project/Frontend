@@ -1,7 +1,12 @@
 import 'dart:async'; // مهمة عشان الـ Timer
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:get/get.dart';
+import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
+import 'package:mezaan/shared/localization/localization_controller.dart';
+import 'package:mezaan/shared/widgets/language_toggle_button.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:video_player/video_player.dart';
 
@@ -77,234 +82,253 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final activeSlide = slides[_currentPage];
+    final localizationController = LocalizationController.instance;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // 1. بانر علوي أصغر يحتوي النص
-            Container(
-              height: size.height * 0.25,
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(28),
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF052B52),
-                    AppColors.navyBlue,
-                    Color(0xFF0B5E55),
-                  ],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.16),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  Positioned(
-                    top: -35,
-                    right: -24,
-                    child: Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withOpacity(0.09),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: -42,
-                    left: -32,
-                    child: Container(
-                      width: 140,
-                      height: 140,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AppColors.legalGold.withOpacity(0.18),
-                      ),
-                    ),
-                  ),
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Text(
-                            activeSlide.title,
-                            style: TextStyle(
-                              fontSize: 30,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white,
-                              height: 1.06,
-                              letterSpacing: 0.4,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black.withOpacity(0.22),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 3),
-                                ),
-                              ],
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            activeSlide.description,
-                            style: TextStyle(
-                              fontSize: 15,
-                              color: Colors.white.withOpacity(0.92),
-                              height: 1.45,
-                              fontWeight: FontWeight.w500,
-                              fontStyle: FontStyle.italic,
-                              letterSpacing: 0.2,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    return Obx(() {
+      final activeSlide = slides[_currentPage];
+      localizationController.currentLanguage.value;
 
-            // 2. المساحة البيضاء للميديا فقط
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 14),
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F7FA),
+        body: SafeArea(
+          child: Column(
+            children: [
+              // 1. بانر علوي أصغر يحتوي النص
+              Container(
+                height: size.height * 0.25,
+                width: double.infinity,
+                margin: EdgeInsets.fromLTRB(14.w, 12.h, 14.w, 10.h),
+                padding: EdgeInsets.fromLTRB(20.w, 20.h, 20.w, 18.h),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(30),
+                  borderRadius: BorderRadius.circular(28.r),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFF052B52),
+                      AppColors.navyBlue,
+                      Color(0xFF0B5E55),
+                    ],
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
+                      color: Colors.black.withOpacity(0.16),
                       blurRadius: 18,
-                      offset: const Offset(0, 8),
+                      offset: Offset(0, 8.h),
                     ),
                   ],
                 ),
-                child: PageView.builder(
-                  controller: _pageController,
-                  onPageChanged: (index) {
-                    setState(() {
-                      _currentPage = index;
-                    });
-                  },
-                  itemCount: slides.length,
-                  itemBuilder: (context, index) {
-                    return OnboardingSlideWidget(slide: slides[index]);
-                  },
-                ),
-              ),
-            ),
-
-            // 3. المؤشرات + الأزرار
-            Container(
-              padding: const EdgeInsets.fromLTRB(28, 18, 28, 20),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                      slides.length,
-                      (index) => AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        margin: const EdgeInsets.symmetric(horizontal: 5),
-                        width: _currentPage == index ? 35 : 12,
-                        height: 8,
+                child: Stack(
+                  children: [
+                    Positioned(
+                      top: -35,
+                      right: -24,
+                      child: Container(
+                        width: 120.w,
+                        height: 120.h,
                         decoration: BoxDecoration(
-                          color: _currentPage == index
-                              ? AppColors.legalGold
-                              : const Color(0xFFD7DEE7),
-                          borderRadius: BorderRadius.circular(4),
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.09),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 56,
-                          child: ElevatedButton(
-                            onPressed: () =>
-                                LoadingNavigator.pushReplacementNamed(
-                                  context,
-                                  AppRoutes.login,
-                                ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF042A52),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              elevation: 0,
-                            ),
-                            child: const Text(
-                              'Login',
+                    Positioned(
+                      bottom: -42,
+                      left: -32,
+                      child: Container(
+                        width: 140.w,
+                        height: 140.h,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.legalGold.withOpacity(0.18),
+                        ),
+                      ),
+                    ),
+                    Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12.w),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(
+                              activeSlide.title.translate(),
                               style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 30.sp,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                                height: 1.06,
+                                letterSpacing: 0.4,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withOpacity(0.22),
+                                    blurRadius: 10,
+                                    offset: Offset(0, 3.h),
+                                  ),
+                                ],
                               ),
+                              textAlign: TextAlign.center,
                             ),
+                            SizedBox(height: 10.h),
+                            Text(
+                              activeSlide.description.translate(),
+                              style: TextStyle(
+                                fontSize: 15.sp,
+                                color: Colors.white.withOpacity(0.92),
+                                height: 1.45,
+                                fontWeight: FontWeight.w500,
+                                fontStyle: FontStyle.italic,
+                                letterSpacing: 0.2,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Positioned(
+                      top: 0,
+                      right: 0,
+                      child: SafeArea(
+                        bottom: false,
+                        child: Padding(
+                          padding: EdgeInsets.all(4),
+                          child: LanguageToggleButton(
+                            backgroundColor: Colors.white24,
+                            iconColor: Colors.white,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: SizedBox(
-                          height: 56,
-                          child: OutlinedButton(
-                            onPressed: () =>
-                                LoadingNavigator.pushReplacementNamed(
-                                  context,
-                                  AppRoutes.register,
-                                ),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(
-                                color: AppColors.legalGold,
-                                width: 1.8,
-                              ),
-                              foregroundColor: const Color(0xFF8B6A00),
-                              backgroundColor: const Color(0xFFFFF9E8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                            child: const Text(
-                              'Register',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // 2. المساحة البيضاء للميديا فقط
+              Expanded(
+                child: Container(
+                  margin: EdgeInsets.symmetric(horizontal: 14.w),
+                  padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 10.h),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(30.r),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 18,
+                        offset: Offset(0, 8.h),
                       ),
                     ],
                   ),
-                ],
+                  child: PageView.builder(
+                    controller: _pageController,
+                    onPageChanged: (index) {
+                      setState(() {
+                        _currentPage = index;
+                      });
+                    },
+                    itemCount: slides.length,
+                    itemBuilder: (context, index) {
+                      return OnboardingSlideWidget(slide: slides[index]);
+                    },
+                  ),
+                ),
               ),
-            ),
-          ],
+
+              // 3. المؤشرات + الأزرار
+              Container(
+                padding: EdgeInsets.fromLTRB(28.w, 18.h, 28.w, 20.h),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                        slides.length,
+                        (index) => AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          margin: EdgeInsets.symmetric(horizontal: 5.w),
+                          width: _currentPage == index ? 35.w : 12.w,
+                          height: 8.h,
+                          decoration: BoxDecoration(
+                            color: _currentPage == index
+                                ? AppColors.legalGold
+                                : const Color(0xFFD7DEE7),
+                            borderRadius: BorderRadius.circular(4.r),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 16.h),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 56.h,
+                            child: ElevatedButton(
+                              onPressed: () =>
+                                  LoadingNavigator.pushReplacementNamed(
+                                    context,
+                                    AppRoutes.login,
+                                  ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF042A52),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16.r),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: Text(
+                                'Login'.translate(),
+                                style: TextStyle(
+                                  fontSize: 17.sp,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 14.w),
+                        Expanded(
+                          child: SizedBox(
+                            height: 56.h,
+                            child: OutlinedButton(
+                              onPressed: () =>
+                                  LoadingNavigator.pushReplacementNamed(
+                                    context,
+                                    AppRoutes.register,
+                                  ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(
+                                  color: AppColors.legalGold,
+                                  width: 1.8,
+                                ),
+                                foregroundColor: const Color(0xFF8B6A00),
+                                backgroundColor: const Color(0xFFFFF9E8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16.r),
+                                ),
+                              ),
+                              child: Text(
+                                'Register'.translate(),
+                                style: TextStyle(
+                                  fontSize: 17.sp,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 }
 
@@ -358,24 +382,24 @@ class _OnboardingSlideWidgetState extends State<OnboardingSlideWidget> {
                 ? Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.video_call_outlined,
-                        size: 80,
+                        size: 80.sp,
                         color: Color(0xFF9BA8B8),
                       ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Video could not be loaded',
+                      SizedBox(height: 12.h),
+                      Text(
+                        'Video could not be loaded'.translate(),
                         style: TextStyle(
                           color: Color(0xFF6E7B8B),
-                          fontSize: 15,
+                          fontSize: 15.sp,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       if (_videoErrorMessage != null) ...[
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8.h),
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          padding: EdgeInsets.symmetric(horizontal: 24.w),
                           child: Text(
                             _videoErrorMessage!,
                             textAlign: TextAlign.center,
@@ -393,24 +417,24 @@ class _OnboardingSlideWidgetState extends State<OnboardingSlideWidget> {
                   )
                 : (_videoController == null ||
                       !_videoController!.value.isInitialized)
-                ? const SizedBox(
-                    width: 34,
-                    height: 34,
+                ? SizedBox(
+                    width: 34.w,
+                    height: 34.h,
                     child: CircularProgressIndicator(
                       strokeWidth: 3,
                       color: AppColors.navyBlue,
                     ),
                   )
                 : ClipRRect(
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(24.r),
                     child: AspectRatio(
                       aspectRatio: _videoController!.value.aspectRatio,
                       child: VideoPlayer(_videoController!),
                     ),
                   ))
           : Container(
-              width: 165,
-              height: 165,
+              width: 165.w,
+              height: 165.h,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: const Color(0xFFF2F6FB),
@@ -418,7 +442,7 @@ class _OnboardingSlideWidgetState extends State<OnboardingSlideWidget> {
               ),
               child: Icon(
                 widget.slide.icon,
-                size: 78,
+                size: 78.sp,
                 color: AppColors.navyBlue,
               ),
             ),

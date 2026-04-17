@@ -1,13 +1,21 @@
 import 'dart:io';
-import 'dart:math' as math;
+import 'dart:convert';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:get/get.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart' as image_picker;
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/shared/localization/localization_controller.dart';
+import 'package:mezaan/shared/localization/translate_extension.dart';
+import 'package:mezaan/shared/widgets/language_toggle_button.dart';
 
 class UserRegisterScreen extends StatefulWidget {
   const UserRegisterScreen({super.key});
@@ -17,6 +25,8 @@ class UserRegisterScreen extends StatefulWidget {
 }
 
 class _UserRegisterScreenState extends State<UserRegisterScreen> {
+  static const String _registerApiPath = '/Mezaan-API/user/register.php';
+
   final _firstNameController = TextEditingController();
   final _secondNameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -58,10 +68,12 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
   };
 
   DateTime? _selectedDob;
+  XFile? _profilePhotoImage;
   XFile? _frontIdImage;
   XFile? _backIdImage;
   bool _isUnder18 = false;
   bool _isExtractingIdData = false;
+  bool _isSubmitting = false;
 
   String? _selectedGender;
   String? _selectedGovernorate;
@@ -127,13 +139,90 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     }
   }
 
+  Future<void> _pickProfilePhoto() async {
+    final source = await showModalBottomSheet<image_picker.ImageSource>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.camera_alt_outlined),
+                  title: const Text('Take photo'),
+                  onTap: () => Navigator.of(
+                    context,
+                  ).pop(image_picker.ImageSource.camera),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.photo_library_outlined),
+                  title: const Text('Choose from gallery'),
+                  onTap: () => Navigator.of(
+                    context,
+                  ).pop(image_picker.ImageSource.gallery),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('Remove selected photo'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    setState(() {
+                      _profilePhotoImage = null;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (source == null) {
+      return;
+    }
+
+    try {
+      final picker = image_picker.ImagePicker();
+      final selectedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1400,
+      );
+
+      if (selectedFile == null) {
+        return;
+      }
+
+      setState(() {
+        _profilePhotoImage = selectedFile;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not select profile photo.'.translate())),
+      );
+    }
+  }
+
   Future<XFile?> _openIdCameraWithGrid({required bool isFront}) async {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No camera available on this device')),
+            SnackBar(
+              content: Text('No camera available on this device'.translate()),
+            ),
           );
         }
         return null;
@@ -159,7 +248,9 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to open camera right now')),
+          SnackBar(
+            content: Text('Unable to open camera right now'.translate()),
+          ),
         );
       }
       return null;
@@ -174,219 +265,40 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       _dobError = null;
     });
 
-    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
-    final List<String> tempGeneratedPaths = [];
-    bool sawAnyText = false;
-    int maxDigitCount = 0;
+    final recognizer = TextRecognizer();
+    String? fallbackCropPath;
 
     try {
-      String? nationalId;
-
       final fullImage = await recognizer.processImage(
         InputImage.fromFilePath(imagePath),
       );
-      final fullInspection = _inspectRecognizedText(fullImage, stage: 'full');
-      sawAnyText = sawAnyText || fullInspection.hasText;
-      maxDigitCount = math.max(maxDigitCount, fullInspection.digitCount);
-      nationalId = fullInspection.candidate;
-      if (nationalId == null) {
-        final rawNationalId = _extractRawNationalIdDigits(fullImage);
-        if (rawNationalId != null) {
-          nationalId = rawNationalId;
-        }
-      }
+      String? nationalId = _findBestNationalIdCandidate(fullImage);
 
       if (nationalId == null) {
-        final enhancedFullPaths = await _createEnhancedVariants(
-          imagePath,
-          prefix: 'id_full_enh',
-        );
-        tempGeneratedPaths.addAll(enhancedFullPaths);
-        for (final enhancedPath in enhancedFullPaths) {
-          final enhancedImage = await recognizer.processImage(
-            InputImage.fromFilePath(enhancedPath),
-          );
-          final enhancedInspection = _inspectRecognizedText(
-            enhancedImage,
-            stage: 'enhanced-full',
-          );
-          sawAnyText = sawAnyText || enhancedInspection.hasText;
-          maxDigitCount = math.max(
-            maxDigitCount,
-            enhancedInspection.digitCount,
-          );
-          nationalId = enhancedInspection.candidate;
-          if (nationalId == null) {
-            final rawNationalId = _extractRawNationalIdDigits(enhancedImage);
-            if (rawNationalId != null) {
-              nationalId = rawNationalId;
-            }
-          }
-
-          if (nationalId != null) {
-            break;
-          }
-        }
-      }
-
-      if (nationalId == null) {
-        final rotatedFullPaths = await _createRotatedVariants(
-          imagePath,
-          prefix: 'id_full_rot',
-        );
-        tempGeneratedPaths.addAll(rotatedFullPaths);
-        for (final rotatedPath in rotatedFullPaths) {
-          final rotatedImage = await recognizer.processImage(
-            InputImage.fromFilePath(rotatedPath),
-          );
-          final rotatedInspection = _inspectRecognizedText(
-            rotatedImage,
-            stage: 'rotated-full',
-          );
-          sawAnyText = sawAnyText || rotatedInspection.hasText;
-          maxDigitCount = math.max(maxDigitCount, rotatedInspection.digitCount);
-          nationalId = rotatedInspection.candidate;
-          if (nationalId == null) {
-            final rawNationalId = _extractRawNationalIdDigits(rotatedImage);
-            if (rawNationalId != null) {
-              nationalId = rawNationalId;
-            }
-          }
-
-          if (nationalId != null) {
-            break;
-          }
-        }
-      }
-
-      if (nationalId == null) {
-        final cropPaths = await _createIdNumberBandCrops(imagePath);
-        tempGeneratedPaths.addAll(cropPaths);
-        for (final cropPath in cropPaths) {
+        fallbackCropPath = await _createBottomThirdCrop(imagePath);
+        if (fallbackCropPath != null) {
           final cropImage = await recognizer.processImage(
-            InputImage.fromFilePath(cropPath),
+            InputImage.fromFilePath(fallbackCropPath),
           );
-          final cropInspection = _inspectRecognizedText(
-            cropImage,
-            stage: 'crop',
-          );
-          sawAnyText = sawAnyText || cropInspection.hasText;
-          maxDigitCount = math.max(maxDigitCount, cropInspection.digitCount);
-          nationalId = cropInspection.candidate;
-          if (nationalId == null) {
-            final rawNationalId = _extractRawNationalIdDigits(cropImage);
-            if (rawNationalId != null) {
-              nationalId = rawNationalId;
-            }
-          }
-
-          if (nationalId != null) {
-            break;
-          }
-
-          final enhancedCropPaths = await _createEnhancedVariants(
-            cropPath,
-            prefix: 'id_crop_enh',
-          );
-          tempGeneratedPaths.addAll(enhancedCropPaths);
-          for (final enhancedCropPath in enhancedCropPaths) {
-            final enhancedCropImage = await recognizer.processImage(
-              InputImage.fromFilePath(enhancedCropPath),
-            );
-            final enhancedCropInspection = _inspectRecognizedText(
-              enhancedCropImage,
-              stage: 'crop-enhanced',
-            );
-            sawAnyText = sawAnyText || enhancedCropInspection.hasText;
-            maxDigitCount = math.max(
-              maxDigitCount,
-              enhancedCropInspection.digitCount,
-            );
-            nationalId = enhancedCropInspection.candidate;
-            if (nationalId == null) {
-              final rawNationalId = _extractRawNationalIdDigits(
-                enhancedCropImage,
-              );
-              if (rawNationalId != null) {
-                nationalId = rawNationalId;
-              }
-            }
-
-            if (nationalId != null) {
-              break;
-            }
-          }
-
-          if (nationalId != null) {
-            break;
-          }
-
-          final rotatedCropPaths = await _createRotatedVariants(
-            cropPath,
-            prefix: 'id_crop_rot',
-          );
-          tempGeneratedPaths.addAll(rotatedCropPaths);
-          for (final rotatedCropPath in rotatedCropPaths) {
-            final rotatedCropImage = await recognizer.processImage(
-              InputImage.fromFilePath(rotatedCropPath),
-            );
-            final rotatedCropInspection = _inspectRecognizedText(
-              rotatedCropImage,
-              stage: 'crop-rotated',
-            );
-            sawAnyText = sawAnyText || rotatedCropInspection.hasText;
-            maxDigitCount = math.max(
-              maxDigitCount,
-              rotatedCropInspection.digitCount,
-            );
-            nationalId = rotatedCropInspection.candidate;
-            if (nationalId == null) {
-              final rawNationalId = _extractRawNationalIdDigits(
-                rotatedCropImage,
-              );
-              if (rawNationalId != null) {
-                nationalId = rawNationalId;
-              }
-            }
-
-            if (nationalId != null) {
-              break;
-            }
-          }
-
-          if (nationalId != null) {
-            break;
-          }
+          nationalId = _findBestNationalIdCandidate(cropImage);
         }
       }
 
       if (nationalId == null) {
-        final failureMessage = !sawAnyText
-            ? 'No OCR text was detected. Keep the ID inside the frame and try again.'
-            : maxDigitCount < 14
-            ? 'OCR found text but fewer than 14 digits were detected. Keep the 14-digit number line inside the yellow band.'
-            : 'OCR found text but could not isolate a valid National ID. Try a clearer photo.';
         setState(() {
           _nationalIdController.clear();
           _dobController.clear();
           _selectedDob = null;
           _isUnder18 = false;
-          _frontIdError = failureMessage;
+          _frontIdError =
+              'Could not detect a valid 14-digit National ID. Retake the front photo clearly.';
         });
         return;
       }
 
       _nationalIdController.text = nationalId;
 
-      var dob = _extractBirthDateFromNationalId(nationalId);
-      if (dob == null) {
-        final repairedNationalId = _repairNationalIdCandidate(nationalId);
-        if (repairedNationalId != null) {
-          nationalId = repairedNationalId;
-          _nationalIdController.text = nationalId;
-          dob = _extractBirthDateFromNationalId(nationalId);
-        }
-      }
+      final dob = _extractBirthDateFromNationalId(nationalId);
 
       if (dob == null) {
         setState(() {
@@ -402,8 +314,8 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
 
       setState(() {
         _selectedDob = dob;
-        _dobController.text = dob != null ? _formatDate(dob) : '';
-        _isUnder18 = dob != null && _calculateAge(dob) < 18;
+        _dobController.text = _formatDate(dob);
+        _isUnder18 = _calculateAge(dob) < 18;
         _frontIdError = null;
         _nationalIdError = null;
         _dobError = _isUnder18 ? '+18 only' : null;
@@ -413,8 +325,8 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         _frontIdError = 'Failed to read National ID. Please retake the photo';
       });
     } finally {
-      for (final generatedPath in tempGeneratedPaths) {
-        final file = File(generatedPath);
+      if (fallbackCropPath != null) {
+        final file = File(fallbackCropPath);
         if (await file.exists()) {
           await file.delete();
         }
@@ -426,6 +338,37 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         });
       }
     }
+  }
+
+  Future<String?> _createBottomThirdCrop(String imagePath) async {
+    final inputBytes = await File(imagePath).readAsBytes();
+    final source = img.decodeImage(inputBytes);
+    if (source == null) {
+      return null;
+    }
+
+    final cropY = (source.height * (2 / 3)).round();
+    final cropHeight = source.height - cropY;
+    if (cropHeight < 30) {
+      return null;
+    }
+
+    final cropped = img.copyCrop(
+      source,
+      x: 0,
+      y: cropY,
+      width: source.width,
+      height: cropHeight,
+    );
+
+    final outputPath =
+        '${Directory.systemTemp.path}${Platform.pathSeparator}id_bottom_${DateTime.now().microsecondsSinceEpoch}.jpg';
+
+    await File(
+      outputPath,
+    ).writeAsBytes(img.encodeJpg(cropped, quality: 95), flush: true);
+
+    return outputPath;
   }
 
   DateTime? _extractBirthDateFromNationalId(String nationalId) {
@@ -461,48 +404,8 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     return dob;
   }
 
-  String? _repairNationalIdCandidate(String candidate) {
-    if (candidate.length != 14) {
-      return null;
-    }
-
-    final suffix = candidate.substring(7);
-    final now = DateTime.now();
-
-    for (final centuryDigit in const [2, 3]) {
-      final centuryBase = centuryDigit == 2 ? 1900 : 2000;
-
-      for (var yearOffset = 0; yearOffset < 100; yearOffset++) {
-        final year = centuryBase + yearOffset;
-
-        for (var month = 1; month <= 12; month++) {
-          final daysInMonth = DateTime(year, month + 1, 0).day;
-
-          for (var day = 1; day <= daysInMonth; day++) {
-            final repaired =
-                '$centuryDigit${yearOffset.toString().padLeft(2, '0')}'
-                '${month.toString().padLeft(2, '0')}'
-                '${day.toString().padLeft(2, '0')}'
-                '$suffix';
-            final dob = _extractBirthDateFromNationalId(repaired);
-            if (dob == null) {
-              continue;
-            }
-
-            final age = _calculateAge(dob);
-            if (age >= 0 && age <= 120 && !dob.isAfter(now)) {
-              return repaired;
-            }
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
   String _normalizeOcrDigits(String input) {
-    const digitMap = {
+    const digitMap = <String, String>{
       '٠': '0',
       '١': '1',
       '٢': '2',
@@ -523,37 +426,17 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       '۷': '7',
       '۸': '8',
       '۹': '9',
-      '０': '0',
-      '１': '1',
-      '２': '2',
-      '３': '3',
-      '４': '4',
-      '５': '5',
-      '６': '6',
-      '７': '7',
-      '８': '8',
-      '９': '9',
     };
 
-    final buffer = StringBuffer();
-    for (final rune in input.runes) {
-      final char = String.fromCharCode(rune);
-      buffer.write(digitMap[char] ?? char);
-    }
-    return buffer.toString();
-  }
-
-  String _normalizeOcrIdText(String input) {
-    final normalizedDigits = _normalizeOcrDigits(input).toUpperCase();
-    final replacements = <String, String>{
+    const confusionMap = <String, String>{
       'O': '0',
       'Q': '0',
       'D': '0',
       'I': '1',
       'L': '1',
       'T': '1',
-      '|': '1',
       '!': '1',
+      '|': '1',
       'Z': '2',
       'S': '5',
       'G': '6',
@@ -561,339 +444,65 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     };
 
     final buffer = StringBuffer();
-    for (final rune in normalizedDigits.runes) {
-      final char = String.fromCharCode(rune);
-      buffer.write(replacements[char] ?? char);
+    for (final rune in input.runes) {
+      final originalChar = String.fromCharCode(rune);
+      final digitNormalized = digitMap[originalChar] ?? originalChar;
+      final upperChar = digitNormalized.toUpperCase();
+      final mapped = confusionMap[upperChar] ?? upperChar;
+
+      if (RegExp(r'[\s\-–—_]').hasMatch(mapped)) {
+        continue;
+      }
+      buffer.write(mapped);
     }
+
     return buffer.toString();
   }
 
-  ({String? candidate, bool hasText, int digitCount}) _inspectRecognizedText(
-    RecognizedText recognized, {
-    required String stage,
-  }) {
-    final rawText = recognized.text.trim();
-    final normalizedText = _normalizeOcrIdText(recognized.text);
-    final digitCount = normalizedText.replaceAll(RegExp(r'\D'), '').length;
+  String? _findBestNationalIdCandidate(RecognizedText recognized) {
+    final candidateSources = <String>[
+      ...recognized.blocks.expand(
+        (block) => block.lines.map((line) => line.text),
+      ),
+      recognized.text,
+    ];
 
-    debugPrint('--- National ID OCR [$stage] ---');
-    debugPrint('raw text: ${rawText.isEmpty ? '<empty>' : rawText}');
-    debugPrint('digit count: $digitCount');
+    final exact14Regex = RegExp(r'(?<!\d)\d{14}(?!\d)');
 
-    for (
-      var blockIndex = 0;
-      blockIndex < recognized.blocks.length;
-      blockIndex++
-    ) {
-      final block = recognized.blocks[blockIndex];
-      debugPrint('block #$blockIndex: ${block.text}');
-      for (var lineIndex = 0; lineIndex < block.lines.length; lineIndex++) {
-        final line = block.lines[lineIndex];
-        debugPrint('  line #$lineIndex: ${line.text}');
+    String? bestFromDigitsStream(String normalized) {
+      final digitsOnly = normalized.replaceAll(RegExp(r'[^0-9]'), '');
+      if (digitsOnly.length < 14) {
+        return null;
       }
-    }
 
-    final candidate = _findBestNationalIdCandidateFromText(
-      recognized,
-      normalizedText: normalizedText,
-      stage: stage,
-    );
-
-    debugPrint('candidate: ${candidate ?? '<none>'}');
-    debugPrint('--- End OCR [$stage] ---');
-
-    return (
-      candidate: candidate,
-      hasText: rawText.isNotEmpty || digitCount > 0,
-      digitCount: digitCount,
-    );
-  }
-
-  String? _findBestNationalIdCandidateFromText(
-    RecognizedText recognized, {
-    required String normalizedText,
-    required String stage,
-  }) {
-    final candidates = <String>[];
-    final seen = <String>{};
-
-    void addCandidate(String candidate) {
-      if (candidate.length != 14) {
-        return;
-      }
-      if (seen.add(candidate)) {
-        candidates.add(candidate);
-      }
-    }
-
-    void addCandidatesFromSource(String source) {
-      final normalizedSource = _normalizeOcrIdText(source);
-
-      for (final match in RegExp(r'[0-9]+').allMatches(normalizedSource)) {
-        final digitsOnly = match.group(0) ?? '';
-        for (final candidate in _expandLikelyNationalIds(digitsOnly)) {
-          addCandidate(candidate);
+      for (var i = 0; i <= digitsOnly.length - 14; i++) {
+        final candidate = digitsOnly.substring(i, i + 14);
+        if (_extractBirthDateFromNationalId(candidate) != null) {
+          return candidate;
         }
       }
+
+      return null;
     }
 
-    debugPrint(
-      '[National ID OCR][$stage] normalized global digits: '
-      '${normalizedText.replaceAll(RegExp(r'\D'), '')}',
-    );
+    for (final source in candidateSources) {
+      final normalized = _normalizeOcrDigits(source);
 
-    addCandidatesFromSource(recognized.text);
-
-    if (candidates.isEmpty) {
-      for (final block in recognized.blocks) {
-        for (final line in block.lines) {
-          addCandidatesFromSource(line.text);
+      for (final match in exact14Regex.allMatches(normalized)) {
+        final candidate = match.group(0);
+        if (candidate != null &&
+            _extractBirthDateFromNationalId(candidate) != null) {
+          return candidate;
         }
       }
-    }
 
-    if (candidates.isEmpty) {
-      final joined = normalizedText.replaceAll(RegExp(r'\D'), '');
-      for (final candidate in _expandLikelyNationalIds(joined)) {
-        addCandidate(candidate);
-      }
-    }
-
-    for (final candidate in candidates) {
-      final dob = _extractBirthDateFromNationalId(candidate);
-      if (dob != null) {
-        return candidate;
-      }
-    }
-
-    for (final candidate in candidates) {
-      final repaired = _repairNationalIdCandidate(candidate);
-      if (repaired != null) {
-        return repaired;
-      }
-    }
-
-    return candidates.isNotEmpty ? candidates.first : null;
-  }
-
-  List<String> _expandLikelyNationalIds(String digits) {
-    final normalized = digits.replaceAll(RegExp(r'\D'), '');
-    final candidates = <String>[];
-    final seen = <String>{};
-
-    void add(String candidate) {
-      if (candidate.length != 14) {
-        return;
-      }
-      if (seen.add(candidate)) {
-        candidates.add(candidate);
-      }
-    }
-
-    if (normalized.length == 14) {
-      add(normalized);
-      return candidates;
-    }
-
-    if (normalized.length > 14) {
-      for (var i = 0; i <= normalized.length - 14; i++) {
-        add(normalized.substring(i, i + 14));
-      }
-      return candidates;
-    }
-
-    if (normalized.length == 15) {
-      for (var i = 0; i < normalized.length; i++) {
-        add(normalized.substring(0, i) + normalized.substring(i + 1));
-      }
-      return candidates;
-    }
-
-    if (normalized.length == 13) {
-      for (var i = 0; i <= normalized.length; i++) {
-        for (var digit = 0; digit <= 9; digit++) {
-          add(
-            normalized.substring(0, i) +
-                digit.toString() +
-                normalized.substring(i),
-          );
-        }
-      }
-      return candidates;
-    }
-
-    if (normalized.length == 12) {
-      for (var i = 0; i <= normalized.length; i++) {
-        for (var firstDigit = 0; firstDigit <= 9; firstDigit++) {
-          final withOneInsertion =
-              normalized.substring(0, i) +
-              firstDigit.toString() +
-              normalized.substring(i);
-          for (var j = 0; j <= withOneInsertion.length; j++) {
-            for (var secondDigit = 0; secondDigit <= 9; secondDigit++) {
-              add(
-                withOneInsertion.substring(0, j) +
-                    secondDigit.toString() +
-                    withOneInsertion.substring(j),
-              );
-            }
-          }
-        }
-      }
-      return candidates;
-    }
-
-    if (normalized.length >= 10) {
-      add(normalized);
-    }
-
-    return candidates;
-  }
-
-  String? _extractRawNationalIdDigits(RecognizedText recognized) {
-    final normalized = _normalizeOcrIdText(recognized.text);
-    final digits = normalized.replaceAll(RegExp(r'\D'), '');
-
-    if (digits.length >= 14) {
-      return digits.substring(0, 14);
-    }
-
-    if (digits.length >= 12) {
-      return digits;
-    }
-
-    for (final block in recognized.blocks) {
-      for (final line in block.lines) {
-        final lineDigits = _normalizeOcrIdText(
-          line.text,
-        ).replaceAll(RegExp(r'\D'), '');
-        if (lineDigits.length >= 14) {
-          return lineDigits.substring(0, 14);
-        }
-        if (lineDigits.length >= 12) {
-          return lineDigits;
-        }
+      final streamCandidate = bestFromDigitsStream(normalized);
+      if (streamCandidate != null) {
+        return streamCandidate;
       }
     }
 
     return null;
-  }
-
-  Future<List<String>> _createEnhancedVariants(
-    String imagePath, {
-    required String prefix,
-  }) async {
-    final bytes = await File(imagePath).readAsBytes();
-    final source = img.decodeImage(bytes);
-    if (source == null) {
-      return const [];
-    }
-
-    final outputPaths = <String>[];
-    final upscaled = img.copyResize(
-      source,
-      width: source.width * 2,
-      height: source.height * 2,
-    );
-    final grayscale = img.grayscale(img.decodeImage(bytes)!);
-    final grayscaleUpscaled = img.grayscale(
-      img.copyResize(
-        img.decodeImage(bytes)!,
-        width: source.width * 2,
-        height: source.height * 2,
-      ),
-    );
-
-    final variants = <img.Image>[upscaled, grayscale, grayscaleUpscaled];
-
-    for (var i = 0; i < variants.length; i++) {
-      final path =
-          '${Directory.systemTemp.path}${Platform.pathSeparator}${prefix}_${DateTime.now().microsecondsSinceEpoch}_$i.jpg';
-      final file = File(path);
-      await file.writeAsBytes(
-        img.encodeJpg(variants[i], quality: 98),
-        flush: true,
-      );
-      outputPaths.add(path);
-    }
-
-    return outputPaths;
-  }
-
-  Future<List<String>> _createIdNumberBandCrops(String imagePath) async {
-    final inputBytes = await File(imagePath).readAsBytes();
-    final source = img.decodeImage(inputBytes);
-    if (source == null) {
-      return const [];
-    }
-
-    final width = source.width;
-    final height = source.height;
-
-    final List<({double x, double y, double w, double h})> regions = [
-      (x: 0.08, y: 0.66, w: 0.84, h: 0.18),
-      (x: 0.05, y: 0.60, w: 0.90, h: 0.22),
-      (x: 0.10, y: 0.58, w: 0.80, h: 0.16),
-      (x: 0.06, y: 0.50, w: 0.88, h: 0.20),
-      (x: 0.08, y: 0.44, w: 0.84, h: 0.20),
-      (x: 0.04, y: 0.54, w: 0.92, h: 0.28),
-      (x: 0.15, y: 0.62, w: 0.70, h: 0.16),
-    ];
-
-    final outputPaths = <String>[];
-    for (var i = 0; i < regions.length; i++) {
-      final region = regions[i];
-      final cropX = math.max(0, (width * region.x).round());
-      final cropY = math.max(0, (height * region.y).round());
-      final cropWidth = math.min(width - cropX, (width * region.w).round());
-      final cropHeight = math.min(height - cropY, (height * region.h).round());
-
-      if (cropWidth < 40 || cropHeight < 20) {
-        continue;
-      }
-
-      final cropped = img.copyCrop(
-        source,
-        x: cropX,
-        y: cropY,
-        width: cropWidth,
-        height: cropHeight,
-      );
-
-      final outputPath =
-          '${Directory.systemTemp.path}${Platform.pathSeparator}id_crop_${DateTime.now().microsecondsSinceEpoch}_$i.jpg';
-      final outputFile = File(outputPath);
-      await outputFile.writeAsBytes(
-        img.encodeJpg(cropped, quality: 95),
-        flush: true,
-      );
-      outputPaths.add(outputPath);
-    }
-
-    return outputPaths;
-  }
-
-  Future<List<String>> _createRotatedVariants(
-    String imagePath, {
-    required String prefix,
-  }) async {
-    final bytes = await File(imagePath).readAsBytes();
-    final source = img.decodeImage(bytes);
-    if (source == null) {
-      return const [];
-    }
-
-    final angles = [90, 180, 270];
-    final outputPaths = <String>[];
-    for (var i = 0; i < angles.length; i++) {
-      final rotated = img.copyRotate(source, angle: angles[i]);
-      final path =
-          '${Directory.systemTemp.path}${Platform.pathSeparator}${prefix}_${DateTime.now().microsecondsSinceEpoch}_$i.jpg';
-      final file = File(path);
-      await file.writeAsBytes(img.encodeJpg(rotated, quality: 95), flush: true);
-      outputPaths.add(path);
-    }
-    return outputPaths;
   }
 
   String _formatDate(DateTime date) {
@@ -1047,49 +656,156 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         backIdError == null;
   }
 
-  void _handleRegister() {
+  Uri _buildRegisterUri() {
+    if (kIsWeb) {
+      return Uri.parse('http://localhost$_registerApiPath');
+    }
+
+    if (Platform.isAndroid) {
+      return Uri.parse('http://10.0.2.2$_registerApiPath');
+    }
+
+    return Uri.parse('http://localhost$_registerApiPath');
+  }
+
+  Future<Map<String, dynamic>> _submitRegistrationRequest() async {
+    final uri = _buildRegisterUri();
+    final request = http.MultipartRequest('POST', uri)
+      ..fields['full_name'] =
+          '${_firstNameController.text.trim()} ${_secondNameController.text.trim()}'
+      ..fields['email'] = _emailController.text.trim()
+      ..fields['password'] = _passwordController.text
+      ..fields['gender'] = _selectedGender ?? ''
+      ..fields['country'] = _countryController.text.trim()
+      ..fields['government'] = _selectedGovernorate ?? ''
+      ..fields['city'] = _selectedCity ?? ''
+      ..fields['address'] = _addressController.text.trim()
+      ..fields['birthdate'] = _selectedDob != null
+          ? _formatDateForApi(_selectedDob!)
+          : ''
+      ..fields['national_id'] = _nationalIdController.text.trim();
+
+    if (_frontIdImage != null) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'front_national_id_photo',
+          _frontIdImage!.path,
+        ),
+      );
+    }
+
+    if (_backIdImage != null) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'back_national_id_photo',
+          _backIdImage!.path,
+        ),
+      );
+    }
+
+    if (_profilePhotoImage != null) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'profile_photo',
+          _profilePhotoImage!.path,
+        ),
+      );
+    }
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    Map<String, dynamic> body = {};
+    if (response.body.isNotEmpty) {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        body = decoded;
+      }
+    }
+
+    return {'statusCode': response.statusCode, 'body': body};
+  }
+
+  String _formatDateForApi(DateTime date) {
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
+  Future<void> _handleRegister() async {
     if (!_validateForm()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Register failed. Please fix highlighted fields.'),
+        SnackBar(
+          content: Text(
+            'Register failed. Please fix highlighted fields.'.translate(),
+          ),
         ),
       );
       return;
     }
 
+    if (_isSubmitting) {
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
     try {
-      final registrationPayload = {
-        'firstName': _firstNameController.text.trim(),
-        'secondName': _secondNameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'password': _passwordController.text,
-        'gender': _selectedGender,
-        'country': _countryController.text,
-        'governorate': _selectedGovernorate,
-        'city': _selectedCity,
-        'address': _addressController.text.trim(),
-        'dateOfBirth': _dobController.text.trim(),
-        'nationalId': _nationalIdController.text.trim(),
-        'nationalIdFrontImagePath': _frontIdImage?.path,
-        'nationalIdBackImagePath': _backIdImage?.path,
-      };
+      final result = await _submitRegistrationRequest();
+      final statusCode = result['statusCode'] as int;
+      final body = result['body'] as Map<String, dynamic>;
 
-      debugPrint('Ready to save user payload: $registrationPayload');
+      final success =
+          body['success'] == true && statusCode >= 200 && statusCode < 300;
+      final message = body['message'] as String?;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Register successfully')));
+      if (!mounted) {
+        return;
+      }
 
-      Future.delayed(const Duration(milliseconds: 900), () {
-        if (!mounted) {
-          return;
-        }
-        LoadingNavigator.pushReplacementNamed(context, AppRoutes.userHome);
-      });
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text((message ?? 'Register successfully').translate()),
+          ),
+        );
+
+        Future.delayed(const Duration(milliseconds: 900), () {
+          if (!mounted) {
+            return;
+          }
+          LoadingNavigator.pushReplacementNamed(context, AppRoutes.userHome);
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              (message ?? 'Register failed. Please try again.').translate(),
+            ),
+          ),
+        );
+      }
     } catch (_) {
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Register failed. Please try again.')),
+        SnackBar(
+          content: Text(
+            'Could not connect to server. Check API URL and network.'
+                .translate(),
+          ),
+        ),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
   }
 
@@ -1097,104 +813,115 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final bool isTablet = size.width > 700;
+    final localizationController = LocalizationController.instance;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            const _ModernRegisterHeader(),
-            Transform.translate(
-              offset: const Offset(0, -42),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: isTablet ? 620 : double.infinity,
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(18, 20, 18, 22),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(26),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
-                          blurRadius: 22,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
+    return Obx(() {
+      localizationController.currentLanguage.value;
+
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F7FA),
+        body: SingleChildScrollView(
+          child: Column(
+            children: [
+              _ModernRegisterHeader(),
+              Transform.translate(
+                offset: Offset(0, -42.h),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 18.w),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: isTablet ? 620 : double.infinity,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(
-                                Icons.arrow_back_ios_new_rounded,
-                                size: 20,
-                                color: AppColors.navyBlue,
-                              ),
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                            const Expanded(
-                              child: Text(
-                                'User Registration',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w900,
+                    child: Container(
+                      padding: EdgeInsets.fromLTRB(18.w, 20.h, 18.w, 22.h),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(26.r),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.08),
+                            blurRadius: 22,
+                            offset: Offset(0, 10.h),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.arrow_back_ios_new_rounded,
+                                  size: 20,
                                   color: AppColors.navyBlue,
                                 ),
+                                onPressed: () => Navigator.pop(context),
                               ),
-                            ),
-                            const SizedBox(width: 48),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        _buildFormFields(),
-                        const SizedBox(height: 30),
-                        _buildSubmitButton(),
-                        const SizedBox(height: 18),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text(
-                              'Already have an account? ',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                            GestureDetector(
-                              onTap: () =>
-                                  LoadingNavigator.pushReplacementNamed(
-                                    context,
-                                    AppRoutes.login,
+                              Expanded(
+                                child: Text(
+                                  'User Registration'.translate(),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 28.sp,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppColors.navyBlue,
                                   ),
-                              child: const Text(
-                                'Login',
-                                style: TextStyle(
-                                  color: AppColors.legalGold,
-                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ],
+                              SizedBox(width: 48.w),
+                            ],
+                          ),
+                          SizedBox(height: 8.h),
+                          _buildFormFields(),
+                          SizedBox(height: 30.h),
+                          _buildSubmitButton(),
+                          SizedBox(height: 18.h),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'Already have an account? '.translate(),
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 13.sp,
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () =>
+                                    LoadingNavigator.pushReplacementNamed(
+                                      context,
+                                      AppRoutes.login,
+                                    ),
+                                child: Text(
+                                  'Login'.translate(),
+                                  style: TextStyle(
+                                    color: AppColors.legalGold,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13.sp,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
   Widget _buildFormFields() {
     return Column(
       children: [
+        _buildProfilePhotoPicker(),
+        SizedBox(height: 18.h),
         Row(
           children: [
             Expanded(
@@ -1212,7 +939,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
                 }),
               ),
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: 12.w),
             Expanded(
               child: _CustomTextField(
                 controller: _secondNameController,
@@ -1230,7 +957,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _CustomTextField(
           controller: _emailController,
           label: 'Email',
@@ -1242,7 +969,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
             _emailError = _validateEmail(value.trim());
           }),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _CustomTextField(
           controller: _passwordController,
           label: 'Password',
@@ -1257,13 +984,13 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
             );
           }),
         ),
-        const SizedBox(height: 10),
+        SizedBox(height: 10.h),
         _PasswordRuleItem(text: 'At least 8 characters', passed: _hasMinLength),
         _PasswordRuleItem(text: 'One uppercase letter', passed: _hasUpper),
         _PasswordRuleItem(text: 'One lowercase letter', passed: _hasLower),
         _PasswordRuleItem(text: 'One special character', passed: _hasSpecial),
         _PasswordRuleItem(text: 'One number', passed: _hasNumber),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _CustomTextField(
           controller: _confirmPasswordController,
           label: 'Re-enter Password',
@@ -1275,7 +1002,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
             _confirmPasswordError = _validateConfirmPassword(value);
           }),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _GenderSelector(
           selectedGender: _selectedGender,
           errorText: _genderError,
@@ -1286,7 +1013,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
             });
           },
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _CustomTextField(
           controller: _countryController,
           label: 'Country',
@@ -1295,7 +1022,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           readOnly: true,
           enabled: false,
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _CustomDropdownField(
           label: 'Governorate',
           icon: Icons.map_outlined,
@@ -1314,7 +1041,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
             });
           },
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _CustomDropdownField(
           label: 'City',
           icon: Icons.location_city_outlined,
@@ -1332,7 +1059,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
             });
           },
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _CustomTextField(
           controller: _addressController,
           label: 'Address',
@@ -1345,10 +1072,10 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
             _addressError = _validateAddress(value.trim());
           }),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _CustomTextField(
           controller: _dobController,
-          label: 'Birth Date (Auto from OCR)',
+          label: 'Birth Date',
           hintText: 'DD/MM/YYYY',
           icon: Icons.calendar_today_outlined,
           readOnly: true,
@@ -1356,23 +1083,23 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           errorText: _dobError,
         ),
         Padding(
-          padding: const EdgeInsets.only(top: 6),
+          padding: EdgeInsets.only(top: 6.h),
           child: _PasswordRuleItem(
             text: 'Must be +18',
             passed: _selectedDob != null && !_isUnder18,
           ),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _CustomTextField(
           controller: _nationalIdController,
-          label: 'National ID Number (Auto from OCR)',
+          label: 'National ID Number',
           hintText: 'e.g. 29801011234567',
           icon: Icons.badge_outlined,
           readOnly: true,
           enabled: false,
           errorText: _nationalIdError,
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16.h),
         _IdCaptureCard(
           title: 'National ID (Front)',
           imagePath: _frontIdImage?.path,
@@ -1380,15 +1107,16 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           isProcessing: _isExtractingIdData,
           onCapturePressed: () => _captureNationalId(isFront: true),
         ),
-        const SizedBox(height: 6),
-        const Align(
+        SizedBox(height: 6.h),
+        Align(
           alignment: Alignment.centerLeft,
           child: Text(
-            'After capturing the front side, National ID and Birth Date are auto-filled.',
-            style: TextStyle(fontSize: 11, color: Colors.grey),
+            'After capturing the front side, National ID and Birth Date are auto-filled.'
+                .translate(),
+            style: TextStyle(fontSize: 11.sp, color: Colors.grey),
           ),
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: 12.h),
         _IdCaptureCard(
           title: 'National ID (Back)',
           imagePath: _backIdImage?.path,
@@ -1399,23 +1127,104 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     );
   }
 
+  Widget _buildProfilePhotoPicker() {
+    return Column(
+      children: [
+        Text(
+          'Profile Photo (Optional)'.translate(),
+          style: TextStyle(
+            fontSize: 13.sp,
+            fontWeight: FontWeight.w700,
+            color: AppColors.navyBlue,
+          ),
+        ),
+        SizedBox(height: 10.h),
+        Center(
+          child: GestureDetector(
+            onTap: _pickProfilePhoto,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 112.w,
+                  height: 112.h,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: AppColors.legalGold,
+                      width: 2.2.w,
+                    ),
+                    color: const Color(0xFFFAFAFA),
+                  ),
+                  child: ClipOval(
+                    child: _profilePhotoImage == null
+                        ? Icon(
+                            Icons.person_outline,
+                            size: 54.sp,
+                            color: Colors.grey,
+                          )
+                        : Image.file(
+                            File(_profilePhotoImage!.path),
+                            fit: BoxFit.cover,
+                          ),
+                  ),
+                ),
+                Positioned(
+                  right: -2.w,
+                  bottom: -2.h,
+                  child: Container(
+                    width: 34.w,
+                    height: 34.h,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.navyBlue,
+                    ),
+                    child: Icon(
+                      Icons.camera_alt_outlined,
+                      size: 18.sp,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SizedBox(height: 8.h),
+        Text(
+          'Tap to add or change photo'.translate(),
+          style: TextStyle(fontSize: 11.sp, color: Colors.grey),
+        ),
+      ],
+    );
+  }
+
   Widget _buildSubmitButton() {
     return SizedBox(
-      height: 56,
+      height: 56.h,
       child: ElevatedButton(
-        onPressed: _handleRegister,
+        onPressed: _isSubmitting ? null : _handleRegister,
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.navyBlue,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(14.r),
           ),
           elevation: 0,
         ),
-        child: const Text(
-          'Create Account',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-        ),
+        child: _isSubmitting
+            ? SizedBox(
+                width: 22.w,
+                height: 22.h,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Colors.white,
+                ),
+              )
+            : Text(
+                'register_button'.translate(),
+                style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
+              ),
       ),
     );
   }
@@ -1438,30 +1247,48 @@ class _ModernRegisterHeader extends StatelessWidget {
         ),
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(56)),
       ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.person_rounded, color: Colors.white, size: 62),
-            const SizedBox(height: 10),
-            const Text(
-              'Join as User',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 2.0,
+      child: Stack(
+        children: [
+          const Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: LanguageToggleButton(
+                  backgroundColor: Colors.white24,
+                  iconColor: Colors.white,
+                ),
               ),
             ),
-            Text(
-              'Access Legal Services with Ease',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.78),
-                fontSize: 14,
-              ),
+          ),
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.person_rounded, color: Colors.white, size: 62),
+                SizedBox(height: 10.h),
+                Text(
+                  'Join as User'.translate(),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 28.sp,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 2.0,
+                  ),
+                ),
+                Text(
+                  'Access Legal Services with Ease'.translate(),
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.78),
+                    fontSize: 14.sp,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1517,14 +1344,14 @@ class _CustomTextFieldState extends State<_CustomTextField> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          widget.label,
-          style: const TextStyle(
-            fontSize: 13,
+          widget.label.translate(),
+          style: TextStyle(
+            fontSize: 13.sp,
             fontWeight: FontWeight.w700,
             color: AppColors.navyBlue,
           ),
         ),
-        const SizedBox(height: 6),
+        SizedBox(height: 6.h),
         TextField(
           controller: widget.controller,
           obscureText: _obscureText,
@@ -1534,7 +1361,7 @@ class _CustomTextFieldState extends State<_CustomTextField> {
           keyboardType: widget.keyboardType,
           onChanged: widget.onChanged,
           decoration: InputDecoration(
-            hintText: widget.hintText,
+            hintText: widget.hintText.translate(),
             prefixIcon: Icon(
               widget.icon,
               color: hasError ? Colors.red : AppColors.legalGold,
@@ -1561,41 +1388,41 @@ class _CustomTextFieldState extends State<_CustomTextField> {
                       ? const Color(0xFFFAFAFA)
                       : const Color(0xFFF1F1F1)),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: BorderSide(color: borderColor, width: 1.2),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: BorderSide(color: borderColor, width: 1.2),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: BorderSide(color: focusedBorderColor, width: 1.8),
             ),
             disabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: BorderSide(
                 color: hasError ? Colors.red : const Color(0xFFD9D9D9),
                 width: 1.2,
               ),
             ),
             errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: const BorderSide(color: Colors.red, width: 1.2),
             ),
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 12,
-              horizontal: 14,
+            contentPadding: EdgeInsets.symmetric(
+              vertical: 12.h,
+              horizontal: 14.w,
             ),
           ),
         ),
         if (widget.errorText != null)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: EdgeInsets.only(top: 6.h),
             child: Text(
-              widget.errorText!,
-              style: const TextStyle(
-                fontSize: 12,
+              widget.errorText!.translate(),
+              style: TextStyle(
+                fontSize: 12.sp,
                 color: Colors.red,
                 fontWeight: FontWeight.w500,
               ),
@@ -1624,25 +1451,25 @@ class _GenderSelector extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Gender',
+        Text(
+          'Gender'.translate(),
           style: TextStyle(
-            fontSize: 13,
+            fontSize: 13.sp,
             fontWeight: FontWeight.w700,
             color: AppColors.navyBlue,
           ),
         ),
-        const SizedBox(height: 6),
+        SizedBox(height: 6.h),
         Container(
           decoration: BoxDecoration(
             color: hasError ? const Color(0xFFFFEBEE) : const Color(0xFFFAFAFA),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(12.r),
             border: Border.all(
               color: hasError ? Colors.red : const Color(0xFFE0E0E0),
               width: 1.2,
             ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 8.h),
           child: Row(
             children: [
               Expanded(
@@ -1653,7 +1480,7 @@ class _GenderSelector extends StatelessWidget {
                   onTap: () => onChanged('Male'),
                 ),
               ),
-              const SizedBox(width: 10),
+              SizedBox(width: 10.w),
               Expanded(
                 child: _GenderChip(
                   label: 'Female',
@@ -1667,11 +1494,11 @@ class _GenderSelector extends StatelessWidget {
         ),
         if (errorText != null)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: EdgeInsets.only(top: 6.h),
             child: Text(
-              errorText!,
-              style: const TextStyle(
-                fontSize: 12,
+              errorText!.translate(),
+              style: TextStyle(
+                fontSize: 12.sp,
                 color: Colors.red,
                 fontWeight: FontWeight.w500,
               ),
@@ -1699,13 +1526,13 @@ class _GenderChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(10.r),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: EdgeInsets.symmetric(vertical: 10.h),
         decoration: BoxDecoration(
           color: selected ? AppColors.navyBlue : Colors.white,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(10.r),
           border: Border.all(
             color: selected ? AppColors.navyBlue : const Color(0xFFD8D8D8),
           ),
@@ -1715,15 +1542,16 @@ class _GenderChip extends StatelessWidget {
           children: [
             Icon(
               icon,
-              size: 18,
+              size: 18.sp,
               color: selected ? Colors.white : AppColors.navyBlue,
             ),
-            const SizedBox(width: 6),
+            SizedBox(width: 6.w),
             Text(
-              label,
+              label.translate(),
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 color: selected ? Colors.white : AppColors.navyBlue,
+                fontSize: 13.sp,
               ),
             ),
           ],
@@ -1762,14 +1590,14 @@ class _CustomDropdownField extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13,
+          label.translate(),
+          style: TextStyle(
+            fontSize: 13.sp,
             fontWeight: FontWeight.w700,
             color: AppColors.navyBlue,
           ),
         ),
-        const SizedBox(height: 6),
+        SizedBox(height: 6.h),
         DropdownButtonFormField<String>(
           initialValue: value,
           onChanged: enabled ? onChanged : null,
@@ -1788,7 +1616,7 @@ class _CustomDropdownField extends StatelessWidget {
               )
               .toList(),
           decoration: InputDecoration(
-            hintText: hintText,
+            hintText: hintText.translate(),
             prefixIcon: Icon(
               icon,
               color: hasError ? Colors.red : AppColors.legalGold,
@@ -1798,39 +1626,39 @@ class _CustomDropdownField extends StatelessWidget {
                 ? const Color(0xFFFFEBEE)
                 : (enabled ? const Color(0xFFFAFAFA) : const Color(0xFFF1F1F1)),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: BorderSide(
                 color: hasError ? Colors.red : const Color(0xFFE0E0E0),
                 width: 1.2,
               ),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: BorderSide(
                 color: hasError ? Colors.red : const Color(0xFFE0E0E0),
                 width: 1.2,
               ),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: BorderSide(
                 color: hasError ? Colors.red : AppColors.legalGold,
                 width: 1.8,
               ),
             ),
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 12,
-              horizontal: 14,
+            contentPadding: EdgeInsets.symmetric(
+              vertical: 12.h,
+              horizontal: 14.w,
             ),
           ),
         ),
         if (errorText != null)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: EdgeInsets.only(top: 6.h),
             child: Text(
-              errorText!,
-              style: const TextStyle(
-                fontSize: 12,
+              errorText!.translate(),
+              style: TextStyle(
+                fontSize: 12.sp,
                 color: Colors.red,
                 fontWeight: FontWeight.w500,
               ),
@@ -1850,20 +1678,20 @@ class _PasswordRuleItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: EdgeInsets.symmetric(vertical: 3.h),
       child: Row(
         children: [
           Icon(
             passed ? Icons.check_circle : Icons.radio_button_unchecked,
-            size: 16,
+            size: 16.sp,
             color: passed ? Colors.green : Colors.grey,
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: 8.w),
           Expanded(
             child: Text(
-              text,
+              text.translate(),
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 12.sp,
                 color: passed ? Colors.green : Colors.grey,
                 fontWeight: FontWeight.w500,
               ),
@@ -1896,7 +1724,7 @@ class _IdCaptureCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          title,
+          title.translate(),
           style: const TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w700,
@@ -1934,7 +1762,9 @@ class _IdCaptureCard extends StatelessWidget {
                         ),
                       const SizedBox(height: 8),
                       Text(
-                        isProcessing ? 'Reading ID data...' : 'Tap to capture',
+                        isProcessing
+                            ? 'Reading ID data...'.translate()
+                            : 'Tap to capture'.translate(),
                         style: const TextStyle(color: Colors.grey),
                       ),
                     ],
@@ -1949,7 +1779,7 @@ class _IdCaptureCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 4, left: 8),
             child: Text(
-              errorText!,
+              errorText!.translate(),
               style: const TextStyle(color: Colors.red, fontSize: 11),
             ),
           ),
@@ -2012,7 +1842,9 @@ class _IdCameraCaptureScreenState extends State<_IdCameraCaptureScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Capture failed. Please try again.')),
+          SnackBar(
+            content: Text('Capture failed. Please try again.'.translate()),
+          ),
         );
       }
       if (mounted) {
@@ -2077,8 +1909,8 @@ class _IdCameraCaptureScreenState extends State<_IdCameraCaptureScreen> {
                                   width: 1.4,
                                 ),
                               ),
-                              child: const Text(
-                                'Keep 14-digit number line here',
+                              child: Text(
+                                'Keep 14-digit number line here'.translate(),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 11,
@@ -2108,7 +1940,8 @@ class _IdCameraCaptureScreenState extends State<_IdCameraCaptureScreen> {
                   child: Column(
                     children: [
                       Text(
-                        'Align National ID ${widget.captureLabel} inside the grid',
+                        'Align National ID ${widget.captureLabel} inside the grid'
+                            .translate(),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           color: Colors.white,
@@ -2117,10 +1950,14 @@ class _IdCameraCaptureScreenState extends State<_IdCameraCaptureScreen> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      const Text(
-                        'Center the whole card, then align ID number with the yellow band',
+                      Text(
+                        'Center the whole card, then align ID number with the yellow band'
+                            .translate(),
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),

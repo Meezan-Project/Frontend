@@ -1,10 +1,15 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:mezaan/shared/localization/localization_controller.dart';
+import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/shared/widgets/language_toggle_button.dart';
 
 class LawyerRegisterScreen extends StatefulWidget {
   const LawyerRegisterScreen({super.key});
@@ -231,7 +236,7 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
   void _handleRegister() {
     if (!_validateForm()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fix highlighted fields')),
+        SnackBar(content: Text('Please fix highlighted fields'.translate())),
       );
       return;
     }
@@ -258,254 +263,263 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final bool isTablet = size.width > 700;
+    final localizationController = LocalizationController.instance;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            const _LawyerRegisterHeader(),
-            Transform.translate(
-              offset: const Offset(0, -42),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: isTablet ? 620 : double.infinity,
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(18, 20, 18, 22),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(26),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
-                          blurRadius: 22,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
+    return Obx(() {
+      localizationController.currentLanguage.value;
+
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F7FA),
+        body: SingleChildScrollView(
+          child: Column(
+            children: [
+              _LawyerRegisterHeader(),
+              Transform.translate(
+                offset: Offset(0, -42.h),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 18.w),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: isTablet ? 620 : double.infinity,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Text(
-                          'Lawyer Registration',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.legalGold,
+                    child: Container(
+                      padding: EdgeInsets.fromLTRB(18.w, 20.h, 18.w, 22.h),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(26.r),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.08),
+                            blurRadius: 22,
+                            offset: Offset(0, 10.h),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _CustomTextField(
-                                controller: _firstNameController,
-                                label: 'First Name',
-                                hintText: 'e.g. Ahmed',
-                                icon: Icons.person_outline,
-                                errorText: _firstNameError,
-                                onChanged: (_) => setState(() {
-                                  _firstNameError = null;
-                                }),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _CustomTextField(
-                                controller: _secondNameController,
-                                label: 'Second Name',
-                                hintText: 'e.g. Ali',
-                                icon: Icons.person_2_outlined,
-                                errorText: _secondNameError,
-                                onChanged: (_) => setState(() {
-                                  _secondNameError = null;
-                                }),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        _CustomTextField(
-                          controller: _emailController,
-                          label: 'Email',
-                          hintText: 'e.g. ahmed.ali@gmail.com',
-                          icon: Icons.email_outlined,
-                          keyboardType: TextInputType.emailAddress,
-                          errorText: _emailError,
-                          onChanged: (_) => setState(() {
-                            _emailError = null;
-                          }),
-                        ),
-                        const SizedBox(height: 16),
-                        _CustomTextField(
-                          controller: _phoneController,
-                          label: 'Phone Number',
-                          hintText: 'e.g. 01234567890',
-                          icon: Icons.phone_outlined,
-                          keyboardType: TextInputType.phone,
-                          errorText: _phoneError,
-                          onChanged: (_) => setState(() {
-                            _phoneError = null;
-                          }),
-                        ),
-                        const SizedBox(height: 16),
-                        _CustomTextField(
-                          controller: _licenseNumberController,
-                          label: 'License Number',
-                          hintText: 'e.g. LAW123456789',
-                          icon: Icons.badge_outlined,
-                          errorText: _licenseNumberError,
-                          onChanged: (_) => setState(() {
-                            _licenseNumberError = null;
-                          }),
-                        ),
-                        const SizedBox(height: 16),
-                        _CustomTextField(
-                          controller: _specializationController,
-                          label: 'Specialization',
-                          hintText: 'e.g. Criminal Law',
-                          icon: Icons.school_outlined,
-                          errorText: _specializationError,
-                          onChanged: (_) => setState(() {
-                            _specializationError = null;
-                          }),
-                        ),
-                        const SizedBox(height: 16),
-                        _CustomTextField(
-                          controller: _passwordController,
-                          label: 'Password',
-                          hintText: 'e.g. Aa@12345',
-                          icon: Icons.lock_outline,
-                          obscureText: true,
-                          errorText: _passwordError,
-                          onChanged: (_) => setState(() {
-                            _passwordError = null;
-                          }),
-                        ),
-                        const SizedBox(height: 10),
-                        _PasswordRuleItem(
-                          text: 'At least 8 characters',
-                          passed: _hasMinLength,
-                        ),
-                        _PasswordRuleItem(
-                          text: 'One uppercase letter',
-                          passed: _hasUpper,
-                        ),
-                        _PasswordRuleItem(
-                          text: 'One lowercase letter',
-                          passed: _hasLower,
-                        ),
-                        _PasswordRuleItem(
-                          text: 'One special character',
-                          passed: _hasSpecial,
-                        ),
-                        _PasswordRuleItem(
-                          text: 'One number',
-                          passed: _hasNumber,
-                        ),
-                        const SizedBox(height: 16),
-                        _CustomTextField(
-                          controller: _confirmPasswordController,
-                          label: 'Re-enter Password',
-                          hintText: 'Enter the same password',
-                          icon: Icons.lock_reset,
-                          obscureText: true,
-                          errorText: _confirmPasswordError,
-                          onChanged: (_) => setState(() {
-                            _confirmPasswordError = null;
-                          }),
-                        ),
-                        const SizedBox(height: 16),
-                        _CustomTextField(
-                          controller: _dobController,
-                          label: 'Date of Birth',
-                          hintText: 'DD/MM/YYYY',
-                          icon: Icons.calendar_today_outlined,
-                          readOnly: true,
-                          onTap: _pickDateOfBirth,
-                          errorText: _dobError,
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.only(top: 6),
-                          child: _PasswordRuleItem(
-                            text: 'Must be +21',
-                            passed: false,
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        _IdCaptureCard(
-                          title: 'License Photo',
-                          imagePath: _licenseImage?.path,
-                          errorText: _licenseImageError,
-                          onCapturePressed: _captureLicenseImage,
-                        ),
-                        const SizedBox(height: 12),
-                        _IdCaptureCard(
-                          title: 'Profile Photo',
-                          imagePath: _profileImage?.path,
-                          errorText: _profileImageError,
-                          onCapturePressed: _captureProfileImage,
-                        ),
-                        const SizedBox(height: 22),
-                        SizedBox(
-                          height: 56,
-                          child: ElevatedButton(
-                            onPressed: _handleRegister,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.legalGold,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              elevation: 0,
-                            ),
-                            child: const Text(
-                              'Create Account',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                              ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'Lawyer Registration'.translate(),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 28.sp,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.legalGold,
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 18),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text(
-                              'Already have an account? ',
-                              style: TextStyle(color: Colors.grey),
+                          SizedBox(height: 20.h),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _CustomTextField(
+                                  controller: _firstNameController,
+                                  label: 'First Name',
+                                  hintText: 'e.g. Ahmed',
+                                  icon: Icons.person_outline,
+                                  errorText: _firstNameError,
+                                  onChanged: (_) => setState(() {
+                                    _firstNameError = null;
+                                  }),
+                                ),
+                              ),
+                              SizedBox(width: 12.w),
+                              Expanded(
+                                child: _CustomTextField(
+                                  controller: _secondNameController,
+                                  label: 'Second Name',
+                                  hintText: 'e.g. Ali',
+                                  icon: Icons.person_2_outlined,
+                                  errorText: _secondNameError,
+                                  onChanged: (_) => setState(() {
+                                    _secondNameError = null;
+                                  }),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 16.h),
+                          _CustomTextField(
+                            controller: _emailController,
+                            label: 'Email',
+                            hintText: 'e.g. ahmed.ali@gmail.com',
+                            icon: Icons.email_outlined,
+                            keyboardType: TextInputType.emailAddress,
+                            errorText: _emailError,
+                            onChanged: (_) => setState(() {
+                              _emailError = null;
+                            }),
+                          ),
+                          SizedBox(height: 16.h),
+                          _CustomTextField(
+                            controller: _phoneController,
+                            label: 'Phone Number',
+                            hintText: 'e.g. 01234567890',
+                            icon: Icons.phone_outlined,
+                            keyboardType: TextInputType.phone,
+                            errorText: _phoneError,
+                            onChanged: (_) => setState(() {
+                              _phoneError = null;
+                            }),
+                          ),
+                          SizedBox(height: 16.h),
+                          _CustomTextField(
+                            controller: _licenseNumberController,
+                            label: 'License Number',
+                            hintText: 'e.g. LAW123456789',
+                            icon: Icons.badge_outlined,
+                            errorText: _licenseNumberError,
+                            onChanged: (_) => setState(() {
+                              _licenseNumberError = null;
+                            }),
+                          ),
+                          SizedBox(height: 16.h),
+                          _CustomTextField(
+                            controller: _specializationController,
+                            label: 'Specialization',
+                            hintText: 'e.g. Criminal Law',
+                            icon: Icons.school_outlined,
+                            errorText: _specializationError,
+                            onChanged: (_) => setState(() {
+                              _specializationError = null;
+                            }),
+                          ),
+                          SizedBox(height: 16.h),
+                          _CustomTextField(
+                            controller: _passwordController,
+                            label: 'Password',
+                            hintText: 'e.g. Aa@12345',
+                            icon: Icons.lock_outline,
+                            obscureText: true,
+                            errorText: _passwordError,
+                            onChanged: (_) => setState(() {
+                              _passwordError = null;
+                            }),
+                          ),
+                          SizedBox(height: 10.h),
+                          _PasswordRuleItem(
+                            text: 'At least 8 characters',
+                            passed: _hasMinLength,
+                          ),
+                          _PasswordRuleItem(
+                            text: 'One uppercase letter',
+                            passed: _hasUpper,
+                          ),
+                          _PasswordRuleItem(
+                            text: 'One lowercase letter',
+                            passed: _hasLower,
+                          ),
+                          _PasswordRuleItem(
+                            text: 'One special character',
+                            passed: _hasSpecial,
+                          ),
+                          _PasswordRuleItem(
+                            text: 'One number',
+                            passed: _hasNumber,
+                          ),
+                          SizedBox(height: 16.h),
+                          _CustomTextField(
+                            controller: _confirmPasswordController,
+                            label: 'Re-enter Password',
+                            hintText: 'Enter the same password',
+                            icon: Icons.lock_reset,
+                            obscureText: true,
+                            errorText: _confirmPasswordError,
+                            onChanged: (_) => setState(() {
+                              _confirmPasswordError = null;
+                            }),
+                          ),
+                          SizedBox(height: 16.h),
+                          _CustomTextField(
+                            controller: _dobController,
+                            label: 'Date of Birth',
+                            hintText: 'DD/MM/YYYY',
+                            icon: Icons.calendar_today_outlined,
+                            readOnly: true,
+                            onTap: _pickDateOfBirth,
+                            errorText: _dobError,
+                          ),
+                          Padding(
+                            padding: EdgeInsets.only(top: 6.h),
+                            child: _PasswordRuleItem(
+                              text: 'Must be +21',
+                              passed: false,
                             ),
-                            GestureDetector(
-                              onTap: () =>
-                                  LoadingNavigator.pushReplacementNamed(
-                                    context,
-                                    AppRoutes.login,
-                                  ),
-                              child: const Text(
-                                'Login',
+                          ),
+                          SizedBox(height: 18.h),
+                          _IdCaptureCard(
+                            title: 'License Photo',
+                            imagePath: _licenseImage?.path,
+                            errorText: _licenseImageError,
+                            onCapturePressed: _captureLicenseImage,
+                          ),
+                          SizedBox(height: 12.h),
+                          _IdCaptureCard(
+                            title: 'Profile Photo',
+                            imagePath: _profileImage?.path,
+                            errorText: _profileImageError,
+                            onCapturePressed: _captureProfileImage,
+                          ),
+                          SizedBox(height: 22.h),
+                          SizedBox(
+                            height: 56.h,
+                            child: ElevatedButton(
+                              onPressed: _handleRegister,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.legalGold,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14.r),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: Text(
+                                'Create Account'.translate(),
                                 style: TextStyle(
-                                  color: AppColors.legalGold,
-                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18.sp,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ],
+                          ),
+                          SizedBox(height: 18.h),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'Already have an account? '.translate(),
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 13.sp,
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () =>
+                                    LoadingNavigator.pushReplacementNamed(
+                                      context,
+                                      AppRoutes.login,
+                                    ),
+                                child: Text(
+                                  'Login'.translate(),
+                                  style: TextStyle(
+                                    color: AppColors.legalGold,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13.sp,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 }
 
@@ -526,30 +540,48 @@ class _LawyerRegisterHeader extends StatelessWidget {
         ),
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(56)),
       ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.gavel_rounded, color: Colors.white, size: 62),
-            const SizedBox(height: 10),
-            const Text(
-              'Join as Lawyer',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 2.0,
+      child: Stack(
+        children: [
+          const Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: LanguageToggleButton(
+                  backgroundColor: Colors.white24,
+                  iconColor: Colors.white,
+                ),
               ),
             ),
-            Text(
-              'Serve Justice & Help Communities',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.78),
-                fontSize: 14,
-              ),
+          ),
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.gavel_rounded, color: Colors.white, size: 62),
+                SizedBox(height: 10.h),
+                Text(
+                  'Join as Lawyer'.translate(),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 28.sp,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 2.0,
+                  ),
+                ),
+                Text(
+                  'Serve Justice & Help Communities'.translate(),
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.78),
+                    fontSize: 14.sp,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -599,14 +631,14 @@ class _CustomTextFieldState extends State<_CustomTextField> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          widget.label,
-          style: const TextStyle(
-            fontSize: 13,
+          widget.label.translate(),
+          style: TextStyle(
+            fontSize: 13.sp,
             fontWeight: FontWeight.w700,
             color: AppColors.navyBlue,
           ),
         ),
-        const SizedBox(height: 6),
+        SizedBox(height: 6.h),
         TextField(
           controller: widget.controller,
           obscureText: _obscureText,
@@ -615,8 +647,8 @@ class _CustomTextFieldState extends State<_CustomTextField> {
           onChanged: widget.onChanged,
           onTap: widget.onTap,
           decoration: InputDecoration(
-            hintText: widget.hintText,
-            hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+            hintText: widget.hintText.translate(),
+            hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13.sp),
             prefixIcon: Icon(widget.icon, color: AppColors.legalGold),
             suffixIcon: widget.obscureText
                 ? GestureDetector(
@@ -630,45 +662,45 @@ class _CustomTextFieldState extends State<_CustomTextField> {
                   )
                 : null,
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: const BorderSide(
                 color: Color(0xFFE0E0E0),
                 width: 1.2,
               ),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: const BorderSide(
                 color: Color(0xFFE0E0E0),
                 width: 1.2,
               ),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: const BorderSide(
                 color: AppColors.legalGold,
                 width: 1.8,
               ),
             ),
             errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12.r),
               borderSide: const BorderSide(color: Colors.red, width: 1.2),
             ),
             filled: true,
             fillColor: const Color(0xFFFAFAFA),
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 12,
-              horizontal: 14,
+            contentPadding: EdgeInsets.symmetric(
+              vertical: 12.h,
+              horizontal: 14.w,
             ),
           ),
         ),
         if (widget.errorText != null)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: EdgeInsets.only(top: 6.h),
             child: Text(
-              widget.errorText!,
-              style: const TextStyle(
-                fontSize: 12,
+              widget.errorText!.translate(),
+              style: TextStyle(
+                fontSize: 12.sp,
                 color: Colors.red,
                 fontWeight: FontWeight.w500,
               ),
@@ -688,20 +720,20 @@ class _PasswordRuleItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: EdgeInsets.symmetric(vertical: 3.h),
       child: Row(
         children: [
           Icon(
             passed ? Icons.check_circle : Icons.radio_button_unchecked,
-            size: 16,
+            size: 16.sp,
             color: passed ? Colors.green : Colors.grey,
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: 8.w),
           Expanded(
             child: Text(
-              text,
+              text.translate(),
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 12.sp,
                 color: passed ? Colors.green : Colors.grey,
                 fontWeight: FontWeight.w500,
               ),
@@ -732,18 +764,18 @@ class _IdCaptureCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          title,
-          style: const TextStyle(
-            fontSize: 13,
+          title.translate(),
+          style: TextStyle(
+            fontSize: 13.sp,
             fontWeight: FontWeight.w700,
             color: AppColors.navyBlue,
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8.h),
         Container(
-          height: 160,
+          height: 160.h,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(12.r),
             border: Border.all(
               color: errorText != null
                   ? Colors.red
@@ -758,7 +790,7 @@ class _IdCaptureCard extends StatelessWidget {
               ? Stack(
                   children: [
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(11),
+                      borderRadius: BorderRadius.circular(11.r),
                       child: Image.file(
                         File(imagePath!),
                         fit: BoxFit.cover,
@@ -767,20 +799,20 @@ class _IdCaptureCard extends StatelessWidget {
                       ),
                     ),
                     Positioned(
-                      right: 8,
-                      top: 8,
+                      right: 8.w,
+                      top: 8.h,
                       child: GestureDetector(
                         onTap: onCapturePressed,
                         child: Container(
-                          padding: const EdgeInsets.all(6),
+                          padding: EdgeInsets.all(6.r),
                           decoration: BoxDecoration(
                             color: AppColors.legalGold,
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(20.r),
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.camera_alt,
                             color: Colors.white,
-                            size: 20,
+                            size: 20.sp,
                           ),
                         ),
                       ),
@@ -794,15 +826,15 @@ class _IdCaptureCard extends StatelessWidget {
                       Icon(
                         Icons.camera_alt_outlined,
                         color: AppColors.legalGold,
-                        size: 40,
+                        size: 40.sp,
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8.h),
                       GestureDetector(
                         onTap: onCapturePressed,
                         child: Text(
-                          'Capture Photo',
+                          'Capture Photo'.translate(),
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 14.sp,
                             fontWeight: FontWeight.w600,
                             color: AppColors.legalGold,
                           ),
@@ -814,11 +846,11 @@ class _IdCaptureCard extends StatelessWidget {
         ),
         if (errorText != null)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: EdgeInsets.only(top: 6.h),
             child: Text(
-              errorText!,
-              style: const TextStyle(
-                fontSize: 12,
+              errorText!.translate(),
+              style: TextStyle(
+                fontSize: 12.sp,
                 color: Colors.red,
                 fontWeight: FontWeight.w500,
               ),

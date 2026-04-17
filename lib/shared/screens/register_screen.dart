@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:get/get.dart';
 import 'package:mezaan/lawyer/screens/lawyer_register_screen.dart';
+import 'package:mezaan/shared/localization/localization_controller.dart';
+import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/shared/widgets/language_toggle_button.dart';
 import 'package:mezaan/user/screens/user_register_screen.dart';
 
 class RegisterScreen extends StatelessWidget {
@@ -11,82 +16,90 @@ class RegisterScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+    final localizationController = LocalizationController.instance;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: Column(
-        children: [
-          const _ModernRegisterHeader(),
-          Expanded(child: _buildRoleSelection(context, size)),
-        ],
-      ),
-    );
+    return Obx(() {
+      localizationController.currentLanguage.value;
+
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F7FA),
+        body: Column(
+          children: [
+            _ModernRegisterHeader(),
+            Expanded(child: _buildRoleSelection(context, size)),
+          ],
+        ),
+      );
+    });
   }
 
   Widget _buildRoleSelection(BuildContext context, Size size) {
     return SingleChildScrollView(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 42, 18, 24),
+        padding: EdgeInsets.fromLTRB(18.w, 42.h, 18.w, 24.h),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 980),
           child: Column(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: SizedBox(
-                      height: size.height * 0.44,
-                      child: _RoleSelectionCard(
-                        title: 'Join As User',
-                        subtitle: 'Tap to start user registration',
-                        icon: Icons.person_add_alt_1_rounded,
-                        accentColor: const Color(0xFF042A52),
-                        charAsset: 'assets/images/user_char.png',
-                        imageOnLeft: true,
-                        onTap: () {
-                          LoadingNavigator.pushPage(
-                            context,
-                            const UserRegisterScreen(),
-                          );
-                        },
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: size.height * 0.44,
+                        child: _RoleSelectionCard(
+                          title: 'Join As User',
+                          subtitle: 'Tap to start user registration',
+                          icon: Icons.person_add_alt_1_rounded,
+                          accentColor: const Color(0xFF042A52),
+                          charAsset: 'assets/images/user_char.png',
+                          imageOnLeft: true,
+                          onTap: () {
+                            LoadingNavigator.pushPage(
+                              context,
+                              const UserRegisterScreen(),
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: SizedBox(
-                      height: size.height * 0.44,
-                      child: _RoleSelectionCard(
-                        title: 'Join As Lawyer',
-                        subtitle: 'Tap to start lawyer registration',
-                        icon: Icons.gavel_rounded,
-                        accentColor: const Color(0xFF0B5E55),
-                        charAsset: 'assets/images/lawyer_char.png',
-                        imageOnLeft: false,
-                        onTap: () {
-                          LoadingNavigator.pushPage(
-                            context,
-                            const LawyerRegisterScreen(),
-                          );
-                        },
+                    SizedBox(width: 14.w),
+                    Expanded(
+                      child: SizedBox(
+                        height: size.height * 0.44,
+                        child: _RoleSelectionCard(
+                          title: 'Join As Lawyer',
+                          subtitle: 'Tap to start lawyer registration',
+                          icon: Icons.gavel_rounded,
+                          accentColor: const Color(0xFF0B5E55),
+                          charAsset: 'assets/images/lawyer_char.png',
+                          imageOnLeft: false,
+                          onTap: () {
+                            LoadingNavigator.pushPage(
+                              context,
+                              const LawyerRegisterScreen(),
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 22),
+              SizedBox(height: 22.h),
               Center(
                 child: SizedBox(
-                  width: 220,
-                  height: 46,
+                  width: 220.w,
+                  height: 46.h,
                   child: ElevatedButton.icon(
                     onPressed: () =>
                         LoadingNavigator.pushNamed(context, AppRoutes.login),
-                    icon: const Icon(Icons.login_rounded, size: 20),
-                    label: const Text(
-                      'Back to Login',
+                    icon: Icon(Icons.login_rounded, size: 20.sp),
+                    label: Text(
+                      'Back to Login'.translate(),
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 14.sp,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -95,7 +108,7 @@ class RegisterScreen extends StatelessWidget {
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(14.r),
                       ),
                     ),
                   ),
@@ -133,17 +146,17 @@ class _RoleSelectionCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.all(10),
-        padding: const EdgeInsets.all(22),
+        margin: EdgeInsets.all(10.r),
+        padding: EdgeInsets.all(22.r),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(24.r),
           border: Border.all(color: accentColor.withOpacity(0.16), width: 1.2),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.06),
               blurRadius: 18,
-              offset: const Offset(0, 8),
+              offset: Offset(0, 8.h),
             ),
           ],
           gradient: LinearGradient(
@@ -156,12 +169,12 @@ class _RoleSelectionCard extends StatelessWidget {
           children: imageOnLeft
               ? [
                   _buildCharacter(context),
-                  const SizedBox(width: 14),
+                  SizedBox(width: 14.w),
                   Expanded(child: _buildTextBlock(context)),
                 ]
               : [
                   Expanded(child: _buildTextBlock(context)),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8.w),
                   _buildCharacter(context),
                 ],
         ),
@@ -192,46 +205,46 @@ class _RoleSelectionCard extends StatelessWidget {
           : CrossAxisAlignment.end,
       children: [
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.all(12.r),
           decoration: BoxDecoration(
             color: accentColor.withOpacity(0.12),
             shape: BoxShape.circle,
           ),
-          child: Icon(icon, color: accentColor, size: 28),
+          child: Icon(icon, color: accentColor, size: 28.sp),
         ),
-        const SizedBox(height: 14),
+        SizedBox(height: 14.h),
         Text(
-          title,
+          title.translate(),
           textAlign: imageOnLeft ? TextAlign.left : TextAlign.right,
-          style: const TextStyle(
+          style: TextStyle(
             color: Color(0xFF042A52),
-            fontSize: 24,
+            fontSize: 24.sp,
             fontWeight: FontWeight.w900,
             height: 1.05,
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8.h),
         Text(
-          subtitle,
+          subtitle.translate(),
           textAlign: imageOnLeft ? TextAlign.left : TextAlign.right,
           style: TextStyle(
             color: Colors.black.withOpacity(0.55),
-            fontSize: 13,
+            fontSize: 13.sp,
             height: 1.3,
           ),
         ),
-        const SizedBox(height: 14),
+        SizedBox(height: 14.h),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 6.h),
           decoration: BoxDecoration(
             color: accentColor.withOpacity(0.10),
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(999.r),
           ),
           child: Text(
-            'Select',
+            'Select'.translate(),
             style: TextStyle(
               color: accentColor,
-              fontSize: 12,
+              fontSize: 12.sp,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -260,6 +273,20 @@ class _ModernRegisterHeader extends StatelessWidget {
       ),
       child: Stack(
         children: [
+          const Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: LanguageToggleButton(
+                  backgroundColor: Colors.white24,
+                  iconColor: Colors.white,
+                ),
+              ),
+            ),
+          ),
           Positioned(
             top: -20,
             left: -30,
@@ -272,15 +299,17 @@ class _ModernRegisterHeader extends StatelessWidget {
               ),
             ),
           ),
-          const Positioned(
-            bottom: 40,
-            right: 40,
-            child: _TiltHeaderCard(angle: 0.12, title: 'Secure'),
-          ),
-          const Positioned(
-            top: 50,
-            left: 30,
-            child: _TiltHeaderCard(angle: -0.15, title: 'Trusted'),
+          Positioned(
+            bottom: -30,
+            right: -20,
+            child: Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.06),
+              ),
+            ),
           ),
           Center(
             child: Column(
@@ -291,22 +320,22 @@ class _ModernRegisterHeader extends StatelessWidget {
                   color: AppColors.legalGold,
                   size: 70,
                 ),
-                const SizedBox(height: 12),
-                const Text(
+                SizedBox(height: 12.h),
+                Text(
                   'MEZAAN',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 28,
+                    fontSize: 28.sp,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 4,
                   ),
                 ),
-                const SizedBox(height: 4),
+                SizedBox(height: 4.h),
                 Text(
-                  'Justice at Your Fingertips',
+                  'Justice at Your Fingertips'.translate(),
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.8),
-                    fontSize: 14,
+                    fontSize: 14.sp,
                     fontWeight: FontWeight.w500,
                     fontStyle: FontStyle.italic,
                   ),
@@ -315,37 +344,6 @@ class _ModernRegisterHeader extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _TiltHeaderCard extends StatelessWidget {
-  final double angle;
-  final String title;
-
-  const _TiltHeaderCard({required this.angle, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Transform.rotate(
-      angle: angle,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Colors.white.withOpacity(0.14)),
-        ),
-        child: Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
-          ),
-        ),
       ),
     );
   }
