@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/shared/theme/responsive_page_wrapper.dart';
 
 class LoadingNavigator {
   static const Duration _minLoadingDuration = Duration(milliseconds: 700);
@@ -83,7 +84,8 @@ class LoadingNavigator {
     return PageRouteBuilder<void>(
       transitionDuration: _pageTransitionDuration,
       reverseTransitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (context, animation, secondaryAnimation) => page,
+      pageBuilder: (context, animation, secondaryAnimation) =>
+          ResponsivePageWrapper(child: page),
       transitionsBuilder: (context, animation, secondaryAnimation, child) {
         final fade = CurvedAnimation(
           parent: animation,

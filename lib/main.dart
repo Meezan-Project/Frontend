@@ -3,15 +3,29 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mezaan/shared/navigation/route_generator.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/shared/theme/responsive_page_wrapper.dart';
 import 'package:mezaan/shared/theme/theme_controller.dart';
 import 'package:mezaan/shared/localization/localization_controller.dart';
+import 'firebase_options.dart';
 import 'package:video_player_media_kit/video_player_media_kit.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // Disable local persistence to avoid device-specific SQLite/cache issues
+  // while validating initial Firestore connectivity.
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: false,
+  );
+  final firebaseApp = Firebase.app();
+  debugPrint(
+    'Firebase connected: projectId=${firebaseApp.options.projectId}, appId=${firebaseApp.options.appId}',
+  );
   VideoPlayerMediaKit.ensureInitialized();
   // Ensure localization controller is available globally.
   LocalizationController.instance;
@@ -22,7 +36,7 @@ void main() {
 class MezaanApp extends StatelessWidget {
   final String initialRoute;
 
-  const MezaanApp({super.key, this.initialRoute = AppRoutes.onboarding});
+  const MezaanApp({super.key, this.initialRoute = AppRoutes.splash});
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +67,7 @@ class MezaanApp extends StatelessWidget {
                 textDirection: localizationController.isArabic.value
                     ? TextDirection.rtl
                     : TextDirection.ltr,
-                child: child!,
+                child: ResponsivePageWrapper(child: child!),
               );
             },
             theme: ThemeData(

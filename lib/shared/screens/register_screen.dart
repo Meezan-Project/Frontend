@@ -36,85 +36,109 @@ class RegisterScreen extends StatelessWidget {
   Widget _buildRoleSelection(BuildContext context, Size size) {
     return SingleChildScrollView(
       child: Padding(
-        padding: EdgeInsets.fromLTRB(18.w, 42.h, 18.w, 24.h),
+        padding: EdgeInsets.fromLTRB(10.w, 30.h, 10.w, 20.h),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 980),
-          child: Column(
-            children: [
-              Directionality(
-                textDirection: TextDirection.ltr,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: size.height * 0.44,
-                        child: _RoleSelectionCard(
-                          title: 'Join As User',
-                          subtitle: 'Tap to start user registration',
-                          icon: Icons.person_add_alt_1_rounded,
-                          accentColor: const Color(0xFF042A52),
-                          charAsset: 'assets/images/user_char.png',
-                          imageOnLeft: true,
-                          onTap: () {
-                            LoadingNavigator.pushPage(
-                              context,
-                              const UserRegisterScreen(),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: 14.w),
-                    Expanded(
-                      child: SizedBox(
-                        height: size.height * 0.44,
-                        child: _RoleSelectionCard(
-                          title: 'Join As Lawyer',
-                          subtitle: 'Tap to start lawyer registration',
-                          icon: Icons.gavel_rounded,
-                          accentColor: const Color(0xFF0B5E55),
-                          charAsset: 'assets/images/lawyer_char.png',
-                          imageOnLeft: false,
-                          onTap: () {
-                            LoadingNavigator.pushPage(
-                              context,
-                              const LawyerRegisterScreen(),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ],
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final bool isNarrow = constraints.maxWidth < 760;
+              final double cardHeight = (size.height * 0.48).clamp(
+                330.0,
+                520.0,
+              );
+
+              final userCard = SizedBox(
+                height: cardHeight,
+                child: _RoleSelectionCard(
+                  title: 'Join As User',
+                  subtitle: 'Tap to start user registration',
+                  icon: Icons.person_add_alt_1_rounded,
+                  accentColor: const Color(0xFF042A52),
+                  charAsset: 'assets/images/user_char.png',
+                  imageOnLeft: true,
+                  onTap: () {
+                    LoadingNavigator.pushPage(
+                      context,
+                      const UserRegisterScreen(),
+                    );
+                  },
                 ),
-              ),
-              SizedBox(height: 22.h),
-              Center(
-                child: SizedBox(
-                  width: 220.w,
-                  height: 46.h,
-                  child: ElevatedButton.icon(
-                    onPressed: () =>
-                        LoadingNavigator.pushNamed(context, AppRoutes.login),
-                    icon: Icon(Icons.login_rounded, size: 20.sp),
-                    label: Text(
-                      'Back to Login'.translate(),
-                      style: TextStyle(
-                        fontSize: 14.sp,
-                        fontWeight: FontWeight.w800,
-                      ),
+              );
+
+              final lawyerCard = SizedBox(
+                height: cardHeight,
+                child: _RoleSelectionCard(
+                  title: 'Join As Lawyer',
+                  subtitle: 'Tap to start lawyer registration',
+                  icon: Icons.gavel_rounded,
+                  accentColor: const Color(0xFF0B5E55),
+                  charAsset: 'assets/images/lawyer_char.png',
+                  imageOnLeft: false,
+                  onTap: () {
+                    LoadingNavigator.pushPage(
+                      context,
+                      const LawyerRegisterScreen(),
+                    );
+                  },
+                ),
+              );
+
+              return Column(
+                children: [
+                  Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Row(
+                      children: [
+                        Expanded(child: userCard),
+                        SizedBox(width: 8.w),
+                        Expanded(child: lawyerCard),
+                      ],
                     ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF042A52),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14.r),
+                  ),
+                  SizedBox(height: 22.h),
+                  Center(
+                    child: SizedBox(
+                      width: isNarrow ? double.infinity : 280.w,
+                      height: 46.h,
+                      child: ElevatedButton(
+                        onPressed: () => LoadingNavigator.pushNamed(
+                          context,
+                          AppRoutes.login,
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF042A52),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14.r),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.login_rounded, size: 20.sp),
+                            SizedBox(width: 8.w),
+                            Flexible(
+                              child: Text(
+                                'Back to Login'.translate(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14.sp,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-            ],
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -143,53 +167,119 @@ class _RoleSelectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: EdgeInsets.all(10.r),
-        padding: EdgeInsets.all(22.r),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24.r),
-          border: Border.all(color: accentColor.withOpacity(0.16), width: 1.2),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 18,
-              offset: Offset(0, 8.h),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool compact = constraints.maxWidth < 430;
+        final bool veryCompact = constraints.maxWidth < 220;
+        final double characterPaneWidth = compact
+            ? constraints.maxWidth
+            : (constraints.maxWidth * 0.44).clamp(110.0, 220.0);
+        final double characterHeight =
+            (constraints.maxHeight * (compact ? 0.56 : 0.86)).clamp(
+              150.0,
+              340.0,
+            );
+
+        return GestureDetector(
+          onTap: onTap,
+          child: Container(
+            margin: EdgeInsets.all(4.r),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 12.w : 20.w,
+              vertical: compact ? 12.h : 20.h,
             ),
-          ],
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Colors.white, accentColor.withOpacity(0.04)],
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24.r),
+              border: Border.all(
+                color: accentColor.withOpacity(0.16),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 18,
+                  offset: Offset(0, 8.h),
+                ),
+              ],
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.white, accentColor.withOpacity(0.04)],
+              ),
+            ),
+            child: compact
+                ? Column(
+                    children: [
+                      _buildCharacter(
+                        paneWidth: characterPaneWidth,
+                        imageHeight: characterHeight,
+                        alignment: Alignment.center,
+                      ),
+                      SizedBox(height: 8.h),
+                      Expanded(
+                        child: _buildTextBlock(
+                          context,
+                          compact: compact,
+                          veryCompact: veryCompact,
+                          centered: true,
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: imageOnLeft
+                        ? [
+                            _buildCharacter(
+                              paneWidth: characterPaneWidth,
+                              imageHeight: characterHeight,
+                            ),
+                            SizedBox(width: 12.w),
+                            Expanded(
+                              child: _buildTextBlock(
+                                context,
+                                compact: compact,
+                                veryCompact: veryCompact,
+                                centered: false,
+                              ),
+                            ),
+                          ]
+                        : [
+                            Expanded(
+                              child: _buildTextBlock(
+                                context,
+                                compact: compact,
+                                veryCompact: veryCompact,
+                                centered: false,
+                              ),
+                            ),
+                            SizedBox(width: 12.w),
+                            _buildCharacter(
+                              paneWidth: characterPaneWidth,
+                              imageHeight: characterHeight,
+                            ),
+                          ],
+                  ),
           ),
-        ),
-        child: Row(
-          children: imageOnLeft
-              ? [
-                  _buildCharacter(context),
-                  SizedBox(width: 14.w),
-                  Expanded(child: _buildTextBlock(context)),
-                ]
-              : [
-                  Expanded(child: _buildTextBlock(context)),
-                  SizedBox(width: 8.w),
-                  _buildCharacter(context),
-                ],
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildCharacter(BuildContext context) {
+  Widget _buildCharacter({
+    required double paneWidth,
+    required double imageHeight,
+    Alignment? alignment,
+  }) {
     return SizedBox(
-      width: MediaQuery.of(context).size.width * 0.26,
+      width: paneWidth,
       child: Align(
-        alignment: imageOnLeft ? Alignment.centerLeft : Alignment.centerRight,
+        alignment:
+            alignment ??
+            (imageOnLeft ? Alignment.centerLeft : Alignment.centerRight),
         child: Image.asset(
           charAsset,
-          height: MediaQuery.of(context).size.height * 0.40,
+          height: imageHeight,
           fit: BoxFit.contain,
           errorBuilder: (context, error, stackTrace) => const SizedBox(),
         ),
@@ -197,59 +287,111 @@ class _RoleSelectionCard extends StatelessWidget {
     );
   }
 
-  Widget _buildTextBlock(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: imageOnLeft
-          ? CrossAxisAlignment.start
-          : CrossAxisAlignment.end,
-      children: [
-        Container(
-          padding: EdgeInsets.all(12.r),
-          decoration: BoxDecoration(
-            color: accentColor.withOpacity(0.12),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: accentColor, size: 28.sp),
-        ),
-        SizedBox(height: 14.h),
-        Text(
-          title.translate(),
-          textAlign: imageOnLeft ? TextAlign.left : TextAlign.right,
-          style: TextStyle(
-            color: Color(0xFF042A52),
-            fontSize: 24.sp,
-            fontWeight: FontWeight.w900,
-            height: 1.05,
-          ),
-        ),
-        SizedBox(height: 8.h),
-        Text(
-          subtitle.translate(),
-          textAlign: imageOnLeft ? TextAlign.left : TextAlign.right,
-          style: TextStyle(
-            color: Colors.black.withOpacity(0.55),
-            fontSize: 13.sp,
-            height: 1.3,
-          ),
-        ),
-        SizedBox(height: 14.h),
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 6.h),
-          decoration: BoxDecoration(
-            color: accentColor.withOpacity(0.10),
-            borderRadius: BorderRadius.circular(999.r),
-          ),
-          child: Text(
-            'Select'.translate(),
-            style: TextStyle(
-              color: accentColor,
-              fontSize: 12.sp,
-              fontWeight: FontWeight.w700,
+  Widget _buildTextBlock(
+    BuildContext context, {
+    required bool compact,
+    required bool veryCompact,
+    required bool centered,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool shortCard = constraints.maxHeight < 300;
+
+        final double iconSize = compact
+            ? (veryCompact ? 26.sp : (shortCard ? 26.sp : 28.sp))
+            : (shortCard ? 26.sp : 32.sp);
+        final double titleSize = compact
+            ? (veryCompact ? 26.sp : (shortCard ? 24.sp : 26.sp))
+            : (shortCard ? 26.sp : 30.sp);
+        final double subtitleSize = compact
+            ? (shortCard ? 12.sp : 13.sp)
+            : (shortCard ? 13.sp : 15.sp);
+        final double chipSize = compact
+            ? (veryCompact ? 13.sp : (shortCard ? 11.sp : 12.sp))
+            : (shortCard ? 12.sp : 14.sp);
+
+        final content = Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: centered
+              ? CrossAxisAlignment.center
+              : (imageOnLeft
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.end),
+          children: [
+            Container(
+              padding: EdgeInsets.all(compact ? 9.r : 12.r),
+              decoration: BoxDecoration(
+                color: accentColor.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: accentColor, size: iconSize),
             ),
-          ),
-        ),
-      ],
+            SizedBox(height: shortCard ? 8.h : 14.h),
+            Text(
+              title.translate(),
+              textAlign: centered
+                  ? TextAlign.center
+                  : (imageOnLeft ? TextAlign.left : TextAlign.right),
+              style: TextStyle(
+                color: const Color(0xFF042A52),
+                fontSize: titleSize,
+                fontWeight: FontWeight.w900,
+                height: 1.05,
+              ),
+              maxLines: veryCompact ? 1 : 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (!veryCompact) ...[
+              SizedBox(height: shortCard ? 6.h : 8.h),
+              Text(
+                subtitle.translate(),
+                textAlign: centered
+                    ? TextAlign.center
+                    : (imageOnLeft ? TextAlign.left : TextAlign.right),
+                style: TextStyle(
+                  color: Colors.black.withOpacity(0.55),
+                  fontSize: subtitleSize,
+                  height: 1.3,
+                ),
+                maxLines: shortCard ? 1 : 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+            SizedBox(height: shortCard ? 8.h : 14.h),
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? (veryCompact ? 12.w : 10.w) : 14.w,
+                vertical: compact ? 4.h : 6.h,
+              ),
+              decoration: BoxDecoration(
+                color: accentColor.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(999.r),
+              ),
+              child: Text(
+                'Select'.translate(),
+                style: TextStyle(
+                  color: accentColor,
+                  fontSize: chipSize,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        );
+
+        if (centered && !veryCompact) {
+          return FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+              child: content,
+            ),
+          );
+        }
+
+        return content;
+      },
     );
   }
 }

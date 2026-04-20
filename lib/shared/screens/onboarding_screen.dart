@@ -1,5 +1,6 @@
 import 'dart:async'; // مهمة عشان الـ Timer
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
@@ -21,42 +22,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   late PageController _pageController;
   int _currentPage = 0;
   Timer? _timer; // التايمر اللي هيحرك الصفحات
-
-  final List<OnboardingSlide> slides = [
-    OnboardingSlide(
-      title: 'Video Call with Lawyer',
-      description:
-          'Connect with legal experts via high-quality video calls safely and privately.',
-      videoAsset: 'assets/videos/onboarding_lawer_call.mp4',
-    ),
-    OnboardingSlide(
-      title: 'Book Appointments',
-      description:
-          'Schedule your meetings with top-rated lawyers easily through our app.',
-      icon: Icons.calendar_today,
-    ),
-    OnboardingSlide(
-      title: 'Free AI Consultation',
-      description:
-          'Get instant legal advice for free through our advanced AI assistant.',
-      icon: Icons.smart_toy,
-    ),
-    OnboardingSlide(
-      title: 'Your Legal Hub',
-      description:
-          'Access all legal services in one powerful application anytime.',
-      icon: Icons.hub,
-    ),
-  ];
+  List<OnboardingSlide> _slides = <OnboardingSlide>[];
+  bool _isLoadingSlides = true;
+  String? _slidesError;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: 0);
+    _loadSlidesFromFirebase();
 
-    // تشغيل الـ Auto-Slide كل 5 ثواني
-    _timer = Timer.periodic(const Duration(seconds: 5), (Timer timer) {
-      if (_currentPage < slides.length - 1) {
+    // تشغيل الـ Auto-Slide كل 7 ثواني
+    _timer = Timer.periodic(const Duration(seconds: 7), (Timer timer) {
+      if (_slides.length < 2) {
+        return;
+      }
+
+      if (_currentPage < _slides.length - 1) {
         _currentPage++;
       } else {
         _currentPage = 0; // يرجع لأول صفحة لما يخلص
@@ -72,6 +54,79 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     });
   }
 
+  Future<void> _loadSlidesFromFirebase() async {
+    setState(() {
+      _isLoadingSlides = true;
+      _slidesError = null;
+    });
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('onboarding_slides')
+          .orderBy('order')
+          .get();
+
+      final loaded = snapshot.docs
+          .map((doc) {
+            final data = doc.data();
+            final title = data['title']?.toString().trim() ?? '';
+            final description = data['description']?.toString().trim() ?? '';
+            if (title.isEmpty || description.isEmpty) {
+              return null;
+            }
+
+            final videoAsset = data['videoAsset']?.toString().trim();
+            final videoScaleRaw = data['videoScale'];
+            final videoScale = videoScaleRaw is num
+                ? videoScaleRaw.toDouble()
+                : double.tryParse(videoScaleRaw?.toString() ?? '') ?? 1.0;
+
+            final fallbackRaw = data['fallbackVideoAssets'];
+            final fallbackAssets = fallbackRaw is List
+                ? fallbackRaw
+                      .map((e) => e?.toString().trim() ?? '')
+                      .where((e) => e.isNotEmpty)
+                      .toList(growable: false)
+                : const <String>[];
+
+            return OnboardingSlide(
+              title: title,
+              description: description,
+              videoAsset: (videoAsset?.isNotEmpty ?? false) ? videoAsset : null,
+              fallbackVideoAssets: fallbackAssets,
+              videoScale: videoScale,
+            );
+          })
+          .whereType<OnboardingSlide>()
+          .toList(growable: false);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _slides = loaded;
+        _isLoadingSlides = false;
+        _slidesError = loaded.isEmpty
+            ? 'No onboarding slides found in Firebase.'
+            : null;
+        if (_slides.isEmpty) {
+          _currentPage = 0;
+        } else if (_currentPage >= _slides.length) {
+          _currentPage = 0;
+        }
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoadingSlides = false;
+        _slidesError = 'Failed to load onboarding slides from Firebase.';
+      });
+    }
+  }
+
   @override
   void dispose() {
     _timer?.cancel(); // لازم تكنسل التايمر عشان ميعملش Memory Leak
@@ -85,8 +140,51 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final localizationController = LocalizationController.instance;
 
     return Obx(() {
-      final activeSlide = slides[_currentPage];
       localizationController.currentLanguage.value;
+
+      if (_isLoadingSlides) {
+        return const Scaffold(
+          backgroundColor: Color(0xFFF5F7FA),
+          body: SafeArea(child: Center(child: CircularProgressIndicator())),
+        );
+      }
+
+      if (_slides.isEmpty) {
+        return Scaffold(
+          backgroundColor: const Color(0xFFF5F7FA),
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24.w),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.cloud_off_rounded,
+                      size: 54.sp,
+                      color: AppColors.navyBlue,
+                    ),
+                    SizedBox(height: 12.h),
+                    Text(
+                      (_slidesError ??
+                              'No onboarding slides found in Firebase.')
+                          .translate(),
+                      textAlign: TextAlign.center,
+                    ),
+                    SizedBox(height: 16.h),
+                    ElevatedButton(
+                      onPressed: _loadSlidesFromFirebase,
+                      child: Text('Retry'.translate()),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      final activeSlide = _slides[_currentPage];
 
       return Scaffold(
         backgroundColor: const Color(0xFFF5F7FA),
@@ -208,7 +306,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Expanded(
                 child: Container(
                   margin: EdgeInsets.symmetric(horizontal: 14.w),
-                  padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 10.h),
+                  padding: EdgeInsets.fromLTRB(8.w, 8.h, 8.w, 8.h),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(30.r),
@@ -227,9 +325,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         _currentPage = index;
                       });
                     },
-                    itemCount: slides.length,
+                    itemCount: _slides.length,
                     itemBuilder: (context, index) {
-                      return OnboardingSlideWidget(slide: slides[index]);
+                      return OnboardingSlideWidget(slide: _slides[index]);
                     },
                   ),
                 ),
@@ -243,7 +341,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: List.generate(
-                        slides.length,
+                        _slides.length,
                         (index) => AnimatedContainer(
                           duration: const Duration(milliseconds: 300),
                           margin: EdgeInsets.symmetric(horizontal: 5.w),
@@ -349,23 +447,70 @@ class _OnboardingSlideWidgetState extends State<OnboardingSlideWidget> {
   void initState() {
     super.initState();
     if (widget.slide.videoAsset != null) {
-      _videoController = VideoPlayerController.asset(widget.slide.videoAsset!)
-        ..setLooping(true)
-        ..setVolume(0)
-        ..initialize()
-            .then((_) {
-              if (mounted) setState(() {});
-              _videoController?.play();
-            })
-            .catchError((error) {
-              if (mounted) {
-                setState(() {
-                  _videoLoadFailed = true;
-                  _videoErrorMessage = error.toString();
-                });
-              }
-            });
+      _initializeVideo();
     }
+  }
+
+  @override
+  void didUpdateWidget(covariant OnboardingSlideWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.slide.videoAsset != widget.slide.videoAsset &&
+        widget.slide.videoAsset != null) {
+      _initializeVideo();
+    }
+  }
+
+  Future<void> _initializeVideo() async {
+    final primaryVideoAsset = widget.slide.videoAsset;
+    if (primaryVideoAsset == null) return;
+
+    final previousController = _videoController;
+    _videoController = null;
+
+    if (mounted) {
+      setState(() {
+        _videoLoadFailed = false;
+        _videoErrorMessage = null;
+      });
+    }
+
+    await previousController?.dispose();
+
+    final candidateAssets = <String>[
+      primaryVideoAsset,
+      ...widget.slide.fallbackVideoAssets,
+    ];
+
+    Object? lastError;
+
+    for (final asset in candidateAssets) {
+      final controller = VideoPlayerController.asset(asset);
+
+      try {
+        await controller.initialize().timeout(const Duration(seconds: 8));
+        await controller.setLooping(true);
+        await controller.setVolume(0);
+
+        if (!mounted) {
+          await controller.dispose();
+          return;
+        }
+
+        _videoController = controller;
+        setState(() {});
+        await controller.play();
+        return;
+      } catch (error) {
+        lastError = error;
+        await controller.dispose();
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _videoLoadFailed = true;
+      _videoErrorMessage = (lastError ?? 'Video failed to load').toString();
+    });
   }
 
   @override
@@ -376,76 +521,181 @@ class _OnboardingSlideWidgetState extends State<OnboardingSlideWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: widget.slide.videoAsset != null
-          ? (_videoLoadFailed
-                ? Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.video_call_outlined,
-                        size: 80.sp,
-                        color: Color(0xFF9BA8B8),
-                      ),
-                      SizedBox(height: 12.h),
-                      Text(
-                        'Video could not be loaded'.translate(),
-                        style: TextStyle(
-                          color: Color(0xFF6E7B8B),
-                          fontSize: 15.sp,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      if (_videoErrorMessage != null) ...[
-                        SizedBox(height: 8.h),
-                        Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 24.w),
-                          child: Text(
-                            _videoErrorMessage!,
-                            textAlign: TextAlign.center,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFF8A97A8),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  )
-                : (_videoController == null ||
-                      !_videoController!.value.isInitialized)
-                ? SizedBox(
-                    width: 34.w,
-                    height: 34.h,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: AppColors.navyBlue,
-                    ),
-                  )
-                : ClipRRect(
+    final hasInitializedVideo =
+        _videoController != null && _videoController!.value.isInitialized;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final frameWidth = (constraints.maxWidth * 0.97).clamp(230.0, 335.0);
+        final frameHeight = constraints.maxHeight;
+
+        return Center(
+          child: widget.slide.videoAsset != null
+              ? Container(
+                  width: frameWidth,
+                  height: frameHeight,
+                  decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(24.r),
-                    child: AspectRatio(
-                      aspectRatio: _videoController!.value.aspectRatio,
-                      child: VideoPlayer(_videoController!),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFF7FAFD), Color(0xFFEAF1F8)],
                     ),
-                  ))
-          : Container(
-              width: 165.w,
-              height: 165.h,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFFF2F6FB),
-                border: Border.all(color: const Color(0xFFE0E6EE), width: 1.2),
-              ),
-              child: Icon(
-                widget.slide.icon,
-                size: 78.sp,
-                color: AppColors.navyBlue,
+                    border: Border.all(
+                      color: const Color(0xFFDCE6F0),
+                      width: 1.2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 16,
+                        offset: Offset(0, 8.h),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24.r),
+                    child: _videoLoadFailed
+                        ? _VideoFallback(
+                            errorMessage: _videoErrorMessage,
+                            translateLabel: 'Video could not be loaded'
+                                .translate(),
+                            onRetry: _initializeVideo,
+                          )
+                        : !hasInitializedVideo
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 44.w,
+                                  height: 44.h,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 3,
+                                    color: AppColors.navyBlue,
+                                  ),
+                                ),
+                                SizedBox(height: 14.h),
+                                Text(
+                                  'Loading video...'.translate(),
+                                  style: TextStyle(
+                                    color: const Color(0xFF6E7B8B),
+                                    fontSize: 13.sp,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : LayoutBuilder(
+                            builder: (context, constraints) {
+                              final videoSize = _videoController!.value.size;
+
+                              return ColoredBox(
+                                color: const Color(0xFFEAF1F8),
+                                child: ClipRect(
+                                  child: SizedBox.expand(
+                                    child: Transform.scale(
+                                      scale: widget.slide.videoScale,
+                                      alignment: Alignment.center,
+                                      child: FittedBox(
+                                        fit: BoxFit.cover,
+                                        child: SizedBox(
+                                          width: videoSize.width,
+                                          height: videoSize.height,
+                                          child: VideoPlayer(_videoController!),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                )
+              : Container(
+                  width: 165.w,
+                  height: 165.h,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFFF2F6FB),
+                    border: Border.all(
+                      color: const Color(0xFFE0E6EE),
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Icon(
+                    widget.slide.icon,
+                    size: 78.sp,
+                    color: AppColors.navyBlue,
+                  ),
+                ),
+        );
+      },
+    );
+  }
+}
+
+class _VideoFallback extends StatelessWidget {
+  final String translateLabel;
+  final String? errorMessage;
+  final VoidCallback? onRetry;
+
+  const _VideoFallback({
+    required this.translateLabel,
+    this.errorMessage,
+    this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 18.w),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.video_library_outlined,
+              size: 76.sp,
+              color: const Color(0xFF98A6B7),
+            ),
+            SizedBox(height: 12.h),
+            Text(
+              translateLabel,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: const Color(0xFF5F6E7E),
+                fontSize: 15.sp,
+                fontWeight: FontWeight.w700,
               ),
             ),
+            if (errorMessage != null) ...[
+              SizedBox(height: 8.h),
+              Text(
+                errorMessage!,
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF8A97A8),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+            if (onRetry != null) ...[
+              SizedBox(height: 12.h),
+              TextButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: Text('Retry'.translate()),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -455,10 +705,14 @@ class OnboardingSlide {
   final String description;
   final IconData? icon;
   final String? videoAsset;
+  final List<String> fallbackVideoAssets;
+  final double videoScale;
   OnboardingSlide({
     required this.title,
     required this.description,
     this.icon,
     this.videoAsset,
+    this.fallbackVideoAssets = const [],
+    this.videoScale = 1.0,
   });
 }

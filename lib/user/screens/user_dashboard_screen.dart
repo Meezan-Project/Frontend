@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:mezaan/shared/auth/auth_state.dart';
+import 'package:mezaan/shared/auth/firebase_session_service.dart';
 import 'package:mezaan/shared/localization/localization_controller.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
+import 'package:mezaan/shared/navigation/app_routes.dart';
+import 'package:mezaan/shared/navigation/loading_navigator.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/theme/theme_controller.dart';
 import 'package:mezaan/user/screens/government_map_screen.dart';
+import 'package:mezaan/user/screens/messages_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
 import 'package:mezaan/user/widgets/user_profile_side_panel.dart';
 import 'package:mezaan/user/widgets/user_top_header.dart';
@@ -23,16 +30,15 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
     with SingleTickerProviderStateMixin {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ImagePicker _imagePicker = ImagePicker();
-  late final Future<_UserDashboardPayload> _payloadFuture;
+  String? _payloadUserUid;
+  Future<_UserDashboardPayload>? _payloadFuture;
   late final AnimationController _sosPulseController;
   Uint8List? _profileImageBytes;
-  final String _userDisplayName = 'Mezaan User';
   int _selectedIndex = 2;
 
   @override
   void initState() {
     super.initState();
-    _payloadFuture = _UserDashboardRepository.load();
     _sosPulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
@@ -79,6 +85,38 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
       return;
     }
     setState(() => _profileImageBytes = bytes);
+  }
+
+  Future<void> _handleLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Logout'.translate()),
+          content: Text('Are you sure you want to logout?'.translate()),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text('Cancel'.translate()),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text('Logout'.translate()),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLogout != true) return;
+    await FirebaseSessionService.signOutAll();
+    authState.logout();
+    if (!mounted) return;
+    LoadingNavigator.pushNamedAndRemoveUntil(
+      context,
+      AppRoutes.login,
+      (route) => false,
+    );
   }
 
   Future<void> _showLanguageSheet() async {
@@ -147,18 +185,21 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
     return ListView(
       padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
       children: [
-        const _HeroCard(),
+        _HeroCard(userName: payload.userName),
         SizedBox(height: 16.h),
         _SectionHeader(
           title: 'Categories'.translate(),
           subtitle: 'Browse legal services from the database'.translate(),
         ),
         SizedBox(height: 10.h),
-        _CategoryGrid(categories: payload.categories),
+        if (payload.categories.isEmpty)
+          const _DataEmptyHint(message: 'No categories found in Firebase yet.')
+        else
+          _CategoryGrid(categories: payload.categories),
         SizedBox(height: 12.h),
         _LegalAIAssistantCard(
           onStartChat: () {
-            _showComingSoon('AI Chat'.translate());
+            LoadingNavigator.pushNamed(context, AppRoutes.userAiChat);
           },
         ),
         SizedBox(height: 12.h),
@@ -174,7 +215,10 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
               .translate(),
         ),
         SizedBox(height: 10.h),
-        ...payload.topLawyers.map(_LawyerCard.new),
+        if (payload.topLawyers.isEmpty)
+          const _DataEmptyHint(message: 'No lawyers found in Firebase yet.')
+        else
+          ...payload.topLawyers.map(_LawyerCard.new),
         SizedBox(height: 16.h),
         _SectionHeader(
           title: 'Featured Services'.translate(),
@@ -182,7 +226,10 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
               .translate(),
         ),
         SizedBox(height: 10.h),
-        ...payload.services.map(_ServiceCard.new),
+        if (payload.services.isEmpty)
+          const _DataEmptyHint(message: 'No services found in Firebase yet.')
+        else
+          ...payload.services.map(_ServiceCard.new),
       ],
     );
   }
@@ -191,114 +238,195 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
     return _buildDashboardView(payload);
   }
 
+  Future<_UserDashboardPayload> _loadPayloadForCurrentUser(User user) {
+    if (_payloadFuture == null || _payloadUserUid != user.uid) {
+      _payloadUserUid = user.uid;
+      _payloadFuture = _UserDashboardRepository.loadForUser(user: user);
+    }
+    return _payloadFuture!;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      endDrawer: UserProfileSidePanel(
-        userName: _userDisplayName,
-        profileImageBytes: _profileImageBytes,
-        isDarkMode: ThemeController.instance.isDarkMode.value,
-        onDarkModeChanged: (value) {
-          ThemeController.instance.setDarkMode(value);
-          if (mounted) {
-            setState(() {});
-          }
-        },
-        onChangePhoto: _changeProfilePhoto,
-        onEditProfile: () => _showComingSoon('Edit profile'.translate()),
-        onLanguage: _showLanguageSheet,
-        onSavedCards: () => _showComingSoon('Saved cards'.translate()),
-        onSettings: () => _showComingSoon('Settings'.translate()),
-        onEmergencyContacts: () =>
-            _showComingSoon('Emergency contacts'.translate()),
-        onPrivacy: () => _showComingSoon('Privacy & security'.translate()),
-        onHelp: () => _showComingSoon('Help center'.translate()),
-        onLogout: () => _showComingSoon('Logout'.translate()),
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: isDark
-                ? const [Color(0xFF0B1220), Color(0xFF131C2C)]
-                : const [Color(0xFFF8FAFE), Color(0xFFF1F6FF)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: Stack(
-          children: [
-            FutureBuilder<_UserDashboardPayload>(
-              future: _payloadFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, authSnapshot) {
+        final currentUser = authSnapshot.data;
 
-                final payload = snapshot.data ?? _UserDashboardPayload.empty();
-                return SafeArea(
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(16.w, 10.h, 16.w, 6.h),
-                        child: UserTopHeader(balance: payload.balance),
+        if (authSnapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (currentUser == null) {
+          return Scaffold(
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+            body: Center(
+              child: Padding(
+                padding: EdgeInsets.all(20.r),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_outline_rounded, size: 54.sp),
+                    SizedBox(height: 10.h),
+                    Text(
+                      'You need to login first'.translate(),
+                      style: GoogleFonts.cairo(
+                        fontSize: 17.sp,
+                        fontWeight: FontWeight.w800,
                       ),
-                      Expanded(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 240),
-                          child: KeyedSubtree(
-                            key: ValueKey(_selectedIndex),
-                            child: _buildCurrentView(payload),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            Positioned(
-              right: 18.w,
-              bottom: 10.h,
-              child: SafeArea(
-                child: _SosFloatingButton(
-                  pulse: _sosPulseController,
-                  onTap: () {
-                    _showComingSoon('SOS'.translate());
-                  },
+                    ),
+                    SizedBox(height: 14.h),
+                    ElevatedButton(
+                      onPressed: () {
+                        LoadingNavigator.pushNamedAndRemoveUntil(
+                          context,
+                          AppRoutes.login,
+                          (route) => false,
+                        );
+                      },
+                      child: Text('Go to Login'.translate()),
+                    ),
+                  ],
                 ),
               ),
             ),
-          ],
-        ),
-      ),
-      bottomNavigationBar: UserBottomNavBar(
-        currentIndex: _selectedIndex,
-        onDestinationSelected: (index) {
-          if (index == 4) {
-            setState(() => _selectedIndex = 2);
-            _openProfilePanel();
-            return;
-          }
+          );
+        }
 
-          setState(() => _selectedIndex = index);
-          if (index == 2) {
-            return;
-          }
+        return FutureBuilder<_UserDashboardPayload>(
+          future: _loadPayloadForCurrentUser(currentUser),
+          builder: (context, snapshot) {
+            final payload =
+                snapshot.data ??
+                _UserDashboardPayload.empty(
+                  fallbackName:
+                      currentUser.displayName ?? currentUser.email ?? 'User',
+                );
 
-          if (index == 0) {
-            _showComingSoon('Urgent Rescue'.translate());
-          } else if (index == 1) {
-            _showComingSoon('Cases'.translate());
-          } else if (index == 3) {
-            _showComingSoon('Messages'.translate());
-          }
-        },
-        onCenterButtonTap: () => setState(() => _selectedIndex = 2),
-      ),
+            return Scaffold(
+              key: _scaffoldKey,
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+              endDrawer: UserProfileSidePanel(
+                userName: payload.userName,
+                profileImageBytes: _profileImageBytes,
+                isDarkMode: ThemeController.instance.isDarkMode.value,
+                onDarkModeChanged: (value) {
+                  ThemeController.instance.setDarkMode(value);
+                  if (mounted) {
+                    setState(() {});
+                  }
+                },
+                onChangePhoto: _changeProfilePhoto,
+                onEditProfile: () =>
+                    _showComingSoon('Edit profile'.translate()),
+                onLanguage: _showLanguageSheet,
+                onSavedCards: () => _showComingSoon('Saved cards'.translate()),
+                onSettings: () => _showComingSoon('Settings'.translate()),
+                onEmergencyContacts: () =>
+                    _showComingSoon('Emergency contacts'.translate()),
+                onPrivacy: () =>
+                    _showComingSoon('Privacy & security'.translate()),
+                onHelp: () => _showComingSoon('Help center'.translate()),
+                onLogout: _handleLogout,
+              ),
+              body: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: isDark
+                        ? const [Color(0xFF0B1220), Color(0xFF131C2C)]
+                        : const [Color(0xFFF8FAFE), Color(0xFFF1F6FF)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    if (snapshot.connectionState != ConnectionState.done)
+                      const Center(child: CircularProgressIndicator())
+                    else
+                      SafeArea(
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                16.w,
+                                10.h,
+                                16.w,
+                                6.h,
+                              ),
+                              child: UserTopHeader(
+                                balance: payload.balance,
+                                onNotificationTap: _openProfilePanel,
+                              ),
+                            ),
+                            Expanded(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 240),
+                                child: KeyedSubtree(
+                                  key: ValueKey(_selectedIndex),
+                                  child: _buildCurrentView(payload),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Positioned(
+                      right: 18.w,
+                      bottom: 10.h,
+                      child: SafeArea(
+                        child: _SosFloatingButton(
+                          pulse: _sosPulseController,
+                          onTap: () {
+                            _showComingSoon('SOS'.translate());
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              bottomNavigationBar: UserBottomNavBar(
+                currentIndex: _selectedIndex,
+                onDestinationSelected: (index) {
+                  if (index == 4) {
+                    setState(() => _selectedIndex = 2);
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) {
+                        return;
+                      }
+                      _openProfilePanel();
+                    });
+                    return;
+                  }
+
+                  setState(() => _selectedIndex = index);
+                  if (index == 2) {
+                    return;
+                  }
+
+                  if (index == 0) {
+                    _showComingSoon('Urgent Rescue'.translate());
+                  } else if (index == 1) {
+                    _showComingSoon('Cases'.translate());
+                  } else if (index == 3) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (context) => const MessagesScreen(),
+                      ),
+                    );
+                  }
+                },
+                onCenterButtonTap: () => setState(() => _selectedIndex = 2),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -338,7 +466,9 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _HeroCard extends StatelessWidget {
-  const _HeroCard();
+  final String userName;
+
+  const _HeroCard({required this.userName});
 
   @override
   Widget build(BuildContext context) {
@@ -363,7 +493,7 @@ class _HeroCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Welcome back, User'.translate(),
+            '${'Welcome back,'.translate()} $userName',
             style: GoogleFonts.cairo(
               color: Colors.white,
               fontSize: 22.sp,
@@ -962,92 +1092,300 @@ class _ServiceCard extends StatelessWidget {
 }
 
 class _UserDashboardRepository {
-  static Future<_UserDashboardPayload> load() async {
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    return _UserDashboardPayload.sample();
+  static Future<_UserDashboardPayload> loadForUser({required User user}) async {
+    final firestore = FirebaseFirestore.instance;
+
+    Map<String, dynamic> userData = <String, dynamic>{};
+    try {
+      final userDoc = await firestore.collection('users').doc(user.uid).get();
+      userData = userDoc.data() ?? <String, dynamic>{};
+
+      if (userData.isEmpty && user.email != null) {
+        final byEmail = await firestore
+            .collection('users')
+            .where('email', isEqualTo: user.email!.trim())
+            .limit(1)
+            .get();
+        if (byEmail.docs.isNotEmpty) {
+          userData = byEmail.docs.first.data();
+        }
+      }
+    } catch (_) {}
+
+    final categories = await _loadCategories(firestore);
+    final topLawyers = await _loadTopLawyers(firestore);
+    final services = await _loadServices(firestore);
+
+    final firstName = userData['firstName']?.toString().trim() ?? '';
+    final secondName = userData['secondName']?.toString().trim() ?? '';
+    final fullName = '$firstName $secondName'.trim();
+    final resolvedName = fullName.isNotEmpty
+        ? fullName
+        : (user.displayName?.trim().isNotEmpty == true
+              ? user.displayName!.trim()
+              : (user.email?.split('@').first ?? 'User'));
+
+    return _UserDashboardPayload(
+      userName: resolvedName,
+      categories: categories,
+      topLawyers: topLawyers,
+      services: services,
+      balance: _formatBalance(userData['balance']),
+    );
+  }
+
+  static Future<List<_UserCategory>> _loadCategories(
+    FirebaseFirestore firestore,
+  ) async {
+    try {
+      final snapshot = await firestore
+          .collection('legal_categories')
+          .orderBy('order')
+          .limit(12)
+          .get();
+
+      final loaded = snapshot.docs
+          .map((doc) {
+            final data = doc.data();
+            final title =
+                data['title']?.toString().trim() ??
+                data['name']?.toString().trim() ??
+                '';
+            if (title.isEmpty) {
+              return null;
+            }
+
+            return _UserCategory(
+              title,
+              _iconFromName(data['icon']?.toString()),
+              _colorFromDynamic(data['color']),
+            );
+          })
+          .whereType<_UserCategory>()
+          .toList(growable: false);
+
+      if (loaded.isNotEmpty) {
+        return loaded;
+      }
+    } catch (_) {}
+
+    return const <_UserCategory>[];
+  }
+
+  static Future<List<_LawyerProfile>> _loadTopLawyers(
+    FirebaseFirestore firestore,
+  ) async {
+    try {
+      final snapshot = await firestore.collection('lawyers').limit(8).get();
+
+      final loaded = snapshot.docs
+          .map((doc) {
+            final data = doc.data();
+            final firstName = data['firstName']?.toString().trim() ?? '';
+            final secondName = data['secondName']?.toString().trim() ?? '';
+            final fullName = '$firstName $secondName'.trim();
+
+            if (fullName.isEmpty) {
+              return null;
+            }
+
+            final specialization = data['specialization']?.toString().trim();
+            final rating = data['rating']?.toString().trim();
+            final years = data['yearsExperience']?.toString().trim();
+
+            return _LawyerProfile(
+              name: fullName,
+              specialization: specialization == null || specialization.isEmpty
+                  ? 'General Law'
+                  : specialization,
+              rating: (rating == null || rating.isEmpty) ? '4.5' : rating,
+              experience: (years == null || years.isEmpty)
+                  ? 'Experienced'
+                  : '$years years experience',
+              onlineStatus: (data['isOnline'] == true)
+                  ? 'Online now'
+                  : 'Available later',
+              isOnline: data['isOnline'] == true,
+              imageUrl: data['photoUrl']?.toString().trim().isNotEmpty == true
+                  ? data['photoUrl'].toString().trim()
+                  : (data['imageUrl']?.toString().trim().isNotEmpty == true
+                        ? data['imageUrl'].toString().trim()
+                        : ''),
+            );
+          })
+          .whereType<_LawyerProfile>()
+          .toList(growable: false);
+
+      if (loaded.isNotEmpty) {
+        return loaded;
+      }
+    } catch (_) {}
+
+    return const <_LawyerProfile>[];
+  }
+
+  static Future<List<_ServiceItem>> _loadServices(
+    FirebaseFirestore firestore,
+  ) async {
+    try {
+      final snapshot = await firestore
+          .collection('legal_services')
+          .limit(12)
+          .get();
+
+      final loaded = snapshot.docs
+          .map((doc) {
+            final data = doc.data();
+            final title = data['title']?.toString().trim() ?? '';
+            if (title.isEmpty) {
+              return null;
+            }
+            final subtitle =
+                data['subtitle']?.toString().trim() ??
+                data['description']?.toString().trim() ??
+                '';
+            return _ServiceItem(
+              title,
+              subtitle.isEmpty ? 'Legal support service' : subtitle,
+              _iconFromName(data['icon']?.toString()),
+              _colorFromDynamic(data['color']),
+            );
+          })
+          .whereType<_ServiceItem>()
+          .toList(growable: false);
+
+      if (loaded.isNotEmpty) {
+        return loaded;
+      }
+    } catch (_) {}
+
+    return const <_ServiceItem>[];
+  }
+
+  static String _formatBalance(dynamic value) {
+    if (value == null) {
+      return 'EGP 0';
+    }
+
+    if (value is num) {
+      return 'EGP ${value.toStringAsFixed(0)}';
+    }
+
+    final asString = value.toString().trim();
+    if (asString.isEmpty) {
+      return 'EGP 0';
+    }
+
+    if (asString.toUpperCase().startsWith('EGP')) {
+      return asString;
+    }
+
+    return 'EGP $asString';
+  }
+
+  static IconData _iconFromName(String? name) {
+    final icon = name?.toLowerCase().trim() ?? '';
+    switch (icon) {
+      case 'gavel':
+      case 'gavel_rounded':
+        return Icons.gavel_rounded;
+      case 'family':
+      case 'family_restroom_rounded':
+        return Icons.family_restroom_rounded;
+      case 'work':
+      case 'work_history_rounded':
+        return Icons.work_history_rounded;
+      case 'apartment':
+      case 'apartment_rounded':
+        return Icons.apartment_rounded;
+      case 'videocam':
+      case 'videocam_rounded':
+        return Icons.videocam_rounded;
+      case 'description':
+      case 'description_rounded':
+        return Icons.description_rounded;
+      case 'account_balance':
+      case 'account_balance_rounded':
+        return Icons.account_balance_rounded;
+      default:
+        return Icons.balance_rounded;
+    }
+  }
+
+  static Color _colorFromDynamic(dynamic value) {
+    if (value is int) {
+      return Color(value);
+    }
+
+    final raw = value?.toString().trim() ?? '';
+    if (raw.isEmpty) {
+      return const Color(0xFF0D2345);
+    }
+
+    final normalized = raw.replaceAll('#', '').toUpperCase();
+    final withAlpha = normalized.length == 6 ? 'FF$normalized' : normalized;
+    final parsed = int.tryParse(withAlpha, radix: 16);
+    if (parsed == null) {
+      return const Color(0xFF0D2345);
+    }
+    return Color(parsed);
   }
 }
 
 class _UserDashboardPayload {
+  final String userName;
   final List<_UserCategory> categories;
   final List<_LawyerProfile> topLawyers;
   final List<_ServiceItem> services;
   final String balance;
 
   const _UserDashboardPayload({
+    required this.userName,
     required this.categories,
     required this.topLawyers,
     required this.services,
     required this.balance,
   });
 
-  factory _UserDashboardPayload.sample() {
-    return const _UserDashboardPayload(
-      categories: [
-        _UserCategory(
-          'Family Law',
-          Icons.family_restroom_rounded,
-          Color(0xFF0B5E55),
-        ),
-        _UserCategory(
-          'Civil Law',
-          Icons.account_balance_rounded,
-          Color(0xFF042A52),
-        ),
-        _UserCategory('Criminal Law', Icons.gavel_rounded, Color(0xFFB91C1C)),
-        _UserCategory(
-          'Labor Law',
-          Icons.work_history_rounded,
-          Color(0xFF7A4B00),
-        ),
-        _UserCategory(
-          'Contracts',
-          Icons.description_rounded,
-          Color(0xFF4B5563),
-        ),
-        _UserCategory('Companies', Icons.apartment_rounded, Color(0xFF1D4ED8)),
-      ],
-      topLawyers: [
-        _LawyerProfile(
-          name: 'Maha El-Sayed',
-          specialization: 'Family Law',
-          rating: '4.9',
-          experience: '12 years experience',
-          onlineStatus: 'Online now',
-          isOnline: true,
-          imageUrl:
-              'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=600',
-        ),
-        _LawyerProfile(
-          name: 'Ahmed Mostafa',
-          specialization: 'Civil Law',
-          rating: '4.8',
-          experience: '9 years experience',
-          onlineStatus: 'Available later',
-          isOnline: false,
-          imageUrl:
-              'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=600',
-        ),
-      ],
-      services: [
-        _ServiceItem(
-          'Video Consultation',
-          'Book a secure live session',
-          Icons.videocam_rounded,
-          Color(0xFF0B5E55),
-        ),
-        _ServiceItem(
-          'Document Review',
-          'Send contracts and legal files',
-          Icons.description_rounded,
-          Color(0xFF7A4B00),
-        ),
-      ],
-      balance: 'EGP 12,450',
+  factory _UserDashboardPayload.empty({required String fallbackName}) {
+    return _UserDashboardPayload(
+      userName: fallbackName,
+      categories: const <_UserCategory>[],
+      topLawyers: const <_LawyerProfile>[],
+      services: const <_ServiceItem>[],
+      balance: 'EGP 0',
     );
   }
+}
 
-  factory _UserDashboardPayload.empty() => _UserDashboardPayload.sample();
+class _DataEmptyHint extends StatelessWidget {
+  final String message;
+
+  const _DataEmptyHint({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(14.r),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Text(
+        message.translate(),
+        style: TextStyle(
+          color: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.color?.withValues(alpha: 0.72),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
 }
 
 class _UserCategory {

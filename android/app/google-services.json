@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "423990169102",
+    "project_id": "mezaan-3baaf",
+    "storage_bucket": "mezaan-3baaf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:423990169102:android:c87acaf4cc7aa5ddfd765f",
+        "android_client_info": {
+          "package_name": "com.example.mezaan"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDDNV0LT8TgNJPnufHT0Mto5nkAdYX7pXY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

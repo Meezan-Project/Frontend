@@ -22,9 +22,9 @@ class GovernmentMapScreen extends StatefulWidget {
 
 class _GovernmentMapScreenState extends State<GovernmentMapScreen> {
   static const List<String> _overpassEndpoints = <String>[
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
     'https://overpass-api.de/api/interpreter',
-    'https://lz4.overpass-api.de/api/interpreter',
-    'https://z.overpass-api.de/api/interpreter',
   ];
 
   static const List<String> _userRegisteredAreaAliases = <String>[
@@ -35,9 +35,11 @@ class _GovernmentMapScreenState extends State<GovernmentMapScreen> {
 
   final MapController _mapController = MapController();
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   final Distance _distance = const Distance();
 
   final List<_GovernmentPlace> _places = <_GovernmentPlace>[];
+  final int _tileRevision = DateTime.now().millisecondsSinceEpoch;
 
   LatLng _userLocation = const LatLng(30.0444, 31.2357);
   bool _isLoading = false;
@@ -53,11 +55,15 @@ class _GovernmentMapScreenState extends State<GovernmentMapScreen> {
   @override
   void initState() {
     super.initState();
+    _searchFocusNode.addListener(() {
+      if (mounted) setState(() {});
+    });
     _loadPlacesForCurrentLocation();
   }
 
   @override
   void dispose() {
+    _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -76,13 +82,9 @@ class _GovernmentMapScreenState extends State<GovernmentMapScreen> {
       items = items.where((p) => p.type == _selectedTypeFilter);
     }
 
-    final String q = _searchQuery.trim().toLowerCase();
+    final String q = _normalizeSearchText(_searchQuery);
     if (q.isNotEmpty) {
-      items = items.where((p) {
-        return p.name.toLowerCase().contains(q) ||
-            p.category.toLowerCase().contains(q) ||
-            p.address.toLowerCase().contains(q);
-      });
+      items = items.where((p) => _matchesSearchQuery(p, q));
     }
 
     final List<_GovernmentPlace> sorted = items.toList();
@@ -102,6 +104,37 @@ class _GovernmentMapScreenState extends State<GovernmentMapScreen> {
     }
 
     return sorted;
+  }
+
+  List<_GovernmentPlace> get _searchSuggestions {
+    final String q = _normalizeSearchText(_searchQuery);
+    if (q.isEmpty) return <_GovernmentPlace>[];
+
+    Iterable<_GovernmentPlace> items = _places;
+    if (_selectedTypeFilter != null) {
+      items = items.where((p) => p.type == _selectedTypeFilter);
+    }
+
+    final List<_GovernmentPlace> matches = items
+        .where((p) => _matchesSearchQuery(p, q))
+        .toList();
+
+    matches.sort((a, b) {
+      final int scoreComparison = _searchScore(
+        b,
+        q,
+      ).compareTo(_searchScore(a, q));
+      if (scoreComparison != 0) return scoreComparison;
+      return _distanceKmTo(a.position).compareTo(_distanceKmTo(b.position));
+    });
+
+    return matches.take(6).toList();
+  }
+
+  bool get _shouldShowSearchSuggestions {
+    return _searchFocusNode.hasFocus &&
+        _searchQuery.trim().isNotEmpty &&
+        _searchSuggestions.isNotEmpty;
   }
 
   Future<void> _loadPlacesForCurrentLocation() async {
@@ -143,8 +176,8 @@ class _GovernmentMapScreenState extends State<GovernmentMapScreen> {
       if (mounted) {
         setState(() {
           _errorMessage = _txt(
-            en: 'Could not load map places right now. Please tap "Search this area" to retry.',
-            ar: 'تعذر تحميل الأماكن على الخريطة الآن. اضغط "بحث في هذه المنطقة" لإعادة المحاولة.',
+            en: 'Map tiles are running on MapTiler. Government places data is temporarily unavailable; tap "Search this area" to retry.',
+            ar: 'الخريطة تعمل عبر MapTiler. بيانات الجهات الحكومية غير متاحة مؤقتاً؛ اضغط "بحث في هذه المنطقة" لإعادة المحاولة.',
           );
         });
       }
@@ -370,8 +403,8 @@ out center;
       if (mounted) {
         setState(() {
           _errorMessage = _txt(
-            en: 'Could not search this area right now, the server is busy. Try again.',
-            ar: 'تعذر البحث في هذه المنطقة، السيرفر مشغول. جرب مرة أخرى.',
+            en: 'Government places service is busy right now. MapTiler map is still active; please try search again.',
+            ar: 'خدمة بيانات الجهات الحكومية مشغولة الآن. خريطة MapTiler تعمل؛ حاول البحث مرة أخرى.',
           );
         });
       }
@@ -424,6 +457,123 @@ out center;
     return false;
   }
 
+  String _normalizeSearchText(String text) {
+    String normalized = text.toLowerCase();
+
+    const Map<String, String> replacements = <String, String>{
+      'أ': 'ا',
+      'إ': 'ا',
+      'آ': 'ا',
+      'ٱ': 'ا',
+      'ة': 'ه',
+      'ى': 'ي',
+      'ؤ': 'و',
+      'ئ': 'ي',
+    };
+
+    replacements.forEach((String from, String to) {
+      normalized = normalized.replaceAll(from, to);
+    });
+
+    normalized = normalized.replaceAll(RegExp(r'[\u064B-\u0652\u0670]'), '');
+    normalized = normalized.replaceAll(
+      RegExp(r'[^a-z0-9\u0600-\u06FF\s]'),
+      ' ',
+    );
+    normalized = normalized.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return normalized;
+  }
+
+  String _getCategoryLabelForLanguage(
+    _GovernmentPlaceType type, {
+    required bool arabic,
+  }) {
+    switch (type) {
+      case _GovernmentPlaceType.traffic:
+        return arabic ? 'إدارة المرور' : 'Traffic Department';
+      case _GovernmentPlaceType.registry:
+        return arabic
+            ? 'مكتب سجل مدني / شهر عقاري'
+            : 'Civil Registry / Real Estate Registration Office';
+      case _GovernmentPlaceType.court:
+        return arabic ? 'محكمة / نيابة' : 'Court / Prosecution';
+      case _GovernmentPlaceType.police:
+        return arabic ? 'قسم شرطة' : 'Police Station';
+      case _GovernmentPlaceType.general:
+        return arabic ? 'جهة حكومية عامة' : 'General Government Office';
+    }
+  }
+
+  List<String> _typeSearchKeywords(_GovernmentPlaceType type) {
+    switch (type) {
+      case _GovernmentPlaceType.traffic:
+        return <String>['traffic', 'license', 'مرور', 'رخص', 'مركبات'];
+      case _GovernmentPlaceType.registry:
+        return <String>[
+          'registry',
+          'civil',
+          'real estate',
+          'سجل',
+          'مدني',
+          'شهر',
+        ];
+      case _GovernmentPlaceType.court:
+        return <String>[
+          'court',
+          'prosecution',
+          'judicial',
+          'محكمه',
+          'نيابه',
+          'قضاء',
+        ];
+      case _GovernmentPlaceType.police:
+        return <String>['police', 'station', 'security', 'شرطه', 'قسم', 'امن'];
+      case _GovernmentPlaceType.general:
+        return <String>[
+          'government',
+          'office',
+          'service',
+          'حكومي',
+          'مكتب',
+          'خدمه',
+        ];
+    }
+  }
+
+  String _searchCorpus(_GovernmentPlace place) {
+    final String englishCategory = _getCategoryLabelForLanguage(
+      place.type,
+      arabic: false,
+    );
+    final String arabicCategory = _getCategoryLabelForLanguage(
+      place.type,
+      arabic: true,
+    );
+    final String keywords = _typeSearchKeywords(place.type).join(' ');
+
+    return _normalizeSearchText(
+      '${place.name} ${place.address} ${place.category} $englishCategory $arabicCategory $keywords',
+    );
+  }
+
+  bool _matchesSearchQuery(_GovernmentPlace place, String normalizedQuery) {
+    return _searchCorpus(place).contains(normalizedQuery);
+  }
+
+  int _searchScore(_GovernmentPlace place, String normalizedQuery) {
+    final String normalizedName = _normalizeSearchText(place.name);
+    final String normalizedAddress = _normalizeSearchText(place.address);
+    final String normalizedCategory = _normalizeSearchText(place.category);
+
+    if (normalizedName == normalizedQuery) return 150;
+    if (normalizedName.startsWith(normalizedQuery)) return 120;
+    if (normalizedName.contains(normalizedQuery)) return 100;
+    if (normalizedCategory.startsWith(normalizedQuery)) return 80;
+    if (normalizedCategory.contains(normalizedQuery)) return 70;
+    if (normalizedAddress.contains(normalizedQuery)) return 50;
+    return 10;
+  }
+
   bool _isUserJurisdiction(String name) {
     final String lowerName = name.toLowerCase();
     return _userRegisteredAreaAliases.any(
@@ -459,21 +609,7 @@ out center;
   }
 
   String _getPlaceCategory(_GovernmentPlaceType type) {
-    switch (type) {
-      case _GovernmentPlaceType.traffic:
-        return _txt(en: 'Traffic Department', ar: 'إدارة المرور');
-      case _GovernmentPlaceType.registry:
-        return _txt(
-          en: 'Civil Registry / Real Estate Registration Office',
-          ar: 'مكتب سجل مدني / شهر عقاري',
-        );
-      case _GovernmentPlaceType.court:
-        return _txt(en: 'Court / Prosecution', ar: 'محكمة / نيابة');
-      case _GovernmentPlaceType.police:
-        return _txt(en: 'Police Station', ar: 'قسم شرطة');
-      case _GovernmentPlaceType.general:
-        return _txt(en: 'General Government Office', ar: 'جهة حكومية عامة');
-    }
+    return _getCategoryLabelForLanguage(type, arabic: _isArabic);
   }
 
   IconData _getPlaceIcon(_GovernmentPlaceType type) {
@@ -555,6 +691,12 @@ out center;
   }
 
   void _focusOnFirstVisibleResult() {
+    final List<_GovernmentPlace> suggestions = _searchSuggestions;
+    if (suggestions.isNotEmpty) {
+      _selectSearchSuggestion(suggestions.first);
+      return;
+    }
+
     final List<_GovernmentPlace> places = _visiblePlaces;
     if (places.isEmpty) return;
     final _GovernmentPlace place = places.first;
@@ -562,6 +704,90 @@ out center;
     if (!_showListView) {
       _openPlaceSheet(place);
     }
+  }
+
+  void _selectSearchSuggestion(_GovernmentPlace place) {
+    _searchController.text = place.name;
+    _searchController.selection = TextSelection.collapsed(
+      offset: place.name.length,
+    );
+
+    setState(() {
+      _searchQuery = place.name;
+      _showListView = false;
+    });
+
+    _searchFocusNode.unfocus();
+    _focusOnPlace(place);
+    _openPlaceSheet(place);
+  }
+
+  Widget _buildSearchSuggestionsPanel() {
+    final List<_GovernmentPlace> suggestions = _searchSuggestions;
+    if (!_shouldShowSearchSuggestions) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: EdgeInsets.only(top: 8.h),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12.r),
+        border: Border.all(
+          color: const Color(0xFF0D2345).withValues(alpha: 0.12),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 10,
+            offset: Offset(0, 4.h),
+          ),
+        ],
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: 220.h),
+        child: ListView.separated(
+          shrinkWrap: true,
+          itemCount: suggestions.length,
+          separatorBuilder: (_, _) => Divider(
+            height: 1,
+            color: const Color(0xFF0D2345).withValues(alpha: 0.08),
+          ),
+          itemBuilder: (context, index) {
+            final _GovernmentPlace place = suggestions[index];
+            return ListTile(
+              dense: true,
+              leading: Icon(
+                place.icon,
+                size: 18.sp,
+                color: const Color(0xFF0D2345),
+              ),
+              title: Text(
+                place.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.cairo(
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF0D2345),
+                ),
+              ),
+              subtitle: Text(
+                '${place.category} • ${_distanceLabel(_distanceKmTo(place.position))}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.cairo(
+                  fontSize: 10.sp,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF4E5D78),
+                ),
+              ),
+              onTap: () => _selectSearchSuggestion(place),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   void _openPlaceSheet(_GovernmentPlace place) {
@@ -890,121 +1116,225 @@ out center;
       children: [
         Container(
           margin: EdgeInsets.symmetric(horizontal: 14.w),
-          padding: EdgeInsets.fromLTRB(12.w, 10.h, 10.w, 10.h),
+          padding: EdgeInsets.fromLTRB(12.w, 12.h, 12.w, 10.h),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.94),
-            borderRadius: BorderRadius.circular(20.r),
+            borderRadius: BorderRadius.circular(22.r),
             border: Border.all(
               color: const Color(0xFF0D2345).withValues(alpha: 0.14),
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 16,
-                offset: Offset(0, 8.h),
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 18,
+                offset: Offset(0, 10.h),
               ),
             ],
           ),
-          child: Row(
+          child: Column(
             children: [
               Container(
-                width: 34.w,
-                height: 34.h,
+                padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 7.h),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0D2345).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10.r),
+                  color: const Color(0xFF0D2345).withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(13.r),
                 ),
-                child: Icon(
-                  Icons.search_rounded,
-                  color: const Color(0xFF0D2345),
-                  size: 19.sp,
-                ),
-              ),
-              SizedBox(width: 10.w),
-              Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (value) => setState(() => _searchQuery = value),
-                  onSubmitted: (_) => _focusOnFirstVisibleResult(),
-                  style: GoogleFonts.cairo(
-                    fontSize: 13.sp,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF0D2345),
-                  ),
-                  decoration: InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                    hintText: _txt(
-                      en: 'Search service, office, address...',
-                      ar: 'ابحث عن خدمة أو مكتب أو عنوان...',
+                child: Row(
+                  children: [
+                    Container(
+                      width: 30.w,
+                      height: 30.h,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0D2345).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8.r),
+                      ),
+                      child: Icon(
+                        Icons.search_rounded,
+                        color: const Color(0xFF0D2345),
+                        size: 17.sp,
+                      ),
                     ),
-                    hintStyle: GoogleFonts.cairo(
-                      fontSize: 13.sp,
-                      color: const Color(0xFF0D2345).withValues(alpha: 0.6),
+                    SizedBox(width: 8.w),
+                    Expanded(
+                      child: TextField(
+                        focusNode: _searchFocusNode,
+                        controller: _searchController,
+                        onChanged: (value) =>
+                            setState(() => _searchQuery = value),
+                        onSubmitted: (_) => _focusOnFirstVisibleResult(),
+                        style: GoogleFonts.cairo(
+                          fontSize: 12.sp,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF0D2345),
+                        ),
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          isDense: true,
+                          hintText: _txt(
+                            en: 'Search service, office, address...',
+                            ar: 'ابحث عن خدمة أو مكتب أو عنوان...',
+                          ),
+                          hintStyle: GoogleFonts.cairo(
+                            fontSize: 12.sp,
+                            color: const Color(
+                              0xFF0D2345,
+                            ).withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (_searchQuery.isNotEmpty)
+                      IconButton(
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                        tooltip: _txt(en: 'Clear search', ar: 'مسح البحث'),
+                        icon: Icon(Icons.close_rounded, size: 18.sp),
+                        color: const Color(0xFF0D2345),
+                      ),
+                    SizedBox(width: 2.w),
+                    SizedBox(
+                      height: 30.h,
+                      child: ElevatedButton(
+                        onPressed: _focusOnFirstVisibleResult,
+                        style: ElevatedButton.styleFrom(
+                          elevation: 0,
+                          backgroundColor: const Color(0xFF0D2345),
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.symmetric(horizontal: 10.w),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8.r),
+                          ),
+                        ),
+                        child: Icon(Icons.arrow_forward_rounded, size: 16.sp),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _buildSearchSuggestionsPanel(),
+              SizedBox(height: 6.h),
+              Row(
+                children: [
+                  Expanded(
+                    child: _searchControlButton(
+                      label: _txt(en: 'Refresh Area', ar: 'تحديث المنطقة'),
+                      icon: _isLoading
+                          ? SizedBox(
+                              width: 14.w,
+                              height: 14.h,
+                              child: const CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : Icon(Icons.refresh_rounded, size: 17.sp),
+                      onTap: _isLoading ? null : _searchCurrentMapArea,
                     ),
                   ),
-                ),
-              ),
-              SizedBox(width: 4.w),
-              _topActionButton(
-                tooltip: _txt(en: 'Refresh area', ar: 'تحديث المنطقة'),
-                onTap: _isLoading ? null : _searchCurrentMapArea,
-                icon: _isLoading
-                    ? SizedBox(
-                        width: 14.w,
-                        height: 14.h,
-                        child: const CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(Icons.refresh_rounded, size: 18.sp),
-              ),
-              if (_searchQuery.isNotEmpty)
-                _topActionButton(
-                  tooltip: _txt(en: 'Clear search', ar: 'مسح البحث'),
-                  onTap: () {
-                    _searchController.clear();
-                    setState(() => _searchQuery = '');
-                  },
-                  icon: Icon(Icons.close_rounded, size: 18.sp),
-                ),
-              _topActionButton(
-                tooltip: _txt(en: 'Toggle map/list', ar: 'تبديل خريطة/قائمة'),
-                onTap: () => setState(() => _showListView = !_showListView),
-                icon: Icon(
-                  _showListView ? Icons.map_rounded : Icons.view_list_rounded,
-                  size: 18.sp,
-                ),
+                  SizedBox(width: 8.w),
+                  Expanded(
+                    child: _searchControlButton(
+                      label: _showListView
+                          ? _txt(en: 'Map View', ar: 'عرض الخريطة')
+                          : _txt(en: 'List View', ar: 'عرض القائمة'),
+                      icon: Icon(
+                        _showListView
+                            ? Icons.map_rounded
+                            : Icons.view_list_rounded,
+                        size: 17.sp,
+                      ),
+                      onTap: () =>
+                          setState(() => _showListView = !_showListView),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
         SizedBox(height: 8.h),
         _buildFilterBar(),
+        SizedBox(height: 6.h),
+        _buildQuickInfoRow(),
       ],
     );
   }
 
-  Widget _topActionButton({
-    required String tooltip,
+  Widget _buildQuickInfoRow() {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 16.w),
+      child: Row(
+        children: [
+          _infoPill(
+            icon: Icons.place_rounded,
+            text:
+                '${_visiblePlaces.length} ${_txt(en: 'results', ar: 'نتيجة')}',
+          ),
+          SizedBox(width: 6.w),
+          _infoPill(icon: Icons.sort_rounded, text: _sortLabel()),
+          const Spacer(),
+          if (_isLoading)
+            Padding(
+              padding: EdgeInsets.only(right: 6.w),
+              child: SizedBox(
+                width: 14.w,
+                height: 14.h,
+                child: const CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoPill({required IconData icon, required String text}) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 9.w, vertical: 5.h),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(999.r),
+        border: Border.all(
+          color: const Color(0xFF0D2345).withValues(alpha: 0.12),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13.sp, color: const Color(0xFF0D2345)),
+          SizedBox(width: 4.w),
+          Text(
+            text,
+            style: GoogleFonts.cairo(
+              fontSize: 10.sp,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF0D2345),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _searchControlButton({
+    required String label,
     required VoidCallback? onTap,
     required Widget icon,
   }) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
+    return ElevatedButton.icon(
+      onPressed: onTap,
+      icon: icon,
+      label: Text(
+        label,
+        style: GoogleFonts.cairo(fontSize: 12.sp, fontWeight: FontWeight.w700),
+      ),
+      style: ElevatedButton.styleFrom(
+        elevation: 0,
+        backgroundColor: const Color(0xFF0D2345).withValues(alpha: 0.09),
+        foregroundColor: const Color(0xFF0D2345),
+        padding: EdgeInsets.symmetric(vertical: 8.h),
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10.r),
-          child: Container(
-            width: 32.w,
-            height: 32.h,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: const Color(0xFF0D2345).withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10.r),
-            ),
-            child: icon,
-          ),
         ),
       ),
     );
@@ -1166,43 +1496,60 @@ out center;
     final List<Marker> markers = _buildMarkers();
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF4F7FB),
       appBar: AppBar(
-        toolbarHeight: 74.h,
+        toolbarHeight: 68.h,
         titleSpacing: 8.w,
         title: Row(
           children: [
             Container(
-              width: 38.w,
-              height: 38.h,
+              width: 32.w,
+              height: 32.h,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(12.r),
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(10.r),
                 border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
               ),
               child: Icon(
                 Icons.account_balance_rounded,
                 color: Colors.white,
-                size: 22.sp,
+                size: 18.sp,
               ),
             ),
-            SizedBox(width: 10.w),
+            SizedBox(width: 8.w),
             Expanded(
               child: Text(
-                _txt(
-                  en: 'Government Service Map',
-                  ar: 'خريطة الخدمات الحكومية',
-                ),
+                _txt(en: 'Gov Services Map', ar: 'خريطة الخدمات الحكومية'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.cairo(
                   fontWeight: FontWeight.w700,
-                  fontSize: 18.sp,
+                  fontSize: 15.sp,
                   color: Colors.white,
                 ),
               ),
             ),
           ],
         ),
+        actions: [
+          Container(
+            margin: EdgeInsets.only(right: 12.w),
+            padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(999.r),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+            ),
+            child: Text(
+              '${_visiblePlaces.length}',
+              style: GoogleFonts.cairo(
+                fontWeight: FontWeight.w700,
+                fontSize: 11.sp,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -1211,9 +1558,16 @@ out center;
               end: Alignment.bottomRight,
             ),
           ),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              height: 1,
+              color: Colors.white.withValues(alpha: 0.18),
+            ),
+          ),
         ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(bottom: Radius.circular(18.r)),
+          borderRadius: BorderRadius.vertical(bottom: Radius.circular(16.r)),
         ),
         foregroundColor: Colors.white,
         elevation: 0,
@@ -1224,68 +1578,162 @@ out center;
             _buildListView()
           else
             FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(
-                initialCenter: _userLocation,
-                initialZoom: 13.5,
-                onMapReady: () {
-                  _mapReady = true;
-                  _mapController.move(_userLocation, 14.5);
-                  if (_lastSearchedBounds == null) {
-                    _searchCurrentMapArea();
-                  }
-                },
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _userLocation,
+              initialZoom: 14.5, // ظبطنا الزووم من البداية
+              onMapReady: () {
+                _mapReady = true;
+                // شلنا الـ _mapController.move من هنا عشان كانت بتعمل تعارض لحظة التحميل
+              },
+            ),
+            children: [
+              TileLayer(
+                // السر هنا: ضفنا /256/ عشان الصور تنزل خفيفة وماتعملش Crash
+                urlTemplate:
+                    'https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=HNGIJUr6VGmHEr8rxntj',
+                userAgentPackageName: 'com.example.mezaan',
+                tileSize: 256,
               ),
-              children: [
-                TileLayer(
-                  urlTemplate:
-                      'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                  subdomains: const <String>['a', 'b', 'c', 'd'],
-                  userAgentPackageName: 'com.example.mezaan',
+              MarkerLayer(markers: markers),
+              RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution(
+                    '© MapTiler',
+                    onTap: () => launchUrl(
+                      Uri.parse('https://www.maptiler.com/copyright/'),
+                    ),
+                  ),
+                  TextSourceAttribution(
+                    '© OpenStreetMap contributors',
+                    onTap: () => launchUrl(
+                      Uri.parse('https://www.openstreetmap.org/copyright'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          if (!_showListView)
+            Positioned(
+              left: 12.w,
+              bottom: 18.h,
+              child: IgnorePointer(
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 10.w,
+                    vertical: 6.h,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(10.r),
+                    border: Border.all(
+                      color: const Color(0xFFD2DCE8),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    _txt(en: 'MapTiler Streets v2', ar: 'MapTiler Streets v2'),
+                    style: GoogleFonts.cairo(
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF23436A),
+                    ),
+                  ),
                 ),
-                MarkerLayer(markers: markers),
-              ],
+              ),
             ),
           Positioned(
-            top: 10.h,
+            top: 8.h,
             left: 0,
             right: 0,
             child: SafeArea(child: _buildTopControls()),
           ),
           if (!_showListView)
             Positioned(
-              right: 16.w,
-              bottom: 24.h,
-              child: FloatingActionButton(
-                onPressed: _centerOnUserLocation,
-                backgroundColor: Colors.white,
-                foregroundColor: const Color(0xFF0D2345),
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16.r),
-                ),
-                child: Icon(Icons.my_location_rounded, size: 26.sp),
+              right: 14.w,
+              bottom: 22.h,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FloatingActionButton.small(
+                    heroTag: 'map_refresh_btn',
+                    onPressed: _isLoading ? null : _searchCurrentMapArea,
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF0D2345),
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12.r),
+                    ),
+                    child: Icon(Icons.refresh_rounded, size: 20.sp),
+                  ),
+                  SizedBox(height: 10.h),
+                  FloatingActionButton(
+                    heroTag: 'map_location_btn',
+                    onPressed: _centerOnUserLocation,
+                    backgroundColor: const Color(0xFF0D2345),
+                    foregroundColor: Colors.white,
+                    elevation: 6,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16.r),
+                    ),
+                    child: Icon(Icons.my_location_rounded, size: 24.sp),
+                  ),
+                ],
               ),
             ),
           if (_errorMessage != null)
             Positioned(
               left: 16.w,
               right: 16.w,
-              bottom: 100.h,
-              child: Material(
-                color: Colors.red.shade50,
-                elevation: 4,
-                borderRadius: BorderRadius.circular(12.r),
+              bottom: 98.h,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14.r),
+                  border: Border.all(color: Colors.red.shade100),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 12,
+                      offset: Offset(0, 5.h),
+                    ),
+                  ],
+                ),
                 child: Padding(
                   padding: EdgeInsets.all(12.r),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline, color: Colors.red),
-                      SizedBox(width: 8.w),
+                      Container(
+                        width: 28.w,
+                        height: 28.h,
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(8.r),
+                        ),
+                        child: Icon(
+                          Icons.error_outline_rounded,
+                          color: Colors.red.shade700,
+                          size: 18.sp,
+                        ),
+                      ),
+                      SizedBox(width: 10.w),
                       Expanded(
                         child: Text(
                           _errorMessage!,
-                          style: TextStyle(color: Colors.red.shade900),
+                          style: GoogleFonts.cairo(
+                            color: Colors.red.shade900,
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 8.w),
+                      TextButton(
+                        onPressed: _isLoading ? null : _searchCurrentMapArea,
+                        child: Text(
+                          _txt(en: 'Retry', ar: 'إعادة'),
+                          style: GoogleFonts.cairo(fontWeight: FontWeight.w700),
                         ),
                       ),
                     ],

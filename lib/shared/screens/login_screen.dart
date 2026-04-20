@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:mezaan/shared/auth/auth_state.dart';
 import 'package:mezaan/shared/localization/localization_controller.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
@@ -20,6 +23,9 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static const String _googleWebClientId =
+      '689791635864-976ekuhdir04je41sf4kgb8rppejcmga.apps.googleusercontent.com';
+
   late final TextEditingController _phoneController;
   late final TextEditingController _emailController;
   late final TextEditingController _passwordController;
@@ -27,6 +33,8 @@ class _LoginScreenState extends State<LoginScreen> {
   LoginMethod _selectedMethod = LoginMethod.phone;
   bool _isPhoneValid = true;
   bool _isEmailValid = true;
+  bool _isGoogleSigningIn = false;
+  bool _isSigningIn = false;
 
   @override
   void initState() {
@@ -60,7 +68,11 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _handleSignIn() {
+  Future<void> _handleSignIn() async {
+    if (_isSigningIn) {
+      return;
+    }
+
     if (_selectedMethod == LoginMethod.phone) {
       if (_phoneController.text.length < 11) {
         setState(() => _isPhoneValid = false);
@@ -72,8 +84,103 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _isEmailValid = false);
         return;
       }
-      _navigateToHomeByRole();
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+
+      if (password.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Password is required'.translate())),
+        );
+        return;
+      }
+
+      setState(() {
+        _isSigningIn = true;
+      });
+
+      try {
+        final credential = await FirebaseAuth.instance
+            .signInWithEmailAndPassword(email: email, password: password);
+
+        final role = await _resolveRoleForCurrentUser(credential.user);
+        authState.loginAs(role);
+
+        if (!mounted) {
+          return;
+        }
+
+        _navigateToHomeByRole();
+      } on FirebaseAuthException catch (error) {
+        if (!mounted) {
+          return;
+        }
+
+        final message = switch (error.code) {
+          'invalid-credential' =>
+            'Invalid email or password. Please try again.'.translate(),
+          'user-not-found' => 'No account found for this email.'.translate(),
+          'wrong-password' =>
+            'Invalid email or password. Please try again.'.translate(),
+          'too-many-requests' =>
+            'Too many attempts. Please try again later.'.translate(),
+          _ => (error.message ?? 'Login failed. Please try again.').translate(),
+        };
+
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Login failed. Please try again.'.translate()),
+          ),
+        );
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSigningIn = false;
+          });
+        }
+      }
     }
+  }
+
+  Future<AppRole> _resolveRoleForCurrentUser(User? user) async {
+    if (user == null) {
+      return AppRole.user;
+    }
+
+    final firestore = FirebaseFirestore.instance;
+    final userDoc = await firestore.collection('users').doc(user.uid).get();
+
+    Map<String, dynamic>? data = userDoc.data();
+
+    if ((data == null || data.isEmpty) && user.email != null) {
+      final byEmail = await firestore
+          .collection('users')
+          .where('email', isEqualTo: user.email!.trim())
+          .limit(1)
+          .get();
+      if (byEmail.docs.isNotEmpty) {
+        data = byEmail.docs.first.data();
+      }
+    }
+
+    final rawRole = (data?['role'] ?? data?['accountType'] ?? 'user')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    if (rawRole == 'admin') {
+      return AppRole.admin;
+    }
+    if (rawRole == 'lawyer') {
+      return AppRole.lawyer;
+    }
+    return AppRole.user;
   }
 
   void _handleGuestSignIn() {
@@ -83,6 +190,63 @@ class _LoginScreenState extends State<LoginScreen> {
       AppRoutes.userHome,
       (route) => false,
     );
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    if (_isGoogleSigningIn) return;
+
+    setState(() {
+      _isGoogleSigningIn = true;
+    });
+
+    try {
+      final googleSignIn = GoogleSignIn(
+        serverClientId: _googleWebClientId,
+        scopes: ['email', 'profile'],
+      );
+
+      final account = await googleSignIn.signIn();
+      if (account == null) {
+        return;
+      }
+
+      final auth = await account.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: auth.accessToken,
+        idToken: auth.idToken,
+      );
+
+      await FirebaseAuth.instance.signInWithCredential(credential);
+
+      if (!mounted) return;
+      final role = await _resolveRoleForCurrentUser(
+        FirebaseAuth.instance.currentUser,
+      );
+      authState.loginAs(role);
+      final homeRoute = switch (role) {
+        AppRole.admin => AppRoutes.adminHome,
+        AppRole.lawyer => AppRoutes.lawyerHome,
+        AppRole.user => AppRoutes.userHome,
+      };
+      LoadingNavigator.pushNamedAndRemoveUntil(
+        context,
+        homeRoute,
+        (route) => false,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Google sign-in failed. Please try again.'.translate()),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGoogleSigningIn = false;
+        });
+      }
+    }
   }
 
   @override
@@ -184,7 +348,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       SizedBox(
                         height: 58.h,
                         child: ElevatedButton(
-                          onPressed: _handleSignIn,
+                          onPressed: _isSigningIn ? null : _handleSignIn,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.navyBlue,
                             foregroundColor: Colors.white,
@@ -193,11 +357,62 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             elevation: 0,
                           ),
-                          child: Text(
-                            'Sign In'.translate(),
+                          child: _isSigningIn
+                              ? SizedBox(
+                                  width: 22.w,
+                                  height: 22.h,
+                                  child: const CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  'Sign In'.translate(),
+                                  style: TextStyle(
+                                    fontSize: 18.sp,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
+                      ),
+
+                      SizedBox(height: 12.h),
+                      SizedBox(
+                        height: 52.h,
+                        child: OutlinedButton.icon(
+                          onPressed: _isGoogleSigningIn
+                              ? null
+                              : _handleGoogleSignIn,
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(
+                              color: Color(0xFFDADCE0),
+                              width: 1.2,
+                            ),
+                            foregroundColor: AppColors.navyBlue,
+                            backgroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16.r),
+                            ),
+                          ),
+                          icon: _isGoogleSigningIn
+                              ? SizedBox(
+                                  width: 18.w,
+                                  height: 18.h,
+                                  child: const CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.g_mobiledata_rounded,
+                                  size: 26,
+                                ),
+                          label: Text(
+                            _isGoogleSigningIn
+                                ? 'Signing in with Google...'.translate()
+                                : 'Continue with Google'.translate(),
                             style: TextStyle(
-                              fontSize: 18.sp,
-                              fontWeight: FontWeight.bold,
+                              fontSize: 16.sp,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),

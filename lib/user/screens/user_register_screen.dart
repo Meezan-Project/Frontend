@@ -1,12 +1,18 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
 import 'package:camera/camera.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:google_mlkit_translation/google_mlkit_translation.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart' as image_picker;
@@ -26,46 +32,33 @@ class UserRegisterScreen extends StatefulWidget {
 
 class _UserRegisterScreenState extends State<UserRegisterScreen> {
   static const String _registerApiPath = '/Mezaan-API/user/register.php';
+  static const String _registerApiBaseUrl = String.fromEnvironment(
+    'MEZAAN_API_BASE_URL',
+    defaultValue: '',
+  );
+  static const Duration _registerRequestTimeout = Duration(seconds: 120);
+  static const int _maxUploadImageBytes = 900 * 1024;
+  static const int _uploadImageMaxDimension = 1280;
+  static const int _uploadImageQuality = 72;
+  static const String _ocrSpaceEndpoint = 'https://api.ocr.space/parse/image';
+  static const String _ocrSpaceApiKey = 'K87899142388957';
 
   final _firstNameController = TextEditingController();
   final _secondNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _phoneController = TextEditingController(text: '+2');
   final _countryController = TextEditingController(text: 'Egypt');
   final _addressController = TextEditingController();
   final _dobController = TextEditingController();
   final _nationalIdController = TextEditingController();
-
-  static const Map<String, List<String>> _governoratesWithCities = {
-    'Alexandria': ['Montaza', 'Raml', 'Borg El Arab'],
-    'Aswan': ['Aswan', 'Kom Ombo', 'Edfu'],
-    'Assiut': ['Assiut', 'Dairut', 'Manfalut'],
-    'Beheira': ['Damanhour', 'Kafr El Dawwar', 'Rashid'],
-    'Beni Suef': ['Beni Suef', 'Al Wasta', 'Nasser'],
-    'Cairo': ['Nasr City', 'Heliopolis', 'Maadi', 'Shubra'],
-    'Dakahlia': ['Mansoura', 'Talkha', 'Mit Ghamr'],
-    'Damietta': ['Damietta', 'Ras El Bar', 'Kafr Saad'],
-    'Fayoum': ['Fayoum', 'Itsa', 'Senuris'],
-    'Gharbia': ['Tanta', 'El Mahalla El Kubra', 'Kafr El Zayat'],
-    'Giza': ['Dokki', '6th of October', 'Haram', 'Sheikh Zayed'],
-    'Ismailia': ['Ismailia', 'Fayed', 'Qantara'],
-    'Kafr El Sheikh': ['Kafr El Sheikh', 'Desouk', 'Baltim'],
-    'Luxor': ['Luxor', 'Armant', 'Esna'],
-    'Matrouh': ['Marsa Matrouh', 'El Alamein', 'Siwa'],
-    'Menofia': ['Shibin El Kom', 'Sadat City', 'Ashmoun'],
-    'Minya': ['Minya', 'Mallawi', 'Beni Mazar'],
-    'New Valley': ['Kharga', 'Dakhla', 'Farafra'],
-    'North Sinai': ['Arish', 'Sheikh Zuweid', 'Rafah'],
-    'Port Said': ['Port Said', 'Port Fouad'],
-    'Qalyubia': ['Banha', 'Qalyub', 'Shubra El Kheima'],
-    'Qena': ['Qena', 'Nag Hammadi', 'Qus'],
-    'Red Sea': ['Hurghada', 'Safaga', 'Marsa Alam'],
-    'Sharqia': ['Zagazig', 'Belbeis', '10th of Ramadan'],
-    'Sohag': ['Sohag', 'Akhmim', 'Tahta'],
-    'South Sinai': ['Sharm El Sheikh', 'El Tor', 'Dahab'],
-    'Suez': ['Suez', 'Ataqah', 'Faisal'],
-  };
+  final OnDeviceTranslatorModelManager _translatorModelManager =
+      OnDeviceTranslatorModelManager();
+  late final OnDeviceTranslator _arabicToEnglishTranslator;
+  Future<void>? _translationSetupFuture;
+  Map<String, List<String>> _governoratesWithCities = <String, List<String>>{};
+  bool _isLoadingGovernorates = false;
 
   DateTime? _selectedDob;
   XFile? _profilePhotoImage;
@@ -84,6 +77,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
   String? _emailError;
   String? _passwordError;
   String? _confirmPasswordError;
+  String? _phoneError;
   String? _genderError;
   String? _governorateError;
   String? _cityError;
@@ -94,17 +88,216 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
   String? _backIdError;
 
   @override
+  void initState() {
+    super.initState();
+    _arabicToEnglishTranslator = OnDeviceTranslator(
+      sourceLanguage: TranslateLanguage.arabic,
+      targetLanguage: TranslateLanguage.english,
+    );
+
+    // Warm translation models in background to reduce first-scan latency.
+    _translationSetupFuture = _ensureTranslationModelsReady();
+    _loadGovernoratesFromFirebase();
+  }
+
+  @override
   void dispose() {
+    _arabicToEnglishTranslator.close();
     _firstNameController.dispose();
     _secondNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _phoneController.dispose();
     _countryController.dispose();
     _addressController.dispose();
     _dobController.dispose();
     _nationalIdController.dispose();
     super.dispose();
+  }
+
+  Future<void> _ensureTranslationModelsReady() async {
+    final languages = <TranslateLanguage>[
+      TranslateLanguage.arabic,
+      TranslateLanguage.english,
+    ];
+
+    for (final language in languages) {
+      final modelCode = language.bcpCode;
+      final downloaded = await _translatorModelManager.isModelDownloaded(
+        modelCode,
+      );
+      if (!downloaded) {
+        await _translatorModelManager.downloadModel(modelCode);
+      }
+    }
+  }
+
+  Future<void> _loadGovernoratesFromFirebase() async {
+    if (_isLoadingGovernorates) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingGovernorates = true;
+    });
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('governorates')
+          .get();
+
+      final loaded = <String, List<String>>{};
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final rawName = data['name']?.toString().trim() ?? '';
+        final name = rawName.isNotEmpty ? rawName : doc.id.trim();
+        if (name.isEmpty) {
+          continue;
+        }
+
+        final citiesRaw = data['cities'];
+        final cities = <String>[];
+        if (citiesRaw is List) {
+          for (final item in citiesRaw) {
+            final city = item?.toString().trim() ?? '';
+            if (city.isNotEmpty) {
+              cities.add(city);
+            }
+          }
+        }
+
+        loaded[name] = cities;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _governoratesWithCities = loaded;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not load governorates and cities from Firebase.'.translate(),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingGovernorates = false;
+        });
+      }
+    }
+  }
+
+  Future<String> _translateArabicToEnglishSafely(String text) async {
+    final normalized = text.trim();
+    if (normalized.isEmpty ||
+        !RegExp(r'[\u0600-\u06FF]').hasMatch(normalized)) {
+      return normalized;
+    }
+
+    try {
+      await (_translationSetupFuture ??= _ensureTranslationModelsReady());
+      final translated = await _arabicToEnglishTranslator.translateText(
+        normalized,
+      );
+      return translated.trim().isEmpty ? normalized : translated.trim();
+    } catch (_) {
+      return normalized;
+    }
+  }
+
+  ({String? arabicName, String? arabicAddress})
+  _extractArabicNameAndAddressFromText(RecognizedText recognizedText) {
+    final lines = recognizedText.blocks
+        .expand((block) => block.lines)
+        .map((line) => line.text.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+
+    final labelNameRegex = RegExp(r'^(?:الاسم|اسم)\s*[:：]?\s*(.+)$');
+    final labelAddressRegex = RegExp(r'^(?:العنوان|عنوان)\s*[:：]?\s*(.+)$');
+    final addressKeywordRegex = RegExp(
+      r'(?:عنوان|العنوان|محافظة|مدينة|حي|شارع|قسم|مركز|عمارة|منزل|بلوك|طريق)',
+    );
+
+    String? arabicName;
+    String? arabicAddress;
+
+    for (final line in lines) {
+      if (arabicName == null) {
+        final match = labelNameRegex.firstMatch(line);
+        if (match != null) {
+          final value = match.group(1)?.trim() ?? '';
+          if (value.isNotEmpty) {
+            arabicName = value;
+          }
+        }
+      }
+
+      if (arabicAddress == null) {
+        final match = labelAddressRegex.firstMatch(line);
+        if (match != null) {
+          final value = match.group(1)?.trim() ?? '';
+          if (value.isNotEmpty) {
+            arabicAddress = value;
+          }
+        }
+      }
+    }
+
+    if (arabicName == null) {
+      for (final line in lines) {
+        final isArabic = RegExp(r'[\u0600-\u06FF]').hasMatch(line);
+        final hasDigits = RegExp(r'\d').hasMatch(line);
+        final wordsCount = line.split(RegExp(r'\s+')).length;
+        final looksLikeAddress = addressKeywordRegex.hasMatch(line);
+
+        if (isArabic && !hasDigits && wordsCount >= 2 && !looksLikeAddress) {
+          arabicName = line;
+          break;
+        }
+      }
+    }
+
+    if (arabicAddress == null) {
+      final addressParts = lines
+          .where((line) {
+            return RegExp(r'[\u0600-\u06FF]').hasMatch(line) &&
+                addressKeywordRegex.hasMatch(line);
+          })
+          .take(2)
+          .toList();
+
+      if (addressParts.isNotEmpty) {
+        arabicAddress = addressParts.join(' ');
+      }
+    }
+
+    return (arabicName: arabicName, arabicAddress: arabicAddress);
+  }
+
+  ({String? firstName, String? secondName}) _splitEnglishName(String fullName) {
+    final cleaned = fullName.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (cleaned.isEmpty) {
+      return (firstName: null, secondName: null);
+    }
+
+    final parts = cleaned.split(' ');
+    if (parts.length == 1) {
+      return (firstName: parts.first, secondName: null);
+    }
+
+    return (firstName: parts.first, secondName: parts.sublist(1).join(' '));
   }
 
   String get _password => _passwordController.text;
@@ -133,10 +326,30 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         _backIdError = null;
       }
     });
+  }
 
-    if (isFront) {
-      await _extractNationalIdData(photo.path);
+  Future<void> _pickBirthDate() async {
+    final now = DateTime.now();
+    final initialDate =
+        _selectedDob ?? DateTime(now.year - 20, now.month, now.day);
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(1900),
+      lastDate: now,
+    );
+
+    if (picked == null) {
+      return;
     }
+
+    setState(() {
+      _selectedDob = picked;
+      _dobController.text = _formatDate(picked);
+      _isUnder18 = _calculateAge(picked) < 18;
+      _dobError = _isUnder18 ? '+18 only' : null;
+    });
   }
 
   Future<void> _pickProfilePhoto() async {
@@ -257,7 +470,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     }
   }
 
-  Future<void> _extractNationalIdData(String imagePath) async {
+  Future<void> _extractDataWithGemini(String imagePath) async {
     setState(() {
       _isExtractingIdData = true;
       _frontIdError = null;
@@ -265,26 +478,123 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       _dobError = null;
     });
 
-    final recognizer = TextRecognizer();
-    String? fallbackCropPath;
-
     try {
-      final fullImage = await recognizer.processImage(
-        InputImage.fromFilePath(imagePath),
-      );
-      String? nationalId = _findBestNationalIdCandidate(fullImage);
+      final apiKey = 'AIzaSyAizv9GUL5IPntXZLY3M15BB2Ghi0q0ReM';
+      final imageBytes = await File(imagePath).readAsBytes();
+      final imagePart = DataPart('image/jpeg', imageBytes);
 
-      if (nationalId == null) {
-        fallbackCropPath = await _createBottomThirdCrop(imagePath);
-        if (fallbackCropPath != null) {
-          final cropImage = await recognizer.processImage(
-            InputImage.fromFilePath(fallbackCropPath),
-          );
-          nationalId = _findBestNationalIdCandidate(cropImage);
+      final prompt = TextPart(
+        "Analyze this Egyptian National ID card. Extract the First Name, Last Name, and the 14-digit National ID number. Return ONLY a valid JSON object with the keys: 'firstName', 'lastName', and 'nationalId'. Do not include any markdown formatting or extra text.",
+      );
+
+      GenerateContentResponse? response;
+      String? lastError;
+
+      // Try multiple models in case the API key restricts access to some of them
+      final modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-flash-latest'];
+
+      for (final modelName in modelsToTry) {
+        try {
+          final model = GenerativeModel(model: modelName, apiKey: apiKey);
+          response = await model.generateContent([
+            Content.multi([prompt, imagePart]),
+          ]);
+          break; // Success
+        } catch (e) {
+          lastError = e.toString();
+          debugPrint('Failed with $modelName: $e');
         }
       }
 
+      if (response == null) {
+        throw Exception('All Gemini models failed. Last error: $lastError');
+      }
+
+      final jsonString = response.text?.trim() ?? '';
+      if (jsonString.isEmpty) {
+        throw Exception('Empty response from Gemini.');
+      }
+
+      var cleanJson = jsonString;
+      if (cleanJson.startsWith('```')) {
+        final lines = cleanJson.split('\n');
+        cleanJson = lines.skip(1).take(lines.length - 2).join('\n').trim();
+      }
+
+      final data = jsonDecode(cleanJson);
+
+      final String? firstName = data['firstName']?.toString();
+      final String? lastName = data['lastName']?.toString();
+      final String? nationalId = data['nationalId']?.toString();
+
+      if (nationalId == null || nationalId.length != 14) {
+        throw Exception('Could not detect a valid 14-digit National ID.');
+      }
+
+      final dob = _extractBirthDateFromNationalId(nationalId);
+
+      if (!mounted) return;
+      setState(() {
+        if (firstName != null && firstName.isNotEmpty) {
+          _firstNameController.text = firstName;
+        }
+        if (lastName != null && lastName.isNotEmpty) {
+          _secondNameController.text = lastName;
+        }
+
+        _nationalIdController.text = nationalId;
+
+        if (dob != null) {
+          _selectedDob = dob;
+          _dobController.text = _formatDate(dob);
+          _isUnder18 = _calculateAge(dob) < 18;
+          _dobError = _isUnder18 ? '+18 only' : null;
+        } else {
+          _dobController.clear();
+          _selectedDob = null;
+          _isUnder18 = false;
+          _dobError = 'Birth date could not be confirmed from ID.';
+        }
+      });
+    } catch (e) {
+      debugPrint('Gemini OCR Error: $e');
+      if (mounted) {
+        setState(() {
+          _frontIdError = 'Failed to read National ID: $e';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isExtractingIdData = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _extractDataWithOcrSpace(String imagePath) async {
+    setState(() {
+      _isExtractingIdData = true;
+      _frontIdError = null;
+      _nationalIdError = null;
+      _dobError = null;
+    });
+
+    try {
+      // 1. Try on-device ML Kit first (Free, fast, and excellent for Arabic numbers)
+      final mlKitResult = await _extractDataWithMlKit(imagePath);
+      String? nationalId = mlKitResult.nationalId;
+      DateTime? dob = mlKitResult.birthDate;
+
+      // 2. If ML Kit fails to detect a valid 14-digit ID, fallback to OCR.space API
       if (nationalId == null) {
+        final apiResult = await _extractDataWithOcrSpaceApi(imagePath);
+        nationalId = apiResult.nationalId;
+        dob = apiResult.birthDate;
+      }
+
+      if (nationalId == null) {
+        if (!mounted) return;
         setState(() {
           _nationalIdController.clear();
           _dobController.clear();
@@ -296,26 +606,29 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         return;
       }
 
-      _nationalIdController.text = nationalId;
-
-      final dob = _extractBirthDateFromNationalId(nationalId);
-
       if (dob == null) {
+        if (!mounted) return;
+        final String capturedId = nationalId;
         setState(() {
+          _nationalIdController.text = capturedId;
           _dobController.clear();
           _selectedDob = null;
           _isUnder18 = false;
           _frontIdError = null;
           _nationalIdError = null;
-          _dobError = 'Birth date could not be confirmed from OCR.';
+          _dobError = 'Birth date could not be confirmed from ID.';
         });
         return;
       }
 
+      if (!mounted) return;
+      final String finalId = nationalId;
+      final DateTime finalDob = dob;
       setState(() {
-        _selectedDob = dob;
-        _dobController.text = _formatDate(dob);
-        _isUnder18 = _calculateAge(dob) < 18;
+        _nationalIdController.text = finalId;
+        _selectedDob = finalDob;
+        _dobController.text = _formatDate(finalDob);
+        _isUnder18 = _calculateAge(finalDob) < 18;
         _frontIdError = null;
         _nationalIdError = null;
         _dobError = _isUnder18 ? '+18 only' : null;
@@ -325,19 +638,122 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         _frontIdError = 'Failed to read National ID. Please retake the photo';
       });
     } finally {
-      if (fallbackCropPath != null) {
-        final file = File(fallbackCropPath);
-        if (await file.exists()) {
-          await file.delete();
-        }
-      }
-      await recognizer.close();
       if (mounted) {
         setState(() {
           _isExtractingIdData = false;
         });
       }
     }
+  }
+
+  Future<({String rawText, String? nationalId, DateTime? birthDate})>
+  _extractDataWithOcrSpaceApi(String imagePath) async {
+    final request = http.MultipartRequest('POST', Uri.parse(_ocrSpaceEndpoint))
+      ..headers['apikey'] = _ocrSpaceApiKey
+      ..fields['language'] = 'ara'
+      ..fields['isOverlayRequired'] = 'false'
+      ..fields['scale'] = 'true'
+      ..fields['detectOrientation'] = 'true'
+      ..fields['OCREngine'] = '2'
+      ..files.add(await http.MultipartFile.fromPath('file', imagePath));
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'OCR.space request failed with status ${response.statusCode}',
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Unexpected OCR response format.');
+    }
+
+    final parsedResults = decoded['ParsedResults'];
+    String rawText = '';
+
+    if (parsedResults is List && parsedResults.isNotEmpty) {
+      final firstResult = parsedResults.first;
+      if (firstResult is Map<String, dynamic>) {
+        rawText = (firstResult['ParsedText'] as String?)?.trim() ?? '';
+      }
+    }
+
+    if (rawText.isEmpty) {
+      final errorMessages = decoded['ErrorMessage'];
+      if (errorMessages is List && errorMessages.isNotEmpty) {
+        throw Exception(errorMessages.join(', '));
+      }
+      throw Exception('OCR did not return readable text.');
+    }
+
+    final normalizedText = _normalizeOcrDigits(rawText);
+    final nationalId = _extractNationalIdFromText(normalizedText);
+    final birthDate = nationalId != null
+        ? _extractBirthDateFromNationalId(nationalId)
+        : null;
+
+    return (rawText: rawText, nationalId: nationalId, birthDate: birthDate);
+  }
+
+  Future<({String rawText, String? nationalId, DateTime? birthDate})>
+  _extractDataWithMlKit(String imagePath) async {
+    String pathToProcess = imagePath;
+    try {
+      final croppedPath = await _createBottomThirdCrop(imagePath);
+      if (croppedPath != null) {
+        pathToProcess = croppedPath;
+      }
+    } catch (_) {}
+    final inputImage = InputImage.fromFilePath(pathToProcess);
+    // On-device ML Kit primarily supports Latin-based scripts for text recognition.
+    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+
+    try {
+      final recognizedText = await textRecognizer.processImage(inputImage);
+      final rawText = recognizedText.text;
+      final normalizedText = _normalizeOcrDigits(rawText);
+      final nationalId = _extractNationalIdFromText(normalizedText);
+      final birthDate = nationalId != null
+          ? _extractBirthDateFromNationalId(nationalId)
+          : null;
+
+      return (rawText: rawText, nationalId: nationalId, birthDate: birthDate);
+    } catch (e) {
+      debugPrint('ML Kit OCR Error: $e');
+      return (rawText: '', nationalId: null, birthDate: null);
+    } finally {
+      textRecognizer.close();
+      if (pathToProcess != imagePath) {
+        try {
+          File(pathToProcess).deleteSync();
+        } catch (_) {}
+      }
+    }
+  }
+
+  String? _extractNationalIdFromText(String normalizedText) {
+    final exact14Regex = RegExp(r'(?<!\d)\d{14}(?!\d)');
+    final match = exact14Regex.firstMatch(normalizedText);
+    if (match != null) {
+      final candidate = match.group(0);
+      if (candidate != null &&
+          _extractBirthDateFromNationalId(candidate) != null) {
+        return candidate;
+      }
+    }
+
+    final digitsOnly = normalizedText.replaceAll(RegExp(r'[^0-9]'), '');
+    for (var i = 0; i <= digitsOnly.length - 14; i++) {
+      final candidate = digitsOnly.substring(i, i + 14);
+      if (_extractBirthDateFromNationalId(candidate) != null) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   Future<String?> _createBottomThirdCrop(String imagePath) async {
@@ -441,6 +857,9 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       'S': '5',
       'G': '6',
       'B': '8',
+      'A': '8',
+      'E': '3',
+      'V': '7',
     };
 
     final buffer = StringBuffer();
@@ -557,12 +976,26 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     return null;
   }
 
+  String? _validatePhone(String value) {
+    if (value.isEmpty) {
+      return 'Phone number is required';
+    }
+    if (!value.startsWith('+2')) {
+      return 'Must start with +2';
+    }
+    if (value.length != 13) {
+      return 'Must be exactly 11 digits after +2';
+    }
+    final digits = value.substring(2);
+    if (!RegExp(r'^[0-9]{11}$').hasMatch(digits)) {
+      return 'Must contain exactly 11 digits after +2';
+    }
+    return null;
+  }
+
   String? _validateDob() {
     if (_selectedDob == null || _dobController.text.trim().isEmpty) {
-      if (_nationalIdController.text.trim().isNotEmpty) {
-        return null;
-      }
-      return 'Birth date is required (captured from National ID)';
+      return 'Birth date is required';
     }
     if (_isUnder18) {
       return '+18 only';
@@ -573,7 +1006,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
   String? _validateNationalId() {
     final nationalId = _nationalIdController.text.trim();
     if (nationalId.isEmpty) {
-      return 'National ID is required (captured from National ID image)';
+      return 'National ID is required';
     }
     if (!RegExp(r'^[0-9]+$').hasMatch(nationalId)) {
       return 'National ID must contain digits only';
@@ -608,6 +1041,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     final confirmPasswordError = _validateConfirmPassword(
       _confirmPasswordController.text,
     );
+    final phoneError = _validatePhone(_phoneController.text);
     final genderError = _selectedGender == null
         ? 'Gender selection is required'
         : null;
@@ -631,6 +1065,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       _emailError = emailError;
       _passwordError = passwordError;
       _confirmPasswordError = confirmPasswordError;
+      _phoneError = phoneError;
       _genderError = genderError;
       _governorateError = governorateError;
       _cityError = cityError;
@@ -646,6 +1081,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         emailError == null &&
         passwordError == null &&
         confirmPasswordError == null &&
+        phoneError == null &&
         genderError == null &&
         governorateError == null &&
         cityError == null &&
@@ -657,6 +1093,22 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
   }
 
   Uri _buildRegisterUri() {
+    final configuredBase = _registerApiBaseUrl.trim();
+    if (configuredBase.isNotEmpty) {
+      final parsed = Uri.tryParse(configuredBase);
+      if (parsed != null && parsed.hasScheme && parsed.host.isNotEmpty) {
+        final configuredPath = parsed.path;
+        if (configuredPath.endsWith('/register.php')) {
+          return parsed;
+        }
+
+        final normalizedBasePath = configuredPath.endsWith('/')
+            ? configuredPath.substring(0, configuredPath.length - 1)
+            : configuredPath;
+        return parsed.replace(path: '$normalizedBasePath$_registerApiPath');
+      }
+    }
+
     if (kIsWeb) {
       return Uri.parse('http://localhost$_registerApiPath');
     }
@@ -668,62 +1120,176 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     return Uri.parse('http://localhost$_registerApiPath');
   }
 
+  String _apiConnectionHint() {
+    final configuredBase = _registerApiBaseUrl.trim();
+    if (configuredBase.isNotEmpty) {
+      return 'Using configured API base URL from MEZAAN_API_BASE_URL.';
+    }
+
+    if (kIsWeb) {
+      return 'Web uses localhost by default. Ensure the backend is reachable from browser origin.';
+    }
+
+    if (Platform.isAndroid) {
+      return 'Android default is 10.0.2.2 (emulator only). On a real phone, run with --dart-define=MEZAAN_API_BASE_URL=http://YOUR_PC_LAN_IP.';
+    }
+
+    return 'Desktop/iOS default is localhost. Ensure backend is running on this machine or configure MEZAAN_API_BASE_URL.';
+  }
+
+  Future<({String path, int bytes, bool isTemp})> _prepareImageForUpload(
+    XFile file, {
+    required String tempPrefix,
+  }) async {
+    final sourcePath = file.path;
+    final sourceFile = File(sourcePath);
+
+    if (!await sourceFile.exists()) {
+      return (path: sourcePath, bytes: 0, isTemp: false);
+    }
+
+    final sourceBytesLength = await sourceFile.length();
+    if (sourceBytesLength <= _maxUploadImageBytes) {
+      return (path: sourcePath, bytes: sourceBytesLength, isTemp: false);
+    }
+
+    try {
+      final rawBytes = await sourceFile.readAsBytes();
+      final decoded = img.decodeImage(rawBytes);
+      if (decoded == null) {
+        return (path: sourcePath, bytes: sourceBytesLength, isTemp: false);
+      }
+
+      img.Image processed = decoded;
+      if (decoded.width > _uploadImageMaxDimension ||
+          decoded.height > _uploadImageMaxDimension) {
+        if (decoded.width >= decoded.height) {
+          processed = img.copyResize(decoded, width: _uploadImageMaxDimension);
+        } else {
+          processed = img.copyResize(decoded, height: _uploadImageMaxDimension);
+        }
+      }
+
+      final encoded = img.encodeJpg(processed, quality: _uploadImageQuality);
+      if (encoded.length >= sourceBytesLength) {
+        return (path: sourcePath, bytes: sourceBytesLength, isTemp: false);
+      }
+
+      final tempPath =
+          '${Directory.systemTemp.path}${Platform.pathSeparator}${tempPrefix}_${DateTime.now().microsecondsSinceEpoch}.jpg';
+      final tempFile = File(tempPath);
+      await tempFile.writeAsBytes(encoded, flush: true);
+
+      return (path: tempPath, bytes: encoded.length, isTemp: true);
+    } catch (e) {
+      debugPrint('Image upload optimization failed for $sourcePath: $e');
+      return (path: sourcePath, bytes: sourceBytesLength, isTemp: false);
+    }
+  }
+
   Future<Map<String, dynamic>> _submitRegistrationRequest() async {
     final uri = _buildRegisterUri();
-    final request = http.MultipartRequest('POST', uri)
-      ..fields['full_name'] =
-          '${_firstNameController.text.trim()} ${_secondNameController.text.trim()}'
-      ..fields['email'] = _emailController.text.trim()
-      ..fields['password'] = _passwordController.text
-      ..fields['gender'] = _selectedGender ?? ''
-      ..fields['country'] = _countryController.text.trim()
-      ..fields['government'] = _selectedGovernorate ?? ''
-      ..fields['city'] = _selectedCity ?? ''
-      ..fields['address'] = _addressController.text.trim()
-      ..fields['birthdate'] = _selectedDob != null
-          ? _formatDateForApi(_selectedDob!)
-          : ''
-      ..fields['national_id'] = _nationalIdController.text.trim();
+    debugPrint('Register API URI: $uri');
+    final tempFilesToDelete = <String>[];
 
-    if (_frontIdImage != null) {
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'front_national_id_photo',
-          _frontIdImage!.path,
-        ),
+    try {
+      final request = http.MultipartRequest('POST', uri)
+        ..fields['full_name'] =
+            '${_firstNameController.text.trim()} ${_secondNameController.text.trim()}'
+        ..fields['email'] = _emailController.text.trim()
+        ..fields['password'] = _passwordController.text
+        ..fields['phone'] = _phoneController.text.trim()
+        ..fields['gender'] = _selectedGender ?? ''
+        ..fields['country'] = _countryController.text.trim()
+        ..fields['government'] = _selectedGovernorate ?? ''
+        ..fields['city'] = _selectedCity ?? ''
+        ..fields['address'] = _addressController.text.trim()
+        ..fields['birthdate'] = _selectedDob != null
+            ? _formatDateForApi(_selectedDob!)
+            : ''
+        ..fields['national_id'] = _nationalIdController.text.trim();
+
+      if (_frontIdImage != null) {
+        final prepared = await _prepareImageForUpload(
+          _frontIdImage!,
+          tempPrefix: 'front_id_upload',
+        );
+        if (prepared.isTemp) {
+          tempFilesToDelete.add(prepared.path);
+        }
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'front_national_id_photo',
+            prepared.path,
+          ),
+        );
+        debugPrint('Front ID upload bytes: ${prepared.bytes}');
+      }
+
+      if (_backIdImage != null) {
+        final prepared = await _prepareImageForUpload(
+          _backIdImage!,
+          tempPrefix: 'back_id_upload',
+        );
+        if (prepared.isTemp) {
+          tempFilesToDelete.add(prepared.path);
+        }
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'back_national_id_photo',
+            prepared.path,
+          ),
+        );
+        debugPrint('Back ID upload bytes: ${prepared.bytes}');
+      }
+
+      if (_profilePhotoImage != null) {
+        final prepared = await _prepareImageForUpload(
+          _profilePhotoImage!,
+          tempPrefix: 'profile_upload',
+        );
+        if (prepared.isTemp) {
+          tempFilesToDelete.add(prepared.path);
+        }
+        request.files.add(
+          await http.MultipartFile.fromPath('profile_photo', prepared.path),
+        );
+        debugPrint('Profile upload bytes: ${prepared.bytes}');
+      }
+
+      final streamedResponse = await request.send().timeout(
+        _registerRequestTimeout,
       );
-    }
+      final response = await http.Response.fromStream(streamedResponse);
 
-    if (_backIdImage != null) {
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'back_national_id_photo',
-          _backIdImage!.path,
-        ),
-      );
-    }
+      Map<String, dynamic> body = {};
+      if (response.body.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map<String, dynamic>) {
+            body = decoded;
+          }
+        } catch (_) {
+          // Keep body empty for non-JSON responses; caller will use rawBody.
+        }
+      }
 
-    if (_profilePhotoImage != null) {
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'profile_photo',
-          _profilePhotoImage!.path,
-        ),
-      );
-    }
-
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-
-    Map<String, dynamic> body = {};
-    if (response.body.isNotEmpty) {
-      final decoded = jsonDecode(response.body);
-      if (decoded is Map<String, dynamic>) {
-        body = decoded;
+      return {
+        'statusCode': response.statusCode,
+        'body': body,
+        'uri': uri.toString(),
+        'rawBody': response.body,
+      };
+    } finally {
+      for (final path in tempFilesToDelete) {
+        try {
+          final tempFile = File(path);
+          if (await tempFile.exists()) {
+            await tempFile.delete();
+          }
+        } catch (_) {}
       }
     }
-
-    return {'statusCode': response.statusCode, 'body': body};
   }
 
   String _formatDateForApi(DateTime date) {
@@ -731,6 +1297,78 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     final month = date.month.toString().padLeft(2, '0');
     final day = date.day.toString().padLeft(2, '0');
     return '$year-$month-$day';
+  }
+
+  Future<void> _syncRegistrationToFirebase() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    UserCredential credential;
+    try {
+      credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } on FirebaseAuthException catch (error) {
+      if (error.code == 'email-already-in-use') {
+        credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      } else {
+        rethrow;
+      }
+    }
+
+    final firebaseUser = credential.user ?? FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) {
+      throw Exception('Firebase user not available after registration sync.');
+    }
+
+    await FirebaseFirestore.instance.collection('users').doc(firebaseUser.uid).set({
+      'uid': firebaseUser.uid,
+      'email': email,
+      'firstName': _firstNameController.text.trim(),
+      'secondName': _secondNameController.text.trim(),
+      'fullName':
+          '${_firstNameController.text.trim()} ${_secondNameController.text.trim()}'
+              .trim(),
+      'phone': _phoneController.text.trim(),
+      'gender': _selectedGender ?? '',
+      'country': _countryController.text.trim(),
+      'governorate': _selectedGovernorate ?? '',
+      'city': _selectedCity ?? '',
+      'address': _addressController.text.trim(),
+      'birthDate': _selectedDob != null ? _formatDateForApi(_selectedDob!) : '',
+      'nationalId': _nationalIdController.text.trim(),
+      'role': 'user',
+      'status': 'active',
+      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
+      'source': 'user_register_screen',
+    }, SetOptions(merge: true));
+  }
+
+  String _firebaseRegisterErrorMessage(FirebaseAuthException error) {
+    switch (error.code) {
+      case 'invalid-email':
+        return 'Invalid email for Firebase account.';
+      case 'weak-password':
+        return 'Password is too weak for Firebase account.';
+      case 'operation-not-allowed':
+        return 'Email/Password sign-in is disabled in Firebase Auth.';
+      case 'network-request-failed':
+        return 'Firebase network error. Check internet connection.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please try again later.';
+      case 'user-disabled':
+        return 'This Firebase account is disabled.';
+      case 'user-not-found':
+      case 'wrong-password':
+        return 'Firebase account exists but password does not match.';
+      default:
+        return error.message ?? 'Firebase registration sync failed.';
+    }
   }
 
   Future<void> _handleRegister() async {
@@ -753,20 +1391,70 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       _isSubmitting = true;
     });
 
+    final fallbackRequestUri = _buildRegisterUri().toString();
+
     try {
       final result = await _submitRegistrationRequest();
       final statusCode = result['statusCode'] as int;
       final body = result['body'] as Map<String, dynamic>;
+      final rawBody = (result['rawBody'] as String?) ?? '';
+      final requestUri = (result['uri'] as String?) ?? '';
 
       final success =
           body['success'] == true && statusCode >= 200 && statusCode < 300;
-      final message = body['message'] as String?;
+      String? message = body['message'] as String?;
+
+      if ((message == null || message.trim().isEmpty) && !success) {
+        if (rawBody.trim().isNotEmpty) {
+          final compact = rawBody.replaceAll(RegExp(r'\s+'), ' ').trim();
+          message = compact.length > 220
+              ? '${compact.substring(0, 220)}...'
+              : compact;
+        } else {
+          message = 'Register failed (HTTP $statusCode).';
+        }
+      }
+
+      if (!success) {
+        debugPrint(
+          'Register failed. uri=$requestUri status=$statusCode message=${message ?? ''}',
+        );
+      }
 
       if (!mounted) {
         return;
       }
 
       if (success) {
+        try {
+          await _syncRegistrationToFirebase();
+        } on FirebaseAuthException catch (e) {
+          if (!mounted) {
+            return;
+          }
+          debugPrint('Firebase sync failed: ${e.code} ${e.message ?? ''}');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_firebaseRegisterErrorMessage(e).translate()),
+            ),
+          );
+          return;
+        } catch (e) {
+          if (!mounted) {
+            return;
+          }
+          debugPrint('Firebase sync unexpected error: $e');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Registration created on API, but Firebase sync failed.'
+                    .translate(),
+              ),
+            ),
+          );
+          return;
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text((message ?? 'Register successfully').translate()),
@@ -788,16 +1476,163 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           ),
         );
       }
-    } catch (_) {
+    } on SocketException catch (e) {
       if (!mounted) {
         return;
       }
+      debugPrint('Register network error: $e');
+      final apiHint = _apiConnectionHint();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Could not connect to server. Check API URL and network.'
+            'Could not connect to server. URL: $fallbackRequestUri. $apiHint'
                 .translate(),
           ),
+        ),
+      );
+    } on TimeoutException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      debugPrint('Register request timeout: $e');
+      final apiHint = _apiConnectionHint();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Server timeout while uploading photos. URL: $fallbackRequestUri. $apiHint'
+                .translate(),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      debugPrint('Register unexpected error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Register failed unexpectedly. Please try again.'.translate(),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _testFirebaseConnection() async {
+    if (_isSubmitting) return;
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    try {
+      UserCredential credential;
+      const testEmail = 'test.seif@mezaan.com';
+      const testPassword = 'password123';
+
+      try {
+        credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: testEmail,
+          password: testPassword,
+        );
+      } on FirebaseAuthException catch (authError) {
+        if (authError.code != 'email-already-in-use') {
+          rethrow;
+        }
+
+        credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: testEmail,
+          password: testPassword,
+        );
+      }
+
+      final user = credential.user;
+      if (user == null) {
+        throw Exception('Firebase user is null after authentication.');
+      }
+
+      debugPrint('Firebase test auth OK. uid=${user.uid} email=${user.email}');
+
+      final firestore = FirebaseFirestore.instance;
+      final testDocRef = firestore.collection('users').doc(user.uid);
+      final testData = {
+        'firstName': _firstNameController.text.trim(),
+        'secondName': _secondNameController.text.trim(),
+        'email': _emailController.text.trim().isEmpty
+            ? testEmail
+            : _emailController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'birthDate': _dobController.text.trim(),
+        'nationalId': _nationalIdController.text.trim(),
+        'gender': _selectedGender ?? '',
+        'governorate': _selectedGovernorate ?? '',
+        'city': _selectedCity ?? '',
+        'address': _addressController.text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'source': 'user_register_screen_test',
+        'updatedAtMillis': DateTime.now().millisecondsSinceEpoch,
+      };
+
+      await testDocRef
+          .set(testData, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 15));
+
+      final writtenSnapshot = await testDocRef.get().timeout(
+        const Duration(seconds: 15),
+      );
+
+      debugPrint(
+        'Firestore write OK. exists=${writtenSnapshot.exists} path=${testDocRef.path}',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.green,
+          content: Text(
+            'Firebase test succeeded. Data saved at users/${user.uid}.'
+                .translate(),
+          ),
+        ),
+      );
+    } on FirebaseException catch (e) {
+      debugPrint(
+        'Firebase test FirebaseException: plugin=${e.plugin} code=${e.code} message=${e.message}',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red,
+          content: Text(
+            'Firebase test failed [${e.plugin}/${e.code}] ${e.message ?? ''}',
+          ),
+        ),
+      );
+    } on TimeoutException catch (e) {
+      debugPrint('Firebase test timeout: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red,
+          content: Text(
+            'Firebase test timed out. Check internet or Firestore availability.',
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Firebase test generic error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red,
+          content: Text('Firebase test failed: ${e.toString()}'),
         ),
       );
     } finally {
@@ -819,7 +1654,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       localizationController.currentLanguage.value;
 
       return Scaffold(
-        backgroundColor: const Color(0xFFF5F7FA),
+        backgroundColor: const Color(0xFFF0F4F8),
         body: SingleChildScrollView(
           child: Column(
             children: [
@@ -833,15 +1668,15 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
                       maxWidth: isTablet ? 620 : double.infinity,
                     ),
                     child: Container(
-                      padding: EdgeInsets.fromLTRB(18.w, 20.h, 18.w, 22.h),
+                      padding: EdgeInsets.fromLTRB(24.w, 32.h, 24.w, 32.h),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(26.r),
+                        borderRadius: BorderRadius.circular(32.r),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.08),
-                            blurRadius: 22,
-                            offset: Offset(0, 10.h),
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 36,
+                            offset: Offset(0, 12.h),
                           ),
                         ],
                       ),
@@ -1003,6 +1838,22 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           }),
         ),
         SizedBox(height: 16.h),
+        _CustomTextField(
+          controller: _phoneController,
+          label: 'Phone Number',
+          hintText: '+201xxxxxxxxx',
+          icon: Icons.phone_outlined,
+          keyboardType: TextInputType.phone,
+          errorText: _phoneError,
+          inputFormatters: [
+            LengthLimitingTextInputFormatter(13),
+            FilteringTextInputFormatter.allow(RegExp(r'[\+0-9]')),
+          ],
+          onChanged: (value) => setState(() {
+            _phoneError = _validatePhone(value);
+          }),
+        ),
+        SizedBox(height: 16.h),
         _GenderSelector(
           selectedGender: _selectedGender,
           errorText: _genderError,
@@ -1026,9 +1877,15 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         _CustomDropdownField(
           label: 'Governorate',
           icon: Icons.map_outlined,
-          hintText: 'Select Governorate',
+          hintText: _isLoadingGovernorates
+              ? 'Loading governorates...'
+              : (_governoratesWithCities.isEmpty
+                    ? 'No governorates found in Firebase'
+                    : 'Select Governorate'),
           value: _selectedGovernorate,
           items: _governoratesWithCities.keys.toList()..sort(),
+          enabled:
+              !_isLoadingGovernorates && _governoratesWithCities.isNotEmpty,
           errorText: _governorateError,
           onChanged: (value) {
             setState(() {
@@ -1050,7 +1907,10 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           items: _selectedGovernorate == null
               ? const []
               : (_governoratesWithCities[_selectedGovernorate] ?? const []),
-          enabled: _selectedGovernorate != null,
+          enabled:
+              _selectedGovernorate != null &&
+              (_governoratesWithCities[_selectedGovernorate]?.isNotEmpty ??
+                  false),
           errorText: _cityError,
           onChanged: (value) {
             setState(() {
@@ -1079,7 +1939,8 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           hintText: 'DD/MM/YYYY',
           icon: Icons.calendar_today_outlined,
           readOnly: true,
-          enabled: false,
+          enabled: true,
+          onTap: _pickBirthDate,
           errorText: _dobError,
         ),
         Padding(
@@ -1095,9 +1956,15 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           label: 'National ID Number',
           hintText: 'e.g. 29801011234567',
           icon: Icons.badge_outlined,
-          readOnly: true,
-          enabled: false,
+          keyboardType: TextInputType.number,
+          inputFormatters: [
+            LengthLimitingTextInputFormatter(14),
+            FilteringTextInputFormatter.digitsOnly,
+          ],
           errorText: _nationalIdError,
+          onChanged: (value) => setState(() {
+            _nationalIdError = _validateNationalId();
+          }),
         ),
         SizedBox(height: 16.h),
         _IdCaptureCard(
@@ -1111,7 +1978,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         Align(
           alignment: Alignment.centerLeft,
           child: Text(
-            'After capturing the front side, National ID and Birth Date are auto-filled.'
+            'Captured images are stored as National ID photos only. Enter Birth Date and National ID manually.'
                 .translate(),
             style: TextStyle(fontSize: 11.sp, color: Colors.grey),
           ),
@@ -1133,12 +2000,12 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         Text(
           'Profile Photo (Optional)'.translate(),
           style: TextStyle(
-            fontSize: 13.sp,
-            fontWeight: FontWeight.w700,
-            color: AppColors.navyBlue,
+            fontSize: 14.sp,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[600],
           ),
         ),
-        SizedBox(height: 10.h),
+        SizedBox(height: 12.h),
         Center(
           child: GestureDetector(
             onTap: _pickProfilePhoto,
@@ -1150,18 +2017,25 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
                   height: 112.h,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.legalGold.withValues(alpha: 0.2),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
                     border: Border.all(
                       color: AppColors.legalGold,
-                      width: 2.2.w,
+                      width: 2.5.w,
                     ),
-                    color: const Color(0xFFFAFAFA),
+                    color: Colors.white,
                   ),
                   child: ClipOval(
                     child: _profilePhotoImage == null
                         ? Icon(
                             Icons.person_outline,
-                            size: 54.sp,
-                            color: Colors.grey,
+                            size: 48.sp,
+                            color: Colors.grey[400],
                           )
                         : Image.file(
                             File(_profilePhotoImage!.path),
@@ -1170,18 +2044,26 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
                   ),
                 ),
                 Positioned(
-                  right: -2.w,
-                  bottom: -2.h,
+                  right: -4.w,
+                  bottom: 4.h,
                   child: Container(
-                    width: 34.w,
-                    height: 34.h,
-                    decoration: const BoxDecoration(
+                    width: 36.w,
+                    height: 36.h,
+                    decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: AppColors.navyBlue,
+                      border: Border.all(color: Colors.white, width: 2.5.w),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
                     child: Icon(
                       Icons.camera_alt_outlined,
-                      size: 18.sp,
+                      size: 16.sp,
                       color: Colors.white,
                     ),
                   ),
@@ -1190,40 +2072,57 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
             ),
           ),
         ),
-        SizedBox(height: 8.h),
+        SizedBox(height: 12.h),
         Text(
           'Tap to add or change photo'.translate(),
-          style: TextStyle(fontSize: 11.sp, color: Colors.grey),
+          style: TextStyle(fontSize: 12.sp, color: Colors.grey[500]),
         ),
       ],
     );
   }
 
   Widget _buildSubmitButton() {
-    return SizedBox(
+    return Container(
       height: 56.h,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16.r),
+        gradient: const LinearGradient(
+          colors: [AppColors.navyBlue, Color(0xFF1E4C90)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.navyBlue.withValues(alpha: 0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
       child: ElevatedButton(
         onPressed: _isSubmitting ? null : _handleRegister,
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.navyBlue,
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14.r),
+            borderRadius: BorderRadius.circular(16.r),
           ),
-          elevation: 0,
         ),
         child: _isSubmitting
             ? SizedBox(
                 width: 22.w,
                 height: 22.h,
-                child: CircularProgressIndicator(
+                child: const CircularProgressIndicator(
                   strokeWidth: 2.5,
                   color: Colors.white,
                 ),
               )
             : Text(
                 'register_button'.translate(),
-                style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800),
+                style: TextStyle(
+                  fontSize: 16.sp,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                ),
               ),
       ),
     );
@@ -1236,59 +2135,89 @@ class _ModernRegisterHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    return Container(
-      height: size.height * 0.31,
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0A2E63), AppColors.navyBlue, AppColors.legalGold],
+    return ClipPath(
+      clipper: _HeaderClipper(),
+      child: Container(
+        height: size.height * 0.35,
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF0A2E63), AppColors.navyBlue],
+          ),
         ),
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(56)),
-      ),
-      child: Stack(
-        children: [
-          const Positioned(
-            top: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: LanguageToggleButton(
-                  backgroundColor: Colors.white24,
-                  iconColor: Colors.white,
+        child: Stack(
+          children: [
+            Positioned(
+              top: -50,
+              right: -50,
+              child: Container(
+                width: 200,
+                height: 200,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.05),
                 ),
               ),
             ),
-          ),
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.person_rounded, color: Colors.white, size: 62),
-                SizedBox(height: 10.h),
-                Text(
-                  'Join as User'.translate(),
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 28.sp,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2.0,
-                  ),
+            Positioned(
+              bottom: 20,
+              left: -30,
+              child: Container(
+                width: 150,
+                height: 150,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.05),
                 ),
-                Text(
-                  'Access Legal Services with Ease'.translate(),
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.78),
-                    fontSize: 14.sp,
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        ],
+            const Positioned(
+              top: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: LanguageToggleButton(
+                    backgroundColor: Colors.white24,
+                    iconColor: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.person_rounded,
+                    color: Colors.white,
+                    size: 62,
+                  ),
+                  SizedBox(height: 10.h),
+                  Text(
+                    'Join as User'.translate(),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28.sp,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2.0,
+                    ),
+                  ),
+                  Text(
+                    'Access Legal Services with Ease'.translate(),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.78),
+                      fontSize: 14.sp,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1305,7 +2234,9 @@ class _CustomTextField extends StatefulWidget {
   final int maxLines;
   final TextInputType keyboardType;
   final ValueChanged<String>? onChanged;
+  final VoidCallback? onTap;
   final String? errorText;
+  final List<TextInputFormatter>? inputFormatters;
 
   const _CustomTextField({
     required this.controller,
@@ -1318,7 +2249,9 @@ class _CustomTextField extends StatefulWidget {
     this.maxLines = 1,
     this.keyboardType = TextInputType.text,
     this.onChanged,
+    this.onTap,
     this.errorText,
+    this.inputFormatters,
   });
 
   @override
@@ -1337,21 +2270,12 @@ class _CustomTextFieldState extends State<_CustomTextField> {
   @override
   Widget build(BuildContext context) {
     final hasError = widget.errorText != null;
-    final borderColor = hasError ? Colors.red : const Color(0xFFE0E0E0);
+    final borderColor = hasError ? Colors.red : Colors.transparent;
     final focusedBorderColor = hasError ? Colors.red : AppColors.legalGold;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          widget.label.translate(),
-          style: TextStyle(
-            fontSize: 13.sp,
-            fontWeight: FontWeight.w700,
-            color: AppColors.navyBlue,
-          ),
-        ),
-        SizedBox(height: 6.h),
         TextField(
           controller: widget.controller,
           obscureText: _obscureText,
@@ -1359,12 +2283,24 @@ class _CustomTextFieldState extends State<_CustomTextField> {
           enabled: widget.enabled,
           maxLines: widget.maxLines,
           keyboardType: widget.keyboardType,
+          inputFormatters: widget.inputFormatters,
           onChanged: widget.onChanged,
+          onTap: widget.onTap,
           decoration: InputDecoration(
+            labelText: widget.label.translate(),
+            labelStyle: TextStyle(
+              fontSize: 14.sp,
+              fontWeight: FontWeight.w600,
+              color: hasError ? Colors.red : Colors.grey[600],
+            ),
+            floatingLabelBehavior: FloatingLabelBehavior.auto,
             hintText: widget.hintText.translate(),
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 13.sp),
             prefixIcon: Icon(
               widget.icon,
-              color: hasError ? Colors.red : AppColors.legalGold,
+              color: hasError
+                  ? Colors.red
+                  : AppColors.navyBlue.withValues(alpha: 0.6),
             ),
             suffixIcon: widget.obscureText && widget.maxLines == 1
                 ? GestureDetector(
@@ -1385,34 +2321,34 @@ class _CustomTextFieldState extends State<_CustomTextField> {
             fillColor: hasError
                 ? const Color(0xFFFFEBEE)
                 : (widget.enabled
-                      ? const Color(0xFFFAFAFA)
+                      ? const Color(0xFFF8F9FA)
                       : const Color(0xFFF1F1F1)),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
-              borderSide: BorderSide(color: borderColor, width: 1.2),
+              borderRadius: BorderRadius.circular(16.r),
+              borderSide: BorderSide.none,
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
-              borderSide: BorderSide(color: borderColor, width: 1.2),
+              borderRadius: BorderRadius.circular(16.r),
+              borderSide: BorderSide(color: borderColor, width: 1.0),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
+              borderRadius: BorderRadius.circular(16.r),
               borderSide: BorderSide(color: focusedBorderColor, width: 1.8),
             ),
             disabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
+              borderRadius: BorderRadius.circular(16.r),
               borderSide: BorderSide(
-                color: hasError ? Colors.red : const Color(0xFFD9D9D9),
-                width: 1.2,
+                color: hasError ? Colors.red : Colors.transparent,
+                width: 1.0,
               ),
             ),
             errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
+              borderRadius: BorderRadius.circular(16.r),
               borderSide: const BorderSide(color: Colors.red, width: 1.2),
             ),
             contentPadding: EdgeInsets.symmetric(
-              vertical: 12.h,
-              horizontal: 14.w,
+              vertical: 16.h,
+              horizontal: 16.w,
             ),
           ),
         ),
@@ -1454,22 +2390,22 @@ class _GenderSelector extends StatelessWidget {
         Text(
           'Gender'.translate(),
           style: TextStyle(
-            fontSize: 13.sp,
-            fontWeight: FontWeight.w700,
-            color: AppColors.navyBlue,
+            fontSize: 14.sp,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[600],
           ),
         ),
-        SizedBox(height: 6.h),
+        SizedBox(height: 8.h),
         Container(
           decoration: BoxDecoration(
-            color: hasError ? const Color(0xFFFFEBEE) : const Color(0xFFFAFAFA),
-            borderRadius: BorderRadius.circular(12.r),
+            color: hasError ? const Color(0xFFFFEBEE) : const Color(0xFFF8F9FA),
+            borderRadius: BorderRadius.circular(16.r),
             border: Border.all(
-              color: hasError ? Colors.red : const Color(0xFFE0E0E0),
-              width: 1.2,
+              color: hasError ? Colors.red : Colors.transparent,
+              width: 1.0,
             ),
           ),
-          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 8.h),
+          padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 6.h),
           child: Row(
             children: [
               Expanded(
@@ -1526,16 +2462,23 @@ class _GenderChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10.r),
+      borderRadius: BorderRadius.circular(12.r),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: EdgeInsets.symmetric(vertical: 10.h),
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        padding: EdgeInsets.symmetric(vertical: 12.h),
         decoration: BoxDecoration(
-          color: selected ? AppColors.navyBlue : Colors.white,
-          borderRadius: BorderRadius.circular(10.r),
-          border: Border.all(
-            color: selected ? AppColors.navyBlue : const Color(0xFFD8D8D8),
-          ),
+          color: selected ? AppColors.navyBlue : Colors.transparent,
+          borderRadius: BorderRadius.circular(12.r),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: AppColors.navyBlue.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1589,15 +2532,6 @@ class _CustomDropdownField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label.translate(),
-          style: TextStyle(
-            fontSize: 13.sp,
-            fontWeight: FontWeight.w700,
-            color: AppColors.navyBlue,
-          ),
-        ),
-        SizedBox(height: 6.h),
         DropdownButtonFormField<String>(
           initialValue: value,
           onChanged: enabled ? onChanged : null,
@@ -1616,39 +2550,46 @@ class _CustomDropdownField extends StatelessWidget {
               )
               .toList(),
           decoration: InputDecoration(
+            labelText: label.translate(),
+            labelStyle: TextStyle(
+              fontSize: 14.sp,
+              fontWeight: FontWeight.w600,
+              color: hasError ? Colors.red : Colors.grey[600],
+            ),
+            floatingLabelBehavior: FloatingLabelBehavior.auto,
             hintText: hintText.translate(),
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 13.sp),
             prefixIcon: Icon(
               icon,
-              color: hasError ? Colors.red : AppColors.legalGold,
+              color: hasError
+                  ? Colors.red
+                  : AppColors.navyBlue.withValues(alpha: 0.6),
             ),
             filled: true,
             fillColor: hasError
                 ? const Color(0xFFFFEBEE)
-                : (enabled ? const Color(0xFFFAFAFA) : const Color(0xFFF1F1F1)),
+                : (enabled ? const Color(0xFFF8F9FA) : const Color(0xFFF1F1F1)),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
-              borderSide: BorderSide(
-                color: hasError ? Colors.red : const Color(0xFFE0E0E0),
-                width: 1.2,
-              ),
+              borderRadius: BorderRadius.circular(16.r),
+              borderSide: BorderSide.none,
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
+              borderRadius: BorderRadius.circular(16.r),
               borderSide: BorderSide(
-                color: hasError ? Colors.red : const Color(0xFFE0E0E0),
-                width: 1.2,
+                color: hasError ? Colors.red : Colors.transparent,
+                width: 1.0,
               ),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
+              borderRadius: BorderRadius.circular(16.r),
               borderSide: BorderSide(
                 color: hasError ? Colors.red : AppColors.legalGold,
                 width: 1.8,
               ),
             ),
             contentPadding: EdgeInsets.symmetric(
-              vertical: 12.h,
-              horizontal: 14.w,
+              vertical: 16.h,
+              horizontal: 16.w,
             ),
           ),
         ),
@@ -1725,23 +2666,26 @@ class _IdCaptureCard extends StatelessWidget {
       children: [
         Text(
           title.translate(),
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: AppColors.navyBlue,
+          style: TextStyle(
+            fontSize: 14.sp,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[600],
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8.h),
         GestureDetector(
           onTap: onCapturePressed,
           child: Container(
-            height: 140,
+            height: 140.h,
             width: double.infinity,
             decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(15),
+              color: errorText != null
+                  ? const Color(0xFFFFEBEE)
+                  : const Color(0xFFF8F9FA),
+              borderRadius: BorderRadius.circular(16.r),
               border: Border.all(
-                color: errorText != null ? Colors.red : Colors.grey[200]!,
+                color: errorText != null ? Colors.red : Colors.grey[300]!,
+                width: 1.5,
               ),
             ),
             child: imagePath == null
@@ -1749,28 +2693,49 @@ class _IdCaptureCard extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       if (isProcessing)
-                        const SizedBox(
-                          width: 26,
-                          height: 26,
-                          child: CircularProgressIndicator(strokeWidth: 2.3),
+                        SizedBox(
+                          width: 26.w,
+                          height: 26.h,
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: AppColors.legalGold,
+                          ),
                         )
                       else
-                        const Icon(
-                          Icons.camera_alt_outlined,
-                          color: Colors.grey,
-                          size: 30,
+                        Container(
+                          padding: EdgeInsets.all(12.r),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.04),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            Icons.camera_alt_outlined,
+                            color: AppColors.navyBlue.withValues(alpha: 0.6),
+                            size: 28.sp,
+                          ),
                         ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 12.h),
                       Text(
                         isProcessing
                             ? 'Reading ID data...'.translate()
                             : 'Tap to capture'.translate(),
-                        style: const TextStyle(color: Colors.grey),
+                        style: TextStyle(
+                          color: AppColors.navyBlue,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13.sp,
+                        ),
                       ),
                     ],
                   )
                 : ClipRRect(
-                    borderRadius: BorderRadius.circular(15),
+                    borderRadius: BorderRadius.circular(16.r),
                     child: Image.file(File(imagePath!), fit: BoxFit.cover),
                   ),
           ),
@@ -1837,7 +2802,10 @@ class _IdCameraCaptureScreenState extends State<_IdCameraCaptureScreen> {
       await _initializeControllerFuture;
       final image = await _controller.takePicture();
       if (mounted) {
-        Navigator.of(context).pop(image);
+        final croppedImage = await _cropToIdCard(image, context);
+        if (mounted) {
+          Navigator.of(context).pop(croppedImage);
+        }
       }
     } catch (_) {
       if (mounted) {
@@ -1855,6 +2823,43 @@ class _IdCameraCaptureScreenState extends State<_IdCameraCaptureScreen> {
     }
   }
 
+  Future<XFile> _cropToIdCard(XFile rawImage, BuildContext context) async {
+    try {
+      final bytes = await rawImage.readAsBytes();
+      var image = img.decodeImage(bytes);
+      if (image == null) return rawImage;
+      image = img.bakeOrientation(image);
+
+      final screenWidth = MediaQuery.of(context).size.width;
+      final cardWidthRatio = (screenWidth - 40) / screenWidth;
+
+      final int cropWidth = (image.width * cardWidthRatio).round();
+      final int cropHeight = (cropWidth / 1.58).round();
+
+      final int startX = ((image.width - cropWidth) / 2).round();
+      final int startY = ((image.height - cropHeight) / 2).round();
+
+      final croppedImage = img.copyCrop(
+        image,
+        x: startX,
+        y: startY,
+        width: cropWidth,
+        height: cropHeight,
+      );
+
+      final outputPath =
+          '${Directory.systemTemp.path}/cropped_id_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await File(
+        outputPath,
+      ).writeAsBytes(img.encodeJpg(croppedImage, quality: 90));
+
+      return XFile(outputPath);
+    } catch (e) {
+      debugPrint('Crop failed: $e');
+      return rawImage;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1869,6 +2874,7 @@ class _IdCameraCaptureScreenState extends State<_IdCameraCaptureScreen> {
               );
             }
 
+            final isFront = widget.captureLabel == 'Front Side';
             return Stack(
               children: [
                 Positioned.fill(child: CameraPreview(_controller)),
@@ -1892,30 +2898,28 @@ class _IdCameraCaptureScreenState extends State<_IdCameraCaptureScreen> {
                       child: Stack(
                         children: [
                           CustomPaint(
-                            painter: _IdGridPainter(),
+                            painter: _IdGridPainter(isFront: isFront),
                             child: const SizedBox.expand(),
                           ),
                           Positioned(
                             left: 14,
                             right: 14,
-                            bottom: 14,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 6),
-                              decoration: BoxDecoration(
-                                color: const Color(0x99FFD54F),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: const Color(0xFFFFC107),
-                                  width: 1.4,
-                                ),
-                              ),
+                            bottom: 16,
+                            child: IgnorePointer(
                               child: Text(
-                                'Keep 14-digit number line here'.translate(),
+                                isFront
+                                    ? '14-Digit National ID Number'.translate()
+                                    : 'Issue Date / Details'.translate(),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.black,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.greenAccent.withValues(
+                                    alpha: 0.9,
+                                  ),
+                                  shadows: const [
+                                    Shadow(color: Colors.black, blurRadius: 4),
+                                  ],
                                 ),
                               ),
                             ),
@@ -2009,42 +3013,126 @@ class _IdCameraCaptureScreenState extends State<_IdCameraCaptureScreen> {
 }
 
 class _IdGridPainter extends CustomPainter {
+  final bool isFront;
+
+  _IdGridPainter({required this.isFront});
+
   @override
   void paint(Canvas canvas, Size size) {
-    final gridPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.45)
-      ..strokeWidth = 1;
-    final bandPaint = Paint()
-      ..color = const Color(0x33FFC107)
-      ..style = PaintingStyle.fill;
-    final bandBorderPaint = Paint()
-      ..color = const Color(0xFFFFC107)
+    final borderPaint = Paint()
+      ..color = Colors.greenAccent.withValues(alpha: 0.8)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6;
+      ..strokeWidth = 2.5;
 
-    final x1 = size.width / 3;
-    final x2 = (size.width / 3) * 2;
-    final y1 = size.height / 3;
-    final y2 = (size.height / 3) * 2;
+    final fillPaint = Paint()
+      ..color = Colors.greenAccent.withValues(alpha: 0.15)
+      ..style = PaintingStyle.fill;
 
-    canvas.drawLine(Offset(x1, 0), Offset(x1, size.height), gridPaint);
-    canvas.drawLine(Offset(x2, 0), Offset(x2, size.height), gridPaint);
-    canvas.drawLine(Offset(0, y1), Offset(size.width, y1), gridPaint);
-    canvas.drawLine(Offset(0, y2), Offset(size.width, y2), gridPaint);
+    if (isFront) {
+      // Photo Box (Top Right)
+      final photoRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          size.width * 0.70,
+          size.height * 0.08,
+          size.width * 0.25,
+          size.height * 0.55,
+        ),
+        const Radius.circular(8),
+      );
+      canvas.drawRRect(photoRect, fillPaint);
+      canvas.drawRRect(photoRect, borderPaint);
 
-    final bandRect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(
-        14,
-        size.height * 0.73,
-        size.width - 28,
-        size.height * 0.14,
-      ),
-      const Radius.circular(8),
-    );
-    canvas.drawRRect(bandRect, bandPaint);
-    canvas.drawRRect(bandRect, bandBorderPaint);
+      // Birth Date Box (Top Left)
+      final dobRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          size.width * 0.05,
+          size.height * 0.08,
+          size.width * 0.25,
+          size.height * 0.35,
+        ),
+        const Radius.circular(8),
+      );
+      canvas.drawRRect(dobRect, borderPaint);
+
+      // National ID Number Box (Bottom)
+      final idNumberRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          size.width * 0.05,
+          size.height * 0.75,
+          size.width * 0.90,
+          size.height * 0.18,
+        ),
+        const Radius.circular(8),
+      );
+      canvas.drawRRect(idNumberRect, borderPaint);
+      canvas.drawRRect(idNumberRect, fillPaint);
+    } else {
+      // BACK OF ID DESIGN
+      // Barcode Box (Top Right)
+      final barcodeRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          size.width * 0.65,
+          size.height * 0.08,
+          size.width * 0.30,
+          size.height * 0.25,
+        ),
+        const Radius.circular(8),
+      );
+      canvas.drawRRect(barcodeRect, fillPaint);
+      canvas.drawRRect(barcodeRect, borderPaint);
+
+      // National ID / Issue Date Box (Bottom)
+      final bottomRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          size.width * 0.05,
+          size.height * 0.75,
+          size.width * 0.90,
+          size.height * 0.18,
+        ),
+        const Radius.circular(8),
+      );
+      canvas.drawRRect(bottomRect, borderPaint);
+
+      // Middle Details Guide
+      final infoRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          size.width * 0.15,
+          size.height * 0.35,
+          size.width * 0.70,
+          size.height * 0.35,
+        ),
+        const Radius.circular(8),
+      );
+      canvas.drawRRect(infoRect, borderPaint);
+    }
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _HeaderClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    path.lineTo(0, size.height - 40);
+    path.quadraticBezierTo(
+      size.width / 4,
+      size.height,
+      size.width / 2,
+      size.height - 30,
+    );
+    path.quadraticBezierTo(
+      size.width * 3 / 4,
+      size.height - 60,
+      size.width,
+      size.height - 20,
+    );
+    path.lineTo(size.width, 0);
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
