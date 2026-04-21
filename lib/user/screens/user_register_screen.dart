@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:camera/camera.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +19,7 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart' as image_picker;
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
+import 'package:mezaan/shared/services/supabase_storage_service.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/localization/localization_controller.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
@@ -31,17 +33,17 @@ class UserRegisterScreen extends StatefulWidget {
 }
 
 class _UserRegisterScreenState extends State<UserRegisterScreen> {
-  static const String _registerApiPath = '/Mezaan-API/user/register.php';
-  static const String _registerApiBaseUrl = String.fromEnvironment(
-    'MEZAAN_API_BASE_URL',
-    defaultValue: '',
-  );
-  static const Duration _registerRequestTimeout = Duration(seconds: 120);
-  static const int _maxUploadImageBytes = 900 * 1024;
-  static const int _uploadImageMaxDimension = 1280;
-  static const int _uploadImageQuality = 72;
   static const String _ocrSpaceEndpoint = 'https://api.ocr.space/parse/image';
   static const String _ocrSpaceApiKey = 'K87899142388957';
+  static const List<String> _emergencyRelations = <String>[
+    'Father',
+    'Mother',
+    'Brother',
+    'Sister',
+    'Spouse',
+    'Friend',
+    'Other',
+  ];
 
   final _firstNameController = TextEditingController();
   final _secondNameController = TextEditingController();
@@ -53,6 +55,8 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
   final _addressController = TextEditingController();
   final _dobController = TextEditingController();
   final _nationalIdController = TextEditingController();
+  final List<_EmergencyContactEntry> _emergencyContacts =
+      <_EmergencyContactEntry>[_EmergencyContactEntry()];
   final OnDeviceTranslatorModelManager _translatorModelManager =
       OnDeviceTranslatorModelManager();
   late final OnDeviceTranslator _arabicToEnglishTranslator;
@@ -86,6 +90,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
   String? _nationalIdError;
   String? _frontIdError;
   String? _backIdError;
+  String? _emergencyContactsError;
 
   @override
   void initState() {
@@ -113,6 +118,9 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     _addressController.dispose();
     _dobController.dispose();
     _nationalIdController.dispose();
+    for (final contact in _emergencyContacts) {
+      contact.dispose();
+    }
     super.dispose();
   }
 
@@ -143,31 +151,82 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     });
 
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('governorates')
-          .get();
-
       final loaded = <String, List<String>>{};
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final rawName = data['name']?.toString().trim() ?? '';
-        final name = rawName.isNotEmpty ? rawName : doc.id.trim();
-        if (name.isEmpty) {
-          continue;
-        }
 
-        final citiesRaw = data['cities'];
-        final cities = <String>[];
-        if (citiesRaw is List) {
-          for (final item in citiesRaw) {
-            final city = item?.toString().trim() ?? '';
-            if (city.isNotEmpty) {
-              cities.add(city);
+      Future<void> loadFromCollection(String collectionName) async {
+        final snapshot = await FirebaseFirestore.instance
+            .collection(collectionName)
+            .get();
+
+        for (final doc in snapshot.docs) {
+          final data = doc.data();
+          final rawName =
+              data['name']?.toString().trim() ??
+              data['governorate']?.toString().trim() ??
+              doc.id.trim();
+          final name = rawName.trim();
+          if (name.isEmpty) {
+            continue;
+          }
+
+          final citySet = <String>{};
+
+          final citiesRaw = data['cities'];
+          if (citiesRaw is List) {
+            for (final item in citiesRaw) {
+              final city = item?.toString().trim() ?? '';
+              if (city.isNotEmpty) {
+                citySet.add(city);
+              }
             }
           }
-        }
 
-        loaded[name] = cities;
+          final singleCity = data['city']?.toString().trim() ?? '';
+          if (singleCity.isNotEmpty) {
+            citySet.add(singleCity);
+          }
+
+          // Support nested structure: governorates/{id}/cities/{cityDoc}
+          for (final subCollectionName in const <String>[
+            'cities',
+            'Cities',
+            'cites',
+            'Cites',
+            'city',
+            'City',
+          ]) {
+            try {
+              final citiesSnapshot = await doc.reference
+                  .collection(subCollectionName)
+                  .get();
+              for (final cityDoc in citiesSnapshot.docs) {
+                final cityData = cityDoc.data();
+                final cityName =
+                    cityData['name']?.toString().trim() ?? cityDoc.id.trim();
+                if (cityName.isNotEmpty) {
+                  citySet.add(cityName);
+                }
+              }
+            } catch (_) {}
+          }
+
+          final mergedCitySet = <String>{...(loaded[name] ?? const <String>[])};
+          mergedCitySet.addAll(citySet);
+          loaded[name] = mergedCitySet.toList()..sort();
+        }
+      }
+
+      // Load from common naming variants and merge all results.
+      for (final collectionName in const <String>[
+        'governorates',
+        'government',
+        'governments',
+        'Governorates',
+        'Government',
+      ]) {
+        try {
+          await loadFromCollection(collectionName);
+        } catch (_) {}
       }
 
       if (!mounted) {
@@ -176,6 +235,9 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
 
       setState(() {
         _governoratesWithCities = loaded;
+        if (_governoratesWithCities.isEmpty) {
+          _governorateError = 'No governorates found in Firebase';
+        }
       });
     } catch (_) {
       if (!mounted) {
@@ -425,6 +487,184 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         SnackBar(content: Text('Could not select profile photo.'.translate())),
       );
     }
+  }
+
+  void _addEmergencyContact() {
+    if (_emergencyContacts.length >= 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Maximum 4 emergency contacts allowed.'.translate()),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _emergencyContacts.add(_EmergencyContactEntry());
+      _emergencyContactsError = null;
+    });
+  }
+
+  void _removeEmergencyContact(int index) {
+    if (_emergencyContacts.length <= 1) {
+      return;
+    }
+
+    setState(() {
+      final removed = _emergencyContacts.removeAt(index);
+      removed.dispose();
+      _emergencyContactsError = null;
+    });
+  }
+
+  String _normalizeToEmergencyLocal11(String rawPhone) {
+    final digits = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length == 11 && digits.startsWith('0')) {
+      return digits;
+    }
+    if (digits.length == 12 && digits.startsWith('20')) {
+      return '0${digits.substring(2)}';
+    }
+    if (digits.length == 14 && digits.startsWith('0020')) {
+      return '0${digits.substring(4)}';
+    }
+    return digits;
+  }
+
+  String? _validateEmergencyPhone(String value) {
+    final phone = _normalizeToEmergencyLocal11(value);
+    if (phone.isEmpty) {
+      return 'Emergency contact number is required';
+    }
+    if (!RegExp(r'^0[0-9]{10}$').hasMatch(phone)) {
+      return 'Emergency number must be exactly 11 digits';
+    }
+    return null;
+  }
+
+  Future<void> _pickEmergencyContactFromDevice(int index) async {
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Contact picker is available only on Android and iOS.'.translate(),
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final hasPermission = await FlutterContacts.requestPermission(
+        readonly: true,
+      );
+      if (!hasPermission) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Contacts permission is required.'.translate()),
+          ),
+        );
+        return;
+      }
+
+      final picked = await FlutterContacts.openExternalPick();
+      if (picked == null) {
+        return;
+      }
+
+      final fullContact = await FlutterContacts.getContact(
+        picked.id,
+        withProperties: true,
+      );
+      final firstPhoneRaw = fullContact?.phones.isNotEmpty == true
+          ? fullContact!.phones.first.number
+          : '';
+      final normalized = _normalizeToEmergencyLocal11(firstPhoneRaw);
+
+      if (normalized.isEmpty) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Selected contact has no phone number.'.translate()),
+          ),
+        );
+        return;
+      }
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        final entry = _emergencyContacts[index];
+        entry.phoneController.text = normalized;
+        entry.phoneError = _validateEmergencyPhone(normalized);
+        _emergencyContactsError = null;
+      });
+    } on MissingPluginException {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Contact plugin is not initialized. Stop the app and run it again (full restart).'
+                .translate(),
+          ),
+        ),
+      );
+    }
+  }
+
+  String? _validateEmergencyContacts() {
+    if (_emergencyContacts.isEmpty) {
+      return 'At least one emergency contact is required';
+    }
+
+    if (_emergencyContacts.length > 4) {
+      return 'Maximum 4 emergency contacts allowed';
+    }
+
+    bool hasEntryError = false;
+    final seenNumbers = <String>{};
+
+    for (final contact in _emergencyContacts) {
+      final normalizedPhone = _normalizeToEmergencyLocal11(
+        contact.phoneController.text,
+      );
+      final phoneError = _validateEmergencyPhone(normalizedPhone);
+      final relationError =
+          (contact.relation == null || contact.relation!.isEmpty)
+          ? 'Select relation'
+          : null;
+      if (phoneError == null && seenNumbers.contains(normalizedPhone)) {
+        contact.phoneError = 'Duplicate emergency number';
+        hasEntryError = true;
+      } else {
+        contact.phoneError = phoneError;
+        if (phoneError == null) {
+          seenNumbers.add(normalizedPhone);
+        }
+      }
+      contact.relationError = relationError;
+
+      if (contact.phoneError != null || contact.relationError != null) {
+        hasEntryError = true;
+      }
+    }
+
+    if (hasEntryError) {
+      return 'Please complete emergency contacts correctly';
+    }
+
+    return null;
   }
 
   Future<XFile?> _openIdCameraWithGrid({required bool isFront}) async {
@@ -1027,6 +1267,127 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     return null;
   }
 
+  Future<void> _showCenteredResultMessage({
+    required String message,
+    required bool isSuccess,
+  }) async {
+    if (!mounted) {
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20.r),
+          ),
+          title: Row(
+            children: [
+              Icon(
+                isSuccess ? Icons.check_circle_rounded : Icons.error_rounded,
+                color: isSuccess ? Colors.green : Colors.red,
+              ),
+              SizedBox(width: 8.w),
+              Expanded(
+                child: Text(
+                  isSuccess
+                      ? 'Registration Success'.translate()
+                      : 'Registration Failed'.translate(),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            message.translate(),
+            style: TextStyle(color: AppColors.textDark),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('OK'.translate()),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<bool> _validateUniqueRegistrationIdentity() async {
+    final firestore = FirebaseFirestore.instance;
+    final email = _emailController.text.trim();
+    final emailLower = email.toLowerCase();
+    final phone = _phoneController.text.trim();
+    final nationalId = _nationalIdController.text.trim();
+
+    final results = await Future.wait([
+      firestore
+          .collection('users')
+          .where('emailLower', isEqualTo: emailLower)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('users')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('users')
+          .where('phone', isEqualTo: phone)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('users')
+          .where('nationalId', isEqualTo: nationalId)
+          .limit(1)
+          .get(),
+    ]);
+
+    final emailLowerExists =
+        (results[0] as QuerySnapshot<Map<String, dynamic>>).docs.isNotEmpty;
+    final emailExists =
+        (results[1] as QuerySnapshot<Map<String, dynamic>>).docs.isNotEmpty;
+    final phoneExists =
+        (results[2] as QuerySnapshot<Map<String, dynamic>>).docs.isNotEmpty;
+    final nationalIdExists =
+        (results[3] as QuerySnapshot<Map<String, dynamic>>).docs.isNotEmpty;
+
+    String? emailError;
+    String? phoneError;
+    String? nationalIdError;
+
+    if (emailLowerExists || emailExists) {
+      emailError = 'This email is already registered and cannot be used again.';
+    }
+    if (phoneExists) {
+      phoneError =
+          'This phone number is already registered and cannot be used again.';
+    }
+    if (nationalIdExists) {
+      nationalIdError =
+          'This national ID is already registered and cannot be used again.';
+    }
+
+    if (emailError != null || phoneError != null || nationalIdError != null) {
+      if (mounted) {
+        setState(() {
+          _emailError = emailError ?? _emailError;
+          _phoneError = phoneError ?? _phoneError;
+          _nationalIdError = nationalIdError ?? _nationalIdError;
+        });
+      }
+      return false;
+    }
+
+    return true;
+  }
+
   bool _validateForm() {
     final firstNameError = _validateRequiredName(
       _firstNameController.text.trim(),
@@ -1058,6 +1419,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     final backIdError = _backIdImage == null
         ? 'Capture back ID photo from camera'
         : null;
+    final emergencyContactsError = _validateEmergencyContacts();
 
     setState(() {
       _firstNameError = firstNameError;
@@ -1074,6 +1436,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       _nationalIdError = nationalIdError;
       _frontIdError = frontIdError;
       _backIdError = backIdError;
+      _emergencyContactsError = emergencyContactsError;
     });
 
     return firstNameError == null &&
@@ -1089,207 +1452,8 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         dobError == null &&
         nationalIdError == null &&
         frontIdError == null &&
-        backIdError == null;
-  }
-
-  Uri _buildRegisterUri() {
-    final configuredBase = _registerApiBaseUrl.trim();
-    if (configuredBase.isNotEmpty) {
-      final parsed = Uri.tryParse(configuredBase);
-      if (parsed != null && parsed.hasScheme && parsed.host.isNotEmpty) {
-        final configuredPath = parsed.path;
-        if (configuredPath.endsWith('/register.php')) {
-          return parsed;
-        }
-
-        final normalizedBasePath = configuredPath.endsWith('/')
-            ? configuredPath.substring(0, configuredPath.length - 1)
-            : configuredPath;
-        return parsed.replace(path: '$normalizedBasePath$_registerApiPath');
-      }
-    }
-
-    if (kIsWeb) {
-      return Uri.parse('http://localhost$_registerApiPath');
-    }
-
-    if (Platform.isAndroid) {
-      return Uri.parse('http://10.0.2.2$_registerApiPath');
-    }
-
-    return Uri.parse('http://localhost$_registerApiPath');
-  }
-
-  String _apiConnectionHint() {
-    final configuredBase = _registerApiBaseUrl.trim();
-    if (configuredBase.isNotEmpty) {
-      return 'Using configured API base URL from MEZAAN_API_BASE_URL.';
-    }
-
-    if (kIsWeb) {
-      return 'Web uses localhost by default. Ensure the backend is reachable from browser origin.';
-    }
-
-    if (Platform.isAndroid) {
-      return 'Android default is 10.0.2.2 (emulator only). On a real phone, run with --dart-define=MEZAAN_API_BASE_URL=http://YOUR_PC_LAN_IP.';
-    }
-
-    return 'Desktop/iOS default is localhost. Ensure backend is running on this machine or configure MEZAAN_API_BASE_URL.';
-  }
-
-  Future<({String path, int bytes, bool isTemp})> _prepareImageForUpload(
-    XFile file, {
-    required String tempPrefix,
-  }) async {
-    final sourcePath = file.path;
-    final sourceFile = File(sourcePath);
-
-    if (!await sourceFile.exists()) {
-      return (path: sourcePath, bytes: 0, isTemp: false);
-    }
-
-    final sourceBytesLength = await sourceFile.length();
-    if (sourceBytesLength <= _maxUploadImageBytes) {
-      return (path: sourcePath, bytes: sourceBytesLength, isTemp: false);
-    }
-
-    try {
-      final rawBytes = await sourceFile.readAsBytes();
-      final decoded = img.decodeImage(rawBytes);
-      if (decoded == null) {
-        return (path: sourcePath, bytes: sourceBytesLength, isTemp: false);
-      }
-
-      img.Image processed = decoded;
-      if (decoded.width > _uploadImageMaxDimension ||
-          decoded.height > _uploadImageMaxDimension) {
-        if (decoded.width >= decoded.height) {
-          processed = img.copyResize(decoded, width: _uploadImageMaxDimension);
-        } else {
-          processed = img.copyResize(decoded, height: _uploadImageMaxDimension);
-        }
-      }
-
-      final encoded = img.encodeJpg(processed, quality: _uploadImageQuality);
-      if (encoded.length >= sourceBytesLength) {
-        return (path: sourcePath, bytes: sourceBytesLength, isTemp: false);
-      }
-
-      final tempPath =
-          '${Directory.systemTemp.path}${Platform.pathSeparator}${tempPrefix}_${DateTime.now().microsecondsSinceEpoch}.jpg';
-      final tempFile = File(tempPath);
-      await tempFile.writeAsBytes(encoded, flush: true);
-
-      return (path: tempPath, bytes: encoded.length, isTemp: true);
-    } catch (e) {
-      debugPrint('Image upload optimization failed for $sourcePath: $e');
-      return (path: sourcePath, bytes: sourceBytesLength, isTemp: false);
-    }
-  }
-
-  Future<Map<String, dynamic>> _submitRegistrationRequest() async {
-    final uri = _buildRegisterUri();
-    debugPrint('Register API URI: $uri');
-    final tempFilesToDelete = <String>[];
-
-    try {
-      final request = http.MultipartRequest('POST', uri)
-        ..fields['full_name'] =
-            '${_firstNameController.text.trim()} ${_secondNameController.text.trim()}'
-        ..fields['email'] = _emailController.text.trim()
-        ..fields['password'] = _passwordController.text
-        ..fields['phone'] = _phoneController.text.trim()
-        ..fields['gender'] = _selectedGender ?? ''
-        ..fields['country'] = _countryController.text.trim()
-        ..fields['government'] = _selectedGovernorate ?? ''
-        ..fields['city'] = _selectedCity ?? ''
-        ..fields['address'] = _addressController.text.trim()
-        ..fields['birthdate'] = _selectedDob != null
-            ? _formatDateForApi(_selectedDob!)
-            : ''
-        ..fields['national_id'] = _nationalIdController.text.trim();
-
-      if (_frontIdImage != null) {
-        final prepared = await _prepareImageForUpload(
-          _frontIdImage!,
-          tempPrefix: 'front_id_upload',
-        );
-        if (prepared.isTemp) {
-          tempFilesToDelete.add(prepared.path);
-        }
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            'front_national_id_photo',
-            prepared.path,
-          ),
-        );
-        debugPrint('Front ID upload bytes: ${prepared.bytes}');
-      }
-
-      if (_backIdImage != null) {
-        final prepared = await _prepareImageForUpload(
-          _backIdImage!,
-          tempPrefix: 'back_id_upload',
-        );
-        if (prepared.isTemp) {
-          tempFilesToDelete.add(prepared.path);
-        }
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            'back_national_id_photo',
-            prepared.path,
-          ),
-        );
-        debugPrint('Back ID upload bytes: ${prepared.bytes}');
-      }
-
-      if (_profilePhotoImage != null) {
-        final prepared = await _prepareImageForUpload(
-          _profilePhotoImage!,
-          tempPrefix: 'profile_upload',
-        );
-        if (prepared.isTemp) {
-          tempFilesToDelete.add(prepared.path);
-        }
-        request.files.add(
-          await http.MultipartFile.fromPath('profile_photo', prepared.path),
-        );
-        debugPrint('Profile upload bytes: ${prepared.bytes}');
-      }
-
-      final streamedResponse = await request.send().timeout(
-        _registerRequestTimeout,
-      );
-      final response = await http.Response.fromStream(streamedResponse);
-
-      Map<String, dynamic> body = {};
-      if (response.body.isNotEmpty) {
-        try {
-          final decoded = jsonDecode(response.body);
-          if (decoded is Map<String, dynamic>) {
-            body = decoded;
-          }
-        } catch (_) {
-          // Keep body empty for non-JSON responses; caller will use rawBody.
-        }
-      }
-
-      return {
-        'statusCode': response.statusCode,
-        'body': body,
-        'uri': uri.toString(),
-        'rawBody': response.body,
-      };
-    } finally {
-      for (final path in tempFilesToDelete) {
-        try {
-          final tempFile = File(path);
-          if (await tempFile.exists()) {
-            await tempFile.delete();
-          }
-        } catch (_) {}
-      }
-    }
+        backIdError == null &&
+        emergencyContactsError == null;
   }
 
   String _formatDateForApi(DateTime date) {
@@ -1299,9 +1463,36 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     return '$year-$month-$day';
   }
 
+  Future<String?> _uploadImageToStorage({
+    required String uid,
+    required XFile? file,
+    required String fileName,
+  }) async {
+    if (file == null) {
+      return null;
+    }
+
+    final storageService = const SupabaseStorageService();
+    return storageService.uploadMedia(
+      file: File(file.path),
+      folderPath: 'users/$uid/files',
+      fileName: fileName,
+    );
+  }
+
   Future<void> _syncRegistrationToFirebase() async {
     final email = _emailController.text.trim();
+    final emailLower = email.toLowerCase();
+    final phone = _phoneController.text.trim();
+    final nationalId = _nationalIdController.text.trim();
     final password = _passwordController.text;
+
+    final isUnique = await _validateUniqueRegistrationIdentity();
+    if (!isUnique) {
+      throw Exception(
+        'Email, phone number, or national ID is already registered. Please use unique values.',
+      );
+    }
 
     UserCredential credential;
     try {
@@ -1309,15 +1500,8 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         email: email,
         password: password,
       );
-    } on FirebaseAuthException catch (error) {
-      if (error.code == 'email-already-in-use') {
-        credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
-      } else {
-        rethrow;
-      }
+    } on FirebaseAuthException {
+      rethrow;
     }
 
     final firebaseUser = credential.user ?? FirebaseAuth.instance.currentUser;
@@ -1325,22 +1509,52 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       throw Exception('Firebase user not available after registration sync.');
     }
 
+    final profilePhotoUrl = await _uploadImageToStorage(
+      uid: firebaseUser.uid,
+      file: _profilePhotoImage,
+      fileName: 'profile_photo.jpg',
+    );
+    final frontIdPhotoUrl = await _uploadImageToStorage(
+      uid: firebaseUser.uid,
+      file: _frontIdImage,
+      fileName: 'id_front.jpg',
+    );
+    final backIdPhotoUrl = await _uploadImageToStorage(
+      uid: firebaseUser.uid,
+      file: _backIdImage,
+      fileName: 'id_back.jpg',
+    );
+
+    final emergencyContacts = _emergencyContacts
+        .map(
+          (contact) => <String, String>{
+            'phone': _normalizeToEmergencyLocal11(contact.phoneController.text),
+            'relation': contact.relation ?? '',
+          },
+        )
+        .toList();
+
     await FirebaseFirestore.instance.collection('users').doc(firebaseUser.uid).set({
       'uid': firebaseUser.uid,
       'email': email,
+      'emailLower': emailLower,
       'firstName': _firstNameController.text.trim(),
       'secondName': _secondNameController.text.trim(),
       'fullName':
           '${_firstNameController.text.trim()} ${_secondNameController.text.trim()}'
               .trim(),
-      'phone': _phoneController.text.trim(),
+      'phone': phone,
       'gender': _selectedGender ?? '',
       'country': _countryController.text.trim(),
       'governorate': _selectedGovernorate ?? '',
       'city': _selectedCity ?? '',
       'address': _addressController.text.trim(),
       'birthDate': _selectedDob != null ? _formatDateForApi(_selectedDob!) : '',
-      'nationalId': _nationalIdController.text.trim(),
+      'nationalId': nationalId,
+      'profilePhotoUrl': profilePhotoUrl ?? '',
+      'frontNationalIdPhotoUrl': frontIdPhotoUrl ?? '',
+      'backNationalIdPhotoUrl': backIdPhotoUrl ?? '',
+      'emergencyContacts': emergencyContacts,
       'role': 'user',
       'status': 'active',
       'updatedAt': FieldValue.serverTimestamp(),
@@ -1373,12 +1587,9 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
 
   Future<void> _handleRegister() async {
     if (!_validateForm()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Register failed. Please fix highlighted fields.'.translate(),
-          ),
-        ),
+      await _showCenteredResultMessage(
+        message: 'Register failed. Please fix highlighted fields.',
+        isSuccess: false,
       );
       return;
     }
@@ -1391,130 +1602,51 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       _isSubmitting = true;
     });
 
-    final fallbackRequestUri = _buildRegisterUri().toString();
-
     try {
-      final result = await _submitRegistrationRequest();
-      final statusCode = result['statusCode'] as int;
-      final body = result['body'] as Map<String, dynamic>;
-      final rawBody = (result['rawBody'] as String?) ?? '';
-      final requestUri = (result['uri'] as String?) ?? '';
-
-      final success =
-          body['success'] == true && statusCode >= 200 && statusCode < 300;
-      String? message = body['message'] as String?;
-
-      if ((message == null || message.trim().isEmpty) && !success) {
-        if (rawBody.trim().isNotEmpty) {
-          final compact = rawBody.replaceAll(RegExp(r'\s+'), ' ').trim();
-          message = compact.length > 220
-              ? '${compact.substring(0, 220)}...'
-              : compact;
-        } else {
-          message = 'Register failed (HTTP $statusCode).';
-        }
-      }
-
-      if (!success) {
-        debugPrint(
-          'Register failed. uri=$requestUri status=$statusCode message=${message ?? ''}',
-        );
-      }
+      await _syncRegistrationToFirebase();
 
       if (!mounted) {
         return;
       }
 
-      if (success) {
-        try {
-          await _syncRegistrationToFirebase();
-        } on FirebaseAuthException catch (e) {
-          if (!mounted) {
-            return;
-          }
-          debugPrint('Firebase sync failed: ${e.code} ${e.message ?? ''}');
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(_firebaseRegisterErrorMessage(e).translate()),
-            ),
-          );
-          return;
-        } catch (e) {
-          if (!mounted) {
-            return;
-          }
-          debugPrint('Firebase sync unexpected error: $e');
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Registration created on API, but Firebase sync failed.'
-                    .translate(),
-              ),
-            ),
-          );
+      await _showCenteredResultMessage(
+        message: 'Register successfully',
+        isSuccess: true,
+      );
+
+      Future.delayed(const Duration(milliseconds: 900), () {
+        if (!mounted) {
           return;
         }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text((message ?? 'Register successfully').translate()),
-          ),
-        );
-
-        Future.delayed(const Duration(milliseconds: 900), () {
-          if (!mounted) {
-            return;
-          }
-          LoadingNavigator.pushReplacementNamed(context, AppRoutes.userHome);
-        });
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              (message ?? 'Register failed. Please try again.').translate(),
-            ),
-          ),
-        );
-      }
-    } on SocketException catch (e) {
+        LoadingNavigator.pushReplacementNamed(context, AppRoutes.userHome);
+      });
+    } on FirebaseAuthException catch (e) {
       if (!mounted) {
         return;
       }
-      debugPrint('Register network error: $e');
-      final apiHint = _apiConnectionHint();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Could not connect to server. URL: $fallbackRequestUri. $apiHint'
-                .translate(),
-          ),
-        ),
+      debugPrint('Firebase register failed: ${e.code} ${e.message ?? ''}');
+      await _showCenteredResultMessage(
+        message: _firebaseRegisterErrorMessage(e),
+        isSuccess: false,
       );
-    } on TimeoutException catch (e) {
+    } on FirebaseException catch (e) {
       if (!mounted) {
         return;
       }
-      debugPrint('Register request timeout: $e');
-      final apiHint = _apiConnectionHint();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Server timeout while uploading photos. URL: $fallbackRequestUri. $apiHint'
-                .translate(),
-          ),
-        ),
+      debugPrint('Firebase data/storage error: ${e.code} ${e.message ?? ''}');
+      await _showCenteredResultMessage(
+        message: e.message ?? 'Firebase operation failed. Please try again.',
+        isSuccess: false,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (!mounted) {
         return;
       }
-      debugPrint('Register unexpected error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Register failed unexpectedly. Please try again.'.translate(),
-          ),
-        ),
+      debugPrint('Register unexpected Firebase flow error: $e');
+      debugPrint('$stackTrace');
+      await _showCenteredResultMessage(
+        message: 'Register failed: ${e.toString()}',
+        isSuccess: false,
       );
     } finally {
       if (mounted) {
@@ -1562,6 +1694,16 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
 
       final firestore = FirebaseFirestore.instance;
       final testDocRef = firestore.collection('users').doc(user.uid);
+      final emergencyContacts = _emergencyContacts
+          .map(
+            (contact) => <String, String>{
+              'phone': _normalizeToEmergencyLocal11(
+                contact.phoneController.text,
+              ),
+              'relation': contact.relation ?? '',
+            },
+          )
+          .toList();
       final testData = {
         'firstName': _firstNameController.text.trim(),
         'secondName': _secondNameController.text.trim(),
@@ -1575,6 +1717,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         'governorate': _selectedGovernorate ?? '',
         'city': _selectedCity ?? '',
         'address': _addressController.text.trim(),
+        'emergencyContacts': emergencyContacts,
         'createdAt': FieldValue.serverTimestamp(),
         'source': 'user_register_screen_test',
         'updatedAtMillis': DateTime.now().millisecondsSinceEpoch,
@@ -1854,6 +1997,8 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           }),
         ),
         SizedBox(height: 16.h),
+        _buildEmergencyContactsSection(),
+        SizedBox(height: 16.h),
         _GenderSelector(
           selectedGender: _selectedGender,
           errorText: _genderError,
@@ -1990,6 +2135,217 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           errorText: _backIdError,
           onCapturePressed: () => _captureNationalId(isFront: false),
         ),
+      ],
+    );
+  }
+
+  Widget _buildEmergencyContactsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Emergency Contacts'.translate(),
+                style: TextStyle(
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.navyBlue,
+                ),
+              ),
+            ),
+            Text(
+              '${_emergencyContacts.length}/4',
+              style: TextStyle(
+                fontSize: 12.sp,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 6.h),
+        Text(
+          'Required: add at least 1 contact. Phone must be 11 digits.'
+              .translate(),
+          style: TextStyle(fontSize: 12.sp, color: Colors.grey[600]),
+        ),
+        SizedBox(height: 10.h),
+        ...List<Widget>.generate(_emergencyContacts.length, (index) {
+          final contact = _emergencyContacts[index];
+          return Padding(
+            padding: EdgeInsets.only(bottom: 12.h),
+            child: Container(
+              padding: EdgeInsets.all(12.r),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F9FA),
+                borderRadius: BorderRadius.circular(14.r),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${'Contact'.translate()} ${index + 1}',
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.navyBlue,
+                          ),
+                        ),
+                      ),
+                      if (_emergencyContacts.length > 1)
+                        IconButton(
+                          onPressed: () => _removeEmergencyContact(index),
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                          ),
+                          tooltip: 'Remove'.translate(),
+                        ),
+                    ],
+                  ),
+                  TextField(
+                    controller: contact.phoneController,
+                    keyboardType: TextInputType.phone,
+                    inputFormatters: [
+                      LengthLimitingTextInputFormatter(11),
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        contact.phoneError = _validateEmergencyPhone(value);
+                        _emergencyContactsError = null;
+                      });
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Emergency Phone Number'.translate(),
+                      hintText: '01XXXXXXXXX'.translate(),
+                      prefixIcon: const Icon(Icons.phone_in_talk_outlined),
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                        borderSide: BorderSide(
+                          color: contact.phoneError == null
+                              ? const Color(0xFFE5E7EB)
+                              : Colors.red,
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                        borderSide: BorderSide(
+                          color: contact.phoneError == null
+                              ? AppColors.legalGold
+                              : Colors.red,
+                          width: 1.6,
+                        ),
+                      ),
+                      errorText: contact.phoneError?.translate(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12.w,
+                        vertical: 12.h,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 10.h),
+                  DropdownButtonFormField<String>(
+                    initialValue: contact.relation,
+                    items: _emergencyRelations
+                        .map(
+                          (relation) => DropdownMenuItem<String>(
+                            value: relation,
+                            child: Text(
+                              relation.translate(),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        contact.relation = value;
+                        contact.relationError = value == null
+                            ? 'Select relation'
+                            : null;
+                        _emergencyContactsError = null;
+                      });
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Relation'.translate(),
+                      prefixIcon: const Icon(Icons.people_alt_outlined),
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                        borderSide: BorderSide(
+                          color: contact.relationError == null
+                              ? const Color(0xFFE5E7EB)
+                              : Colors.red,
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                        borderSide: BorderSide(
+                          color: contact.relationError == null
+                              ? AppColors.legalGold
+                              : Colors.red,
+                          width: 1.6,
+                        ),
+                      ),
+                      errorText: contact.relationError?.translate(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12.w,
+                        vertical: 12.h,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 8.h),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _pickEmergencyContactFromDevice(index),
+                      icon: const Icon(Icons.contacts_outlined),
+                      label: Text('Pick from device'.translate()),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+        if (_emergencyContacts.length < 4)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _addEmergencyContact,
+              icon: const Icon(Icons.add_circle_outline),
+              label: Text('Add Emergency Contact'.translate()),
+            ),
+          ),
+        if (_emergencyContactsError != null)
+          Padding(
+            padding: EdgeInsets.only(top: 2.h),
+            child: Text(
+              _emergencyContactsError!.translate(),
+              style: TextStyle(
+                fontSize: 12.sp,
+                color: Colors.red,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -2528,23 +2884,31 @@ class _CustomDropdownField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasError = errorText != null;
+    final normalizedValue = value != null && items.contains(value)
+        ? value
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         DropdownButtonFormField<String>(
-          initialValue: value,
-          onChanged: enabled ? onChanged : null,
+          initialValue: normalizedValue,
+          onChanged: enabled && items.isNotEmpty ? onChanged : null,
           isExpanded: true,
           icon: Icon(
             Icons.keyboard_arrow_down_rounded,
             color: hasError ? Colors.red : AppColors.navyBlue,
           ),
-          style: const TextStyle(color: AppColors.navyBlue, fontSize: 14),
+          style: TextStyle(
+            color: AppColors.navyBlue,
+            fontSize: 14.sp,
+            overflow: TextOverflow.ellipsis,
+          ),
           items: items
               .map(
                 (item) => DropdownMenuItem<String>(
                   value: item,
+                  enabled: true,
                   child: Text(item, overflow: TextOverflow.ellipsis),
                 ),
               )
@@ -3135,4 +3499,15 @@ class _HeaderClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+class _EmergencyContactEntry {
+  final TextEditingController phoneController = TextEditingController();
+  String? relation;
+  String? phoneError;
+  String? relationError;
+
+  void dispose() {
+    phoneController.dispose();
+  }
 }

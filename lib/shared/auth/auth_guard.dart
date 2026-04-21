@@ -8,6 +8,7 @@ class AuthGuard {
       AppRoutes.onboarding,
       AppRoutes.auth,
       AppRoutes.login,
+      AppRoutes.forgotPassword,
       AppRoutes.register,
       AppRoutes.otp,
     };

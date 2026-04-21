@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mezaan/shared/auth/auth_state.dart';
@@ -14,9 +15,11 @@ import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/theme/theme_controller.dart';
 import 'package:mezaan/user/screens/government_map_screen.dart';
 import 'package:mezaan/user/screens/messages_screen.dart';
+import 'package:mezaan/user/screens/user_edit_profile_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
 import 'package:mezaan/user/widgets/user_profile_side_panel.dart';
 import 'package:mezaan/user/widgets/user_top_header.dart';
+import 'dart:async';
 import 'dart:typed_data';
 
 class UserDashboardScreen extends StatefulWidget {
@@ -28,13 +31,13 @@ class UserDashboardScreen extends StatefulWidget {
 
 class _UserDashboardScreenState extends State<UserDashboardScreen>
     with SingleTickerProviderStateMixin {
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ImagePicker _imagePicker = ImagePicker();
   String? _payloadUserUid;
   Future<_UserDashboardPayload>? _payloadFuture;
   late final AnimationController _sosPulseController;
   Uint8List? _profileImageBytes;
   int _selectedIndex = 2;
+  OverlayEntry? _profilePanelOverlayEntry;
 
   @override
   void initState() {
@@ -47,6 +50,8 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
 
   @override
   void dispose() {
+    _profilePanelOverlayEntry?.remove();
+    _profilePanelOverlayEntry = null;
     _sosPulseController.dispose();
     super.dispose();
   }
@@ -57,8 +62,81 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
     );
   }
 
-  void _openProfilePanel() {
-    _scaffoldKey.currentState?.openEndDrawer();
+  Future<void> _runPanelAction(FutureOr<void> Function() action) async {
+    _closeProfilePanel();
+    await action();
+  }
+
+  void _openProfilePanel({required String userName}) {
+    if (_profilePanelOverlayEntry != null) {
+      return;
+    }
+
+    final overlay = Overlay.of(context, rootOverlay: true);
+
+    _profilePanelOverlayEntry = OverlayEntry(
+      builder: (_) {
+        return Material(
+          color: Colors.transparent,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: _closeProfilePanel,
+                  child: Container(color: Colors.black.withValues(alpha: 0.35)),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: SafeArea(
+                  child: UserProfileSidePanel(
+                    userName: userName,
+                    profileImageBytes: _profileImageBytes,
+                    isDarkMode: ThemeController.instance.isDarkMode.value,
+                    onDarkModeChanged: (value) {
+                      ThemeController.instance.setDarkMode(value);
+                      _profilePanelOverlayEntry?.markNeedsBuild();
+                    },
+                    onClose: _closeProfilePanel,
+                    onChangePhoto: _changeProfilePhoto,
+                    onEditProfile: () => _runPanelAction(
+                      () => Get.to(
+                        () => const UserEditProfileScreen(),
+                        transition: Transition.rightToLeft,
+                      ),
+                    ),
+                    onLanguage: () => _runPanelAction(_showLanguageSheet),
+                    onSavedCards: () => _runPanelAction(
+                      () => _showComingSoon('Saved cards'.translate()),
+                    ),
+                    onSettings: () => _runPanelAction(
+                      () => _showComingSoon('Settings'.translate()),
+                    ),
+                    onEmergencyContacts: () => _runPanelAction(
+                      () => _showComingSoon('Emergency contacts'.translate()),
+                    ),
+                    onPrivacy: () => _runPanelAction(
+                      () => _showComingSoon('Privacy & security'.translate()),
+                    ),
+                    onHelp: () => _runPanelAction(
+                      () => _showComingSoon('Help center'.translate()),
+                    ),
+                    onLogout: () => _runPanelAction(_handleLogout),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    overlay.insert(_profilePanelOverlayEntry!);
+  }
+
+  void _closeProfilePanel() {
+    _profilePanelOverlayEntry?.remove();
+    _profilePanelOverlayEntry = null;
   }
 
   void _openGovernmentMap() {
@@ -84,7 +162,14 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
     if (!mounted) {
       return;
     }
-    setState(() => _profileImageBytes = bytes);
+
+    _profileImageBytes = bytes;
+    if (_profilePanelOverlayEntry != null) {
+      _profilePanelOverlayEntry?.markNeedsBuild();
+      return;
+    }
+
+    setState(() {});
   }
 
   Future<void> _handleLogout() async {
@@ -308,31 +393,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                 );
 
             return Scaffold(
-              key: _scaffoldKey,
               backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-              endDrawer: UserProfileSidePanel(
-                userName: payload.userName,
-                profileImageBytes: _profileImageBytes,
-                isDarkMode: ThemeController.instance.isDarkMode.value,
-                onDarkModeChanged: (value) {
-                  ThemeController.instance.setDarkMode(value);
-                  if (mounted) {
-                    setState(() {});
-                  }
-                },
-                onChangePhoto: _changeProfilePhoto,
-                onEditProfile: () =>
-                    _showComingSoon('Edit profile'.translate()),
-                onLanguage: _showLanguageSheet,
-                onSavedCards: () => _showComingSoon('Saved cards'.translate()),
-                onSettings: () => _showComingSoon('Settings'.translate()),
-                onEmergencyContacts: () =>
-                    _showComingSoon('Emergency contacts'.translate()),
-                onPrivacy: () =>
-                    _showComingSoon('Privacy & security'.translate()),
-                onHelp: () => _showComingSoon('Help center'.translate()),
-                onLogout: _handleLogout,
-              ),
               body: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -360,7 +421,9 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                               ),
                               child: UserTopHeader(
                                 balance: payload.balance,
-                                onNotificationTap: _openProfilePanel,
+                                onNotificationTap: () {
+                                  _openProfilePanel(userName: payload.userName);
+                                },
                               ),
                             ),
                             Expanded(
@@ -377,7 +440,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                       ),
                     Positioned(
                       right: 18.w,
-                      bottom: 10.h,
+                      bottom: 52.h,
                       child: SafeArea(
                         child: _SosFloatingButton(
                           pulse: _sosPulseController,
@@ -393,18 +456,26 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
               bottomNavigationBar: UserBottomNavBar(
                 currentIndex: _selectedIndex,
                 onDestinationSelected: (index) {
+                  if (index != 4 && _profilePanelOverlayEntry != null) {
+                    _closeProfilePanel();
+                  }
+
                   if (index == 4) {
-                    setState(() => _selectedIndex = 2);
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!mounted) {
-                        return;
-                      }
-                      _openProfilePanel();
-                    });
+                    if (_selectedIndex != 2) {
+                      setState(() => _selectedIndex = 2);
+                    }
+                    _openProfilePanel(
+                      userName:
+                          currentUser.displayName ??
+                          currentUser.email ??
+                          'User',
+                    );
                     return;
                   }
 
-                  setState(() => _selectedIndex = index);
+                  if (_selectedIndex != index) {
+                    setState(() => _selectedIndex = index);
+                  }
                   if (index == 2) {
                     return;
                   }
@@ -421,7 +492,14 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                     );
                   }
                 },
-                onCenterButtonTap: () => setState(() => _selectedIndex = 2),
+                onCenterButtonTap: () {
+                  if (_profilePanelOverlayEntry != null) {
+                    _closeProfilePanel();
+                  }
+                  if (_selectedIndex != 2) {
+                    setState(() => _selectedIndex = 2);
+                  }
+                },
               ),
             );
           },

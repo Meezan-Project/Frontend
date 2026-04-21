@@ -10,6 +10,7 @@ import 'package:mezaan/shared/localization/localization_controller.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
+import 'package:mezaan/shared/screens/otp_screen.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/widgets/language_toggle_button.dart';
 
@@ -74,11 +75,121 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     if (_selectedMethod == LoginMethod.phone) {
-      if (_phoneController.text.length < 11) {
+      final normalizedPhone = _normalizePhoneToE164(_phoneController.text);
+      if (normalizedPhone == null) {
         setState(() => _isPhoneValid = false);
         return;
       }
-      LoadingNavigator.pushNamed(context, AppRoutes.otp);
+
+      final isRegisteredPhone = await _isPhoneRegistered(normalizedPhone);
+      if (!isRegisteredPhone) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'This phone number is not registered. Please create an account first.'
+                  .translate(),
+            ),
+          ),
+        );
+        return;
+      }
+
+      setState(() {
+        _isPhoneValid = true;
+        _isSigningIn = true;
+      });
+
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: normalizedPhone,
+        timeout: const Duration(seconds: 60),
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          try {
+            final result = await FirebaseAuth.instance.signInWithCredential(
+              credential,
+            );
+            final role = await _resolveRoleForCurrentUser(result.user);
+            authState.loginAs(role);
+
+            if (!mounted) {
+              return;
+            }
+            _navigateToHomeByRole();
+          } catch (_) {
+            if (!mounted) {
+              return;
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Phone sign-in failed.'.translate())),
+            );
+          } finally {
+            if (mounted) {
+              setState(() {
+                _isSigningIn = false;
+              });
+            }
+          }
+        },
+        verificationFailed: (FirebaseAuthException error) {
+          if (!mounted) {
+            return;
+          }
+
+          final rawMessage = (error.message ?? '').toLowerCase();
+          final message = switch (error.code) {
+            'invalid-phone-number' =>
+              'Please enter a valid phone number.'.translate(),
+            'too-many-requests' =>
+              'Too many requests. Try again later.'.translate(),
+            'billing-not-enabled' =>
+              'Phone OTP is blocked: enable billing in Firebase/Google Cloud for this project.'
+                  .translate(),
+            _ =>
+              rawMessage.contains('billing_not_enabled') ||
+                      rawMessage.contains('billing-not-enabled')
+                  ? 'Phone OTP is blocked: enable billing in Firebase/Google Cloud for this project.'
+                        .translate()
+                  : (error.message ?? 'Could not send OTP.').translate(),
+          };
+
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+
+          setState(() {
+            _isSigningIn = false;
+          });
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          if (!mounted) {
+            return;
+          }
+
+          setState(() {
+            _isSigningIn = false;
+          });
+
+          LoadingNavigator.pushNamed(
+            context,
+            AppRoutes.otp,
+            arguments: OtpScreenArgs(
+              verificationId: verificationId,
+              phoneNumber: normalizedPhone,
+              resendToken: resendToken,
+            ),
+          );
+        },
+        codeAutoRetrievalTimeout: (_) {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _isSigningIn = false;
+          });
+        },
+      );
     } else {
       if (!_emailController.text.toLowerCase().endsWith('@gmail.com')) {
         setState(() => _isEmailValid = false);
@@ -148,6 +259,27 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  String? _normalizePhoneToE164(String input) {
+    final digits = input.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) {
+      return null;
+    }
+
+    if (digits.length == 11 && digits.startsWith('0')) {
+      return '+2$digits';
+    }
+
+    if (digits.length == 12 && digits.startsWith('20')) {
+      return '+$digits';
+    }
+
+    if (digits.length == 13 && digits.startsWith('201')) {
+      return '+$digits';
+    }
+
+    return null;
+  }
+
   Future<AppRole> _resolveRoleForCurrentUser(User? user) async {
     if (user == null) {
       return AppRole.user;
@@ -183,13 +315,13 @@ class _LoginScreenState extends State<LoginScreen> {
     return AppRole.user;
   }
 
-  void _handleGuestSignIn() {
-    authState.loginAs(AppRole.user);
-    LoadingNavigator.pushNamedAndRemoveUntil(
-      context,
-      AppRoutes.userHome,
-      (route) => false,
-    );
+  Future<bool> _isPhoneRegistered(String normalizedPhone) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('phone', isEqualTo: normalizedPhone)
+        .limit(1)
+        .get();
+    return snapshot.docs.isNotEmpty;
   }
 
   Future<void> _handleGoogleSignIn() async {
@@ -338,6 +470,33 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               SizedBox(height: 16.h),
                               _PasswordField(controller: _passwordController),
+                              SizedBox(height: 8.h),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: () => LoadingNavigator.pushNamed(
+                                    context,
+                                    AppRoutes.forgotPassword,
+                                  ),
+                                  style: TextButton.styleFrom(
+                                    minimumSize: Size.zero,
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 4.w,
+                                      vertical: 4.h,
+                                    ),
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: Text(
+                                    'Forgot password?'.translate(),
+                                    style: TextStyle(
+                                      color: AppColors.legalGold,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13.sp,
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ],
                           ],
                         ),
@@ -410,31 +569,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             _isGoogleSigningIn
                                 ? 'Signing in with Google...'.translate()
                                 : 'Continue with Google'.translate(),
-                            style: TextStyle(
-                              fontSize: 16.sp,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      SizedBox(height: 12.h),
-                      SizedBox(
-                        height: 52.h,
-                        child: OutlinedButton(
-                          onPressed: _handleGuestSignIn,
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(
-                              color: AppColors.navyBlue,
-                              width: 1.6,
-                            ),
-                            foregroundColor: AppColors.navyBlue,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16.r),
-                            ),
-                          ),
-                          child: Text(
-                            'Sign in as Guest'.translate(),
                             style: TextStyle(
                               fontSize: 16.sp,
                               fontWeight: FontWeight.w700,

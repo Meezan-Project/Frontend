@@ -4,9 +4,11 @@ import 'package:mezaan/lawyer/screens/lawyer_dashboard_screen.dart';
 import 'package:mezaan/shared/auth/auth_guard.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/screens/auth_screen.dart';
+import 'package:mezaan/shared/screens/forgot_password_screen.dart';
 import 'package:mezaan/shared/screens/launch_splash_screen.dart';
 import 'package:mezaan/shared/screens/login_screen.dart';
 import 'package:mezaan/shared/screens/onboarding_screen.dart';
+import 'package:mezaan/shared/screens/otp_screen.dart';
 import 'package:mezaan/shared/screens/register_screen.dart';
 import 'package:mezaan/shared/theme/responsive_page_wrapper.dart';
 import 'package:mezaan/user/screens/user_ai_chat_screen.dart';
@@ -81,10 +83,27 @@ class RouteGenerator {
           page: const LoginScreen(),
           routeName: AppRoutes.login,
         );
+      case AppRoutes.forgotPassword:
+        return _buildModernRoute(
+          page: const ForgotPasswordScreen(),
+          routeName: AppRoutes.forgotPassword,
+        );
       case AppRoutes.register:
         return _buildModernRoute(
           page: const RegisterScreen(),
           routeName: AppRoutes.register,
+        );
+      case AppRoutes.otp:
+        final args = settings.arguments;
+        if (args is! OtpScreenArgs) {
+          return _buildModernRoute(
+            page: const LoginScreen(),
+            routeName: AppRoutes.login,
+          );
+        }
+        return _buildModernRoute(
+          page: OtpScreen(args: args),
+          routeName: AppRoutes.otp,
         );
       case AppRoutes.userHome:
         return _buildModernRoute(

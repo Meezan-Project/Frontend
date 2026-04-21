@@ -13,6 +13,7 @@ import 'package:mezaan/shared/theme/theme_controller.dart';
 import 'package:mezaan/shared/localization/localization_controller.dart';
 import 'firebase_options.dart';
 import 'package:video_player_media_kit/video_player_media_kit.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +22,11 @@ Future<void> main() async {
   // while validating initial Firestore connectivity.
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: false,
+  );
+  await Supabase.initialize(
+    url: 'https://bwwkahwlmklvkrdwtaoh.supabase.co',
+    anonKey:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3d2thaHdsbWtsdmtyZHd0YW9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3NjU0NTgsImV4cCI6MjA5MjM0MTQ1OH0.Kzx7diYSacSp6nlzU0McHHA06_NIE7KXsWKO6G_uqtU',
   );
   final firebaseApp = Firebase.app();
   debugPrint(

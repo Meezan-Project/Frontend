@@ -11,6 +11,7 @@ class UserProfileSidePanel extends StatelessWidget {
   final Uint8List? profileImageBytes;
   final bool isDarkMode;
   final ValueChanged<bool> onDarkModeChanged;
+  final VoidCallback? onClose;
   final VoidCallback onChangePhoto;
   final VoidCallback onEditProfile;
   final VoidCallback onLanguage;
@@ -27,6 +28,7 @@ class UserProfileSidePanel extends StatelessWidget {
     required this.profileImageBytes,
     required this.isDarkMode,
     required this.onDarkModeChanged,
+    this.onClose,
     required this.onChangePhoto,
     required this.onEditProfile,
     required this.onLanguage,
@@ -45,167 +47,178 @@ class UserProfileSidePanel extends StatelessWidget {
         ? const Color(0xFF0F1726)
         : const Color(0xFFF6F9FF);
 
-    return Drawer(
-      width: MediaQuery.of(context).size.width * 0.66,
-      backgroundColor: panelBackground,
-      child: SafeArea(
-        child: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.fromLTRB(18.w, 16.h, 18.w, 18.h),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF03264A), Color(0xFF0B5E55)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(24.r),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF03264A).withValues(alpha: 0.26),
-                    blurRadius: 18,
-                    offset: Offset(0, 10.h),
+    return Material(
+      color: panelBackground,
+      child: SizedBox(
+        width: MediaQuery.of(context).size.width * 0.66,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.fromLTRB(18.w, 16.h, 14.w, 18.h),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF03264A), Color(0xFF0B5E55)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Stack(
-                        children: [
-                          CircleAvatar(
-                            radius: 34.r,
-                            backgroundColor: Colors.white,
-                            backgroundImage: profileImageBytes != null
-                                ? MemoryImage(profileImageBytes!)
-                                : null,
-                            child: profileImageBytes == null
-                                ? Icon(
-                                    Icons.person_rounded,
-                                    size: 36.sp,
-                                    color: AppColors.navyBlue,
-                                  )
-                                : null,
-                          ),
-                          Positioned(
-                            right: -2,
-                            bottom: -2,
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: onChangePhoto,
-                                borderRadius: BorderRadius.circular(16.r),
-                                child: Container(
-                                  width: 28.w,
-                                  height: 28.h,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFD9BF84),
-                                    borderRadius: BorderRadius.circular(14.r),
-                                    border: Border.all(color: Colors.white),
-                                  ),
-                                  child: Icon(
-                                    Icons.camera_alt_rounded,
-                                    size: 15.sp,
-                                    color: Color(0xFF0D2345),
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(24.r),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF03264A).withValues(alpha: 0.26),
+                      blurRadius: 18,
+                      offset: Offset(0, 10.h),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Stack(
+                          children: [
+                            CircleAvatar(
+                              radius: 34.r,
+                              backgroundColor: Colors.white,
+                              backgroundImage: profileImageBytes != null
+                                  ? MemoryImage(profileImageBytes!)
+                                  : null,
+                              child: profileImageBytes == null
+                                  ? Icon(
+                                      Icons.person_rounded,
+                                      size: 36.sp,
+                                      color: AppColors.navyBlue,
+                                    )
+                                  : null,
+                            ),
+                            Positioned(
+                              right: -2,
+                              bottom: -2,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: onChangePhoto,
+                                  borderRadius: BorderRadius.circular(16.r),
+                                  child: Container(
+                                    width: 28.w,
+                                    height: 28.h,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFD9BF84),
+                                      borderRadius: BorderRadius.circular(14.r),
+                                      border: Border.all(color: Colors.white),
+                                    ),
+                                    child: Icon(
+                                      Icons.camera_alt_rounded,
+                                      size: 15.sp,
+                                      color: const Color(0xFF0D2345),
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(width: 12.w),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              userName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.cairo(
-                                color: Colors.white,
-                                fontSize: 18.sp,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            SizedBox(height: 4.h),
-                            Text(
-                              'Manage your account'.translate(),
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.85),
-                              ),
-                            ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                        SizedBox(width: 12.w),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                userName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.cairo(
+                                  color: Colors.white,
+                                  fontSize: 18.sp,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              SizedBox(height: 4.h),
+                              Text(
+                                'Manage your account'.translate(),
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.85),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (onClose != null)
+                          IconButton(
+                            onPressed: onClose,
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
+                            ),
+                            tooltip: 'Close',
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: EdgeInsets.fromLTRB(12.w, 14.h, 12.w, 16.h),
-                children: [
-                  _PanelTile(
-                    icon: Icons.person_outline_rounded,
-                    title: 'Edit Profile'.translate(),
-                    onTap: onEditProfile,
-                  ),
-                  _PanelTile(
-                    icon: Icons.language_rounded,
-                    title: 'Language'.translate(),
-                    subtitle: 'Arabic / English'.translate(),
-                    onTap: onLanguage,
-                  ),
-                  _PanelSwitchTile(
-                    icon: Icons.dark_mode_outlined,
-                    title: 'Dark Mode'.translate(),
-                    value: isDarkMode,
-                    onChanged: onDarkModeChanged,
-                  ),
-                  _PanelTile(
-                    icon: Icons.credit_card_rounded,
-                    title: 'Saved Cards'.translate(),
-                    onTap: onSavedCards,
-                  ),
-                  _PanelTile(
-                    icon: Icons.emergency_share_rounded,
-                    title: 'Emergency Contacts'.translate(),
-                    onTap: onEmergencyContacts,
-                  ),
-                  _PanelTile(
-                    icon: Icons.settings_outlined,
-                    title: 'Settings'.translate(),
-                    onTap: onSettings,
-                  ),
-                  _PanelTile(
-                    icon: Icons.verified_user_outlined,
-                    title: 'Privacy & Security'.translate(),
-                    onTap: onPrivacy,
-                  ),
-                  _PanelTile(
-                    icon: Icons.help_outline_rounded,
-                    title: 'Need Help?'.translate(),
-                    onTap: onHelp,
-                  ),
-                  SizedBox(height: 6.h),
-                  _PanelTile(
-                    icon: Icons.logout_rounded,
-                    title: 'Logout'.translate(),
-                    isDanger: true,
-                    onTap: onLogout,
-                  ),
-                ],
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.fromLTRB(12.w, 14.h, 12.w, 16.h),
+                  children: [
+                    _PanelTile(
+                      icon: Icons.person_outline_rounded,
+                      title: 'Edit Profile'.translate(),
+                      onTap: onEditProfile,
+                    ),
+                    _PanelTile(
+                      icon: Icons.language_rounded,
+                      title: 'Language'.translate(),
+                      subtitle: 'Arabic / English'.translate(),
+                      onTap: onLanguage,
+                    ),
+                    _PanelSwitchTile(
+                      icon: Icons.dark_mode_outlined,
+                      title: 'Dark Mode'.translate(),
+                      value: isDarkMode,
+                      onChanged: onDarkModeChanged,
+                    ),
+                    _PanelTile(
+                      icon: Icons.credit_card_rounded,
+                      title: 'Saved Cards'.translate(),
+                      onTap: onSavedCards,
+                    ),
+                    _PanelTile(
+                      icon: Icons.emergency_share_rounded,
+                      title: 'Emergency Contacts'.translate(),
+                      onTap: onEmergencyContacts,
+                    ),
+                    _PanelTile(
+                      icon: Icons.settings_outlined,
+                      title: 'Settings'.translate(),
+                      onTap: onSettings,
+                    ),
+                    _PanelTile(
+                      icon: Icons.verified_user_outlined,
+                      title: 'Privacy & Security'.translate(),
+                      onTap: onPrivacy,
+                    ),
+                    _PanelTile(
+                      icon: Icons.help_outline_rounded,
+                      title: 'Need Help?'.translate(),
+                      onTap: onHelp,
+                    ),
+                    SizedBox(height: 6.h),
+                    _PanelTile(
+                      icon: Icons.logout_rounded,
+                      title: 'Logout'.translate(),
+                      isDanger: true,
+                      onTap: onLogout,
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -26,6 +26,40 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _isLoadingSlides = true;
   String? _slidesError;
 
+  static const List<OnboardingSlide> _localFallbackSlides = <OnboardingSlide>[
+    OnboardingSlide(
+      title: 'Video Call with Lawyer',
+      description:
+          'Connect with legal experts via high-quality video calls safely and privately.',
+      videoAsset: 'assets/videos/onboarding_lawer_call.mp4',
+      videoScale: 1.20,
+    ),
+    OnboardingSlide(
+      title: 'Book Appointments',
+      description:
+          'Schedule your meetings with top-rated lawyers easily through our app.',
+      videoAsset: 'assets/videos/onboarding_booking_appointment.mp4',
+      fallbackVideoAssets: <String>[
+        'assets/videos/Animation_of_Booking_an_Appointment.mp4',
+        'assets/videos/onboarding_lawer_call.mp4',
+      ],
+      videoScale: 1.38,
+    ),
+    OnboardingSlide(
+      title: 'Free AI Consultation',
+      description:
+          'Get instant legal advice for free through our advanced AI assistant.',
+      videoAsset: 'assets/videos/Video_Generated_Without_Lawyer.mp4',
+      videoScale: 1.25,
+    ),
+    OnboardingSlide(
+      title: 'Your Legal Hub',
+      description:
+          'Access all legal services in one powerful application anytime.',
+      icon: Icons.hub,
+    ),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -105,10 +139,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       }
 
       setState(() {
-        _slides = loaded;
+        _slides = loaded.isNotEmpty ? loaded : _localFallbackSlides;
         _isLoadingSlides = false;
         _slidesError = loaded.isEmpty
-            ? 'No onboarding slides found in Firebase.'
+            ? 'No onboarding slides found in Firebase. Showing local fallback.'
             : null;
         if (_slides.isEmpty) {
           _currentPage = 0;
@@ -121,8 +155,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         return;
       }
       setState(() {
+        _slides = _localFallbackSlides;
         _isLoadingSlides = false;
-        _slidesError = 'Failed to load onboarding slides from Firebase.';
+        _slidesError =
+            'Failed to load onboarding slides from Firebase. Showing local fallback.';
       });
     }
   }
@@ -707,7 +743,7 @@ class OnboardingSlide {
   final String? videoAsset;
   final List<String> fallbackVideoAssets;
   final double videoScale;
-  OnboardingSlide({
+  const OnboardingSlide({
     required this.title,
     required this.description,
     this.icon,
