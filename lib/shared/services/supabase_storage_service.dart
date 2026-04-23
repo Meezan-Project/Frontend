@@ -15,7 +15,7 @@ class SupabaseStorageService {
     try {
       await Supabase.instance.client.storage
           .from('mezaan_media')
-          .upload(fullPath, file, fileOptions: const FileOptions(upsert: true));
+          .upload(fullPath, file, fileOptions: const FileOptions());
 
       final publicUrl = Supabase.instance.client.storage
           .from('mezaan_media')

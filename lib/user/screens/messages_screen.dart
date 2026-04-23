@@ -23,7 +23,9 @@ class LawyerChat {
 }
 
 class MessagesScreen extends StatelessWidget {
-  const MessagesScreen({super.key});
+  final bool embedded;
+
+  const MessagesScreen({super.key, this.embedded = false});
 
   Stream<List<LawyerChat>> _lawyerThreadsStream(User user) {
     return FirebaseFirestore.instance
@@ -93,14 +95,7 @@ class MessagesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text('الرسائل'.translate()),
-          backgroundColor: AppColors.navyBlue,
-        ),
-        body: StreamBuilder<User?>(
+    final content = StreamBuilder<User?>(
           stream: FirebaseAuth.instance.authStateChanges(),
           builder: (context, authSnapshot) {
             final user = authSnapshot.data;
@@ -170,8 +165,18 @@ class MessagesScreen extends StatelessWidget {
               },
             );
           },
-        ),
+        );
+
+    if (embedded) {
+      return content;
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Messages'.translate()),
+        backgroundColor: AppColors.navyBlue,
       ),
+      body: content,
     );
   }
 }

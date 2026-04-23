@@ -604,6 +604,11 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       }
       setState(() {
         final entry = _emergencyContacts[index];
+        final pickedName = fullContact?.displayName.trim() ?? '';
+        if (pickedName.isNotEmpty) {
+          entry.nameController.text = pickedName;
+          entry.nameError = null;
+        }
         entry.phoneController.text = normalized;
         entry.phoneError = _validateEmergencyPhone(normalized);
         _emergencyContactsError = null;
@@ -636,6 +641,9 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     final seenNumbers = <String>{};
 
     for (final contact in _emergencyContacts) {
+      final nameError = contact.nameController.text.trim().isEmpty
+          ? 'Emergency contact name is required'
+          : null;
       final normalizedPhone = _normalizeToEmergencyLocal11(
         contact.phoneController.text,
       );
@@ -644,6 +652,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           (contact.relation == null || contact.relation!.isEmpty)
           ? 'Select relation'
           : null;
+      contact.nameError = nameError;
       if (phoneError == null && seenNumbers.contains(normalizedPhone)) {
         contact.phoneError = 'Duplicate emergency number';
         hasEntryError = true;
@@ -655,7 +664,9 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       }
       contact.relationError = relationError;
 
-      if (contact.phoneError != null || contact.relationError != null) {
+      if (contact.nameError != null ||
+          contact.phoneError != null ||
+          contact.relationError != null) {
         hasEntryError = true;
       }
     }
@@ -1349,14 +1360,10 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           .get(),
     ]);
 
-    final emailLowerExists =
-        (results[0] as QuerySnapshot<Map<String, dynamic>>).docs.isNotEmpty;
-    final emailExists =
-        (results[1] as QuerySnapshot<Map<String, dynamic>>).docs.isNotEmpty;
-    final phoneExists =
-        (results[2] as QuerySnapshot<Map<String, dynamic>>).docs.isNotEmpty;
-    final nationalIdExists =
-        (results[3] as QuerySnapshot<Map<String, dynamic>>).docs.isNotEmpty;
+    final emailLowerExists = (results[0]).docs.isNotEmpty;
+    final emailExists = (results[1]).docs.isNotEmpty;
+    final phoneExists = (results[2]).docs.isNotEmpty;
+    final nationalIdExists = (results[3]).docs.isNotEmpty;
 
     String? emailError;
     String? phoneError;
@@ -1528,6 +1535,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     final emergencyContacts = _emergencyContacts
         .map(
           (contact) => <String, String>{
+            'name': contact.nameController.text.trim(),
             'phone': _normalizeToEmergencyLocal11(contact.phoneController.text),
             'relation': contact.relation ?? '',
           },
@@ -1697,6 +1705,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       final emergencyContacts = _emergencyContacts
           .map(
             (contact) => <String, String>{
+              'name': contact.nameController.text.trim(),
               'phone': _normalizeToEmergencyLocal11(
                 contact.phoneController.text,
               ),
@@ -2208,6 +2217,53 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
                         ),
                     ],
                   ),
+                  TextField(
+                    controller: contact.nameController,
+                    textInputAction: TextInputAction.next,
+                    onChanged: (_) {
+                      setState(() {
+                        contact.nameError =
+                            contact.nameController.text.trim().isEmpty
+                            ? 'Emergency contact name is required'
+                            : null;
+                        _emergencyContactsError = null;
+                      });
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Emergency Contact Name'.translate(),
+                      hintText: 'Full name'.translate(),
+                      prefixIcon: const Icon(Icons.person_outline_rounded),
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                        borderSide: BorderSide(
+                          color: contact.nameError == null
+                              ? const Color(0xFFE5E7EB)
+                              : Colors.red,
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                        borderSide: BorderSide(
+                          color: contact.nameError == null
+                              ? AppColors.legalGold
+                              : Colors.red,
+                          width: 1.6,
+                        ),
+                      ),
+                      errorText: contact.nameError?.translate(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12.w,
+                        vertical: 12.h,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 10.h),
                   TextField(
                     controller: contact.phoneController,
                     keyboardType: TextInputType.phone,
@@ -3502,12 +3558,15 @@ class _HeaderClipper extends CustomClipper<Path> {
 }
 
 class _EmergencyContactEntry {
+  final TextEditingController nameController = TextEditingController();
   final TextEditingController phoneController = TextEditingController();
   String? relation;
+  String? nameError;
   String? phoneError;
   String? relationError;
 
   void dispose() {
+    nameController.dispose();
     phoneController.dispose();
   }
 }

@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:mezaan/shared/auth/auth_state.dart';
 import 'package:mezaan/shared/auth/firebase_session_service.dart';
 import 'package:mezaan/shared/localization/localization_controller.dart';
@@ -16,11 +14,11 @@ import 'package:mezaan/shared/theme/theme_controller.dart';
 import 'package:mezaan/user/screens/government_map_screen.dart';
 import 'package:mezaan/user/screens/messages_screen.dart';
 import 'package:mezaan/user/screens/user_edit_profile_screen.dart';
+import 'package:mezaan/user/screens/user_emergency_contacts_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
 import 'package:mezaan/user/widgets/user_profile_side_panel.dart';
 import 'package:mezaan/user/widgets/user_top_header.dart';
 import 'dart:async';
-import 'dart:typed_data';
 
 class UserDashboardScreen extends StatefulWidget {
   const UserDashboardScreen({super.key});
@@ -31,11 +29,9 @@ class UserDashboardScreen extends StatefulWidget {
 
 class _UserDashboardScreenState extends State<UserDashboardScreen>
     with SingleTickerProviderStateMixin {
-  final ImagePicker _imagePicker = ImagePicker();
   String? _payloadUserUid;
   Future<_UserDashboardPayload>? _payloadFuture;
   late final AnimationController _sosPulseController;
-  Uint8List? _profileImageBytes;
   int _selectedIndex = 2;
   OverlayEntry? _profilePanelOverlayEntry;
 
@@ -67,7 +63,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
     await action();
   }
 
-  void _openProfilePanel({required String userName}) {
+  void _openProfilePanel({required String userName, String? profileImageUrl}) {
     if (_profilePanelOverlayEntry != null) {
       return;
     }
@@ -91,20 +87,27 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                 child: SafeArea(
                   child: UserProfileSidePanel(
                     userName: userName,
-                    profileImageBytes: _profileImageBytes,
+                    profileImageBytes: null,
+                    profileImageUrl: profileImageUrl,
                     isDarkMode: ThemeController.instance.isDarkMode.value,
                     onDarkModeChanged: (value) {
                       ThemeController.instance.setDarkMode(value);
                       _profilePanelOverlayEntry?.markNeedsBuild();
                     },
                     onClose: _closeProfilePanel,
-                    onChangePhoto: _changeProfilePhoto,
-                    onEditProfile: () => _runPanelAction(
-                      () => Get.to(
-                        () => const UserEditProfileScreen(),
-                        transition: Transition.rightToLeft,
-                      ),
-                    ),
+                    onEditProfile: () => _runPanelAction(() async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) => const UserEditProfileScreen(),
+                        ),
+                      );
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _payloadFuture = null;
+                      });
+                    }),
                     onLanguage: () => _runPanelAction(_showLanguageSheet),
                     onSavedCards: () => _runPanelAction(
                       () => _showComingSoon('Saved cards'.translate()),
@@ -112,9 +115,20 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                     onSettings: () => _runPanelAction(
                       () => _showComingSoon('Settings'.translate()),
                     ),
-                    onEmergencyContacts: () => _runPanelAction(
-                      () => _showComingSoon('Emergency contacts'.translate()),
-                    ),
+                    onEmergencyContacts: () => _runPanelAction(() async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) =>
+                              const UserEmergencyContactsScreen(),
+                        ),
+                      );
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _payloadFuture = null;
+                      });
+                    }),
                     onPrivacy: () => _runPanelAction(
                       () => _showComingSoon('Privacy & security'.translate()),
                     ),
@@ -145,31 +159,6 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
         builder: (context) => const GovernmentMapScreen(),
       ),
     );
-  }
-
-  Future<void> _changeProfilePhoto() async {
-    final XFile? pickedFile = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 75,
-      maxWidth: 1200,
-    );
-
-    if (pickedFile == null) {
-      return;
-    }
-
-    final bytes = await pickedFile.readAsBytes();
-    if (!mounted) {
-      return;
-    }
-
-    _profileImageBytes = bytes;
-    if (_profilePanelOverlayEntry != null) {
-      _profilePanelOverlayEntry?.markNeedsBuild();
-      return;
-    }
-
-    setState(() {});
   }
 
   Future<void> _handleLogout() async {
@@ -320,7 +309,13 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
   }
 
   Widget _buildCurrentView(_UserDashboardPayload payload) {
-    return _buildDashboardView(payload);
+    switch (_selectedIndex) {
+      case 3:
+        return const MessagesScreen(embedded: true);
+      case 2:
+      default:
+        return _buildDashboardView(payload);
+    }
   }
 
   Future<_UserDashboardPayload> _loadPayloadForCurrentUser(User user) {
@@ -388,8 +383,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
             final payload =
                 snapshot.data ??
                 _UserDashboardPayload.empty(
-                  fallbackName:
-                      currentUser.displayName ?? currentUser.email ?? 'User',
+                  fallbackName: currentUser.displayName ?? 'User',
                 );
 
             return Scaffold(
@@ -422,7 +416,10 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                               child: UserTopHeader(
                                 balance: payload.balance,
                                 onNotificationTap: () {
-                                  _openProfilePanel(userName: payload.userName);
+                                  _openProfilePanel(
+                                    userName: payload.userName,
+                                    profileImageUrl: payload.profilePhotoUrl,
+                                  );
                                 },
                               ),
                             ),
@@ -465,18 +462,16 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                       setState(() => _selectedIndex = 2);
                     }
                     _openProfilePanel(
-                      userName:
-                          currentUser.displayName ??
-                          currentUser.email ??
-                          'User',
+                      userName: payload.userName,
+                      profileImageUrl: payload.profilePhotoUrl,
                     );
                     return;
                   }
 
-                  if (_selectedIndex != index) {
-                    setState(() => _selectedIndex = index);
-                  }
                   if (index == 2) {
+                    if (_selectedIndex != 2) {
+                      setState(() => _selectedIndex = 2);
+                    }
                     return;
                   }
 
@@ -485,11 +480,9 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                   } else if (index == 1) {
                     _showComingSoon('Cases'.translate());
                   } else if (index == 3) {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (context) => const MessagesScreen(),
-                      ),
-                    );
+                    if (_selectedIndex != 3) {
+                      setState(() => _selectedIndex = 3);
+                    }
                   }
                 },
                 onCenterButtonTap: () {
@@ -1201,10 +1194,22 @@ class _UserDashboardRepository {
         ? fullName
         : (user.displayName?.trim().isNotEmpty == true
               ? user.displayName!.trim()
-              : (user.email?.split('@').first ?? 'User'));
+              : 'User');
+
+    final profilePhotoUrl =
+        userData['profilePhotoUrl']?.toString().trim().isNotEmpty == true
+        ? userData['profilePhotoUrl'].toString().trim()
+        : (userData['photoUrl']?.toString().trim().isNotEmpty == true
+              ? userData['photoUrl'].toString().trim()
+              : (userData['imageUrl']?.toString().trim().isNotEmpty == true
+                    ? userData['imageUrl'].toString().trim()
+                    : (user.photoURL?.trim().isNotEmpty == true
+                          ? user.photoURL!.trim()
+                          : '')));
 
     return _UserDashboardPayload(
       userName: resolvedName,
+      profilePhotoUrl: profilePhotoUrl,
       categories: categories,
       topLawyers: topLawyers,
       services: services,
@@ -1412,6 +1417,7 @@ class _UserDashboardRepository {
 
 class _UserDashboardPayload {
   final String userName;
+  final String profilePhotoUrl;
   final List<_UserCategory> categories;
   final List<_LawyerProfile> topLawyers;
   final List<_ServiceItem> services;
@@ -1419,6 +1425,7 @@ class _UserDashboardPayload {
 
   const _UserDashboardPayload({
     required this.userName,
+    required this.profilePhotoUrl,
     required this.categories,
     required this.topLawyers,
     required this.services,
@@ -1428,6 +1435,7 @@ class _UserDashboardPayload {
   factory _UserDashboardPayload.empty({required String fallbackName}) {
     return _UserDashboardPayload(
       userName: fallbackName,
+      profilePhotoUrl: '',
       categories: const <_UserCategory>[],
       topLawyers: const <_LawyerProfile>[],
       services: const <_ServiceItem>[],

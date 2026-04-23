@@ -9,10 +9,10 @@ import 'package:mezaan/shared/theme/app_colors.dart';
 class UserProfileSidePanel extends StatelessWidget {
   final String userName;
   final Uint8List? profileImageBytes;
+  final String? profileImageUrl;
   final bool isDarkMode;
   final ValueChanged<bool> onDarkModeChanged;
   final VoidCallback? onClose;
-  final VoidCallback onChangePhoto;
   final VoidCallback onEditProfile;
   final VoidCallback onLanguage;
   final VoidCallback onSavedCards;
@@ -26,10 +26,10 @@ class UserProfileSidePanel extends StatelessWidget {
     super.key,
     required this.userName,
     required this.profileImageBytes,
+    this.profileImageUrl,
     required this.isDarkMode,
     required this.onDarkModeChanged,
     this.onClose,
-    required this.onChangePhoto,
     required this.onEditProfile,
     required this.onLanguage,
     required this.onSavedCards,
@@ -46,6 +46,8 @@ class UserProfileSidePanel extends StatelessWidget {
     final panelBackground = isDark
         ? const Color(0xFF0F1726)
         : const Color(0xFFF6F9FF);
+    final hasNetworkProfileImage =
+        profileImageUrl != null && profileImageUrl!.trim().isNotEmpty;
 
     return Material(
       color: panelBackground,
@@ -79,49 +81,43 @@ class UserProfileSidePanel extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Stack(
-                          children: [
-                            CircleAvatar(
-                              radius: 34.r,
-                              backgroundColor: Colors.white,
-                              backgroundImage: profileImageBytes != null
-                                  ? MemoryImage(profileImageBytes!)
-                                  : null,
-                              child: profileImageBytes == null
-                                  ? Icon(
-                                      Icons.person_rounded,
-                                      size: 36.sp,
-                                      color: AppColors.navyBlue,
-                                    )
-                                  : null,
+                        if (profileImageBytes != null)
+                          CircleAvatar(
+                            radius: 34.r,
+                            backgroundColor: Colors.white,
+                            backgroundImage: MemoryImage(profileImageBytes!),
+                          )
+                        else if (hasNetworkProfileImage)
+                          Container(
+                            width: 68.w,
+                            height: 68.h,
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
                             ),
-                            Positioned(
-                              right: -2,
-                              bottom: -2,
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  onTap: onChangePhoto,
-                                  borderRadius: BorderRadius.circular(16.r),
-                                  child: Container(
-                                    width: 28.w,
-                                    height: 28.h,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFD9BF84),
-                                      borderRadius: BorderRadius.circular(14.r),
-                                      border: Border.all(color: Colors.white),
-                                    ),
-                                    child: Icon(
-                                      Icons.camera_alt_rounded,
-                                      size: 15.sp,
-                                      color: const Color(0xFF0D2345),
-                                    ),
-                                  ),
-                                ),
-                              ),
+                            clipBehavior: Clip.antiAlias,
+                            child: Image.network(
+                              profileImageUrl!.trim(),
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Icon(
+                                  Icons.person_rounded,
+                                  size: 36.sp,
+                                  color: AppColors.navyBlue,
+                                );
+                              },
                             ),
-                          ],
-                        ),
+                          )
+                        else
+                          CircleAvatar(
+                            radius: 34.r,
+                            backgroundColor: Colors.white,
+                            child: Icon(
+                              Icons.person_rounded,
+                              size: 36.sp,
+                              color: AppColors.navyBlue,
+                            ),
+                          ),
                         SizedBox(width: 12.w),
                         Expanded(
                           child: Column(

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalizationController extends GetxController {
+  static const _languageKey = 'app_language_code';
+
   static LocalizationController get instance {
     if (!Get.isRegistered<LocalizationController>()) {
       Get.put(LocalizationController(), permanent: true);
@@ -16,8 +19,13 @@ class LocalizationController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    // Initialize with English
-    setLanguage('en');
+    _loadLanguage();
+  }
+
+  Future<void> _loadLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_languageKey) ?? 'en';
+    setLanguage(saved, persist: false);
   }
 
   /// Switch between English and Arabic
@@ -30,10 +38,18 @@ class LocalizationController extends GetxController {
   }
 
   /// Set language to specific code
-  void setLanguage(String languageCode) {
+  void setLanguage(String languageCode, {bool persist = true}) {
     currentLanguage.value = languageCode;
     isArabic.value = languageCode == 'ar';
     Get.updateLocale(Locale(languageCode));
+    if (persist) {
+      _saveLanguage(languageCode);
+    }
+  }
+
+  Future<void> _saveLanguage(String languageCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_languageKey, languageCode);
   }
 
   /// Get translated string
