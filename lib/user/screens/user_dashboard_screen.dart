@@ -14,6 +14,7 @@ import 'package:mezaan/shared/theme/theme_controller.dart';
 import 'package:mezaan/user/screens/government_map_screen.dart';
 import 'package:mezaan/user/screens/lawyers_list_screen.dart';
 import 'package:mezaan/user/screens/messages_screen.dart';
+import 'package:mezaan/user/screens/rescue.dart';
 import 'package:mezaan/user/screens/saved_cards_screen.dart';
 import 'package:mezaan/user/screens/user_categories_screen.dart';
 import 'package:mezaan/user/screens/user_edit_profile_screen.dart';
@@ -424,7 +425,11 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                   }
 
                   if (index == 0) {
-                    _showComingSoon('Urgent Rescue'.translate());
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (context) => const RescueScreen(),
+                      ),
+                    );
                   } else if (index == 1) {
                     _showComingSoon('Cases'.translate());
                   } else if (index == 3) {

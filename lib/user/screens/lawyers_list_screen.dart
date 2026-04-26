@@ -155,7 +155,7 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                     ),
                     SizedBox(height: 20.h),
                     DropdownButtonFormField<String>(
-                      value: _selectedGov,
+                      initialValue: _selectedGov,
                       decoration: InputDecoration(
                         labelText: 'المحافظة',
                         labelStyle: GoogleFonts.cairo(),
@@ -176,7 +176,7 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                     ),
                     SizedBox(height: 16.h),
                     DropdownButtonFormField<String>(
-                      value: _selectedCity,
+                      initialValue: _selectedCity,
                       decoration: InputDecoration(
                         labelText: 'المنطقة',
                         labelStyle: GoogleFonts.cairo(),

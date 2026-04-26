@@ -424,7 +424,7 @@ class _SavedCardsScreenState extends State<SavedCardsScreen> {
                 padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 20.h),
                 sliver: SliverList.separated(
                   itemCount: _cards.length,
-                  separatorBuilder: (_, __) => SizedBox(height: 14.h),
+                  separatorBuilder: (_, _) => SizedBox(height: 14.h),
                   itemBuilder: (_, index) {
                     final card = _cards[index];
                     return Column(
@@ -681,7 +681,7 @@ class _AddNewCardScreenState extends State<AddNewCardScreen>
               padding: EdgeInsets.symmetric(horizontal: 16.w),
               child: AnimatedBuilder(
                 animation: _flipAnimation,
-                builder: (_, __) {
+                builder: (_, _) {
                   final angle = _flipAnimation.value * math.pi;
                   final showBack = angle > math.pi / 2;
 
