@@ -77,18 +77,13 @@ class _UserEmergencyContactsScreenState
               _EmergencyContactModel(
                 name: rawContact['name']?.toString().trim() ?? '',
                 phone: rawContact['phone']?.toString().trim() ?? '',
-                relation:
-                    rawContact['relation']?.toString().trim().isNotEmpty == true
-                        ? rawContact['relation'].toString().trim()
-                        : null,
+                relation: _normalizeRelationValue(
+                  rawContact['relation']?.toString(),
+                ),
               ),
             );
           }
         }
-      }
-
-      if (parsedContacts.isEmpty) {
-        parsedContacts.add(_EmergencyContactModel());
       }
 
       if (!mounted) {
@@ -152,25 +147,90 @@ class _UserEmergencyContactsScreenState
     return null;
   }
 
+  String? _normalizeRelationValue(String? rawRelation) {
+    final raw = rawRelation?.trim();
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+
+    for (final relation in _emergencyRelations) {
+      if (relation.toLowerCase() == raw.toLowerCase()) {
+        return relation;
+      }
+    }
+
+    const arabicToEnglish = <String, String>{
+      'اب': 'Father',
+      'أب': 'Father',
+      'الأب': 'Father',
+      'ام': 'Mother',
+      'أم': 'Mother',
+      'الأم': 'Mother',
+      'اخ': 'Brother',
+      'أخ': 'Brother',
+      'الأخ': 'Brother',
+      'اخت': 'Sister',
+      'أخت': 'Sister',
+      'الأخت': 'Sister',
+      'زوج': 'Spouse',
+      'زوجة': 'Spouse',
+      'صديق': 'Friend',
+      'صديقة': 'Friend',
+      'اخرى': 'Other',
+      'أخرى': 'Other',
+    };
+
+    return arabicToEnglish[raw];
+  }
+
   List<Map<String, String>> _serializeContacts() {
     return _contacts
         .map(
           (contact) => <String, String>{
             'name': contact.nameController.text.trim(),
             'phone': _normalizeToEmergencyLocal11(contact.phoneController.text),
-            'relation': contact.relation ?? '',
+            'relation': _normalizeRelationValue(contact.relation) ?? '',
           },
         )
         .toList();
   }
 
-  Future<void> _saveContacts() async {
+  Future<void> _persistContacts({required bool showSuccessMessage}) async {
     final currentUser = _currentUser;
     if (currentUser == null) {
       _showSnackBar('Please sign in again.'.translate(), isError: true);
       return;
     }
 
+    final expectedCount = _serializeContacts().length;
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUser.uid)
+        .set(<String, dynamic>{
+          'emergencyContacts': _serializeContacts(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUser.uid)
+        .get();
+    final rawContacts = snapshot.data()?['emergencyContacts'];
+    final savedCount = rawContacts is List ? rawContacts.length : 0;
+    if (savedCount != expectedCount) {
+      throw Exception('Could not verify emergency contacts save.');
+    }
+
+    if (showSuccessMessage) {
+      _showSnackBar(
+        'Emergency contacts updated successfully'.translate(),
+        isError: false,
+      );
+    }
+  }
+
+  Future<void> _saveContacts() async {
     if (_contacts.isEmpty) {
       _showSnackBar(
         'Add at least one emergency contact.'.translate(),
@@ -188,6 +248,7 @@ class _UserEmergencyContactsScreenState
         contact.phoneController.text,
       );
       contact.phoneError = _validatePhone(normalizedPhone);
+      contact.relation = _normalizeRelationValue(contact.relation);
       contact.relationError = _validateRelation(contact.relation);
       if (contact.phoneError == null && seenNumbers.contains(normalizedPhone)) {
         contact.phoneError = 'Duplicate emergency number';
@@ -218,22 +279,12 @@ class _UserEmergencyContactsScreenState
     }
 
     try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .set(<String, dynamic>{
-            'emergencyContacts': _serializeContacts(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+      await _persistContacts(showSuccessMessage: true);
 
       if (!mounted) {
         return;
       }
 
-      _showSnackBar(
-        'Emergency contacts updated successfully'.translate(),
-        isError: false,
-      );
       setState(() => _isSaving = false);
     } catch (error) {
       if (!mounted) {
@@ -264,6 +315,23 @@ class _UserEmergencyContactsScreenState
     setState(() {
       _contacts.add(contact);
     });
+
+    if (!_isSaving) {
+      setState(() => _isSaving = true);
+    }
+
+    try {
+      await _persistContacts(showSuccessMessage: true);
+    } catch (error) {
+      _showSnackBar(
+        'Failed to save emergency contacts: $error'.translate(),
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   Future<void> _editContact(int index) async {
@@ -280,10 +348,27 @@ class _UserEmergencyContactsScreenState
       _contacts[index].phoneError = null;
       _contacts[index].relationError = null;
     });
+
+    if (!_isSaving) {
+      setState(() => _isSaving = true);
+    }
+
+    try {
+      await _persistContacts(showSuccessMessage: true);
+    } catch (error) {
+      _showSnackBar(
+        'Failed to save emergency contacts: $error'.translate(),
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   Future<void> _deleteContact(int index) async {
-    final shouldDelete = await showDialog<bool>(
+    final shouldDelete = await showDialog<bool?>(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -327,6 +412,23 @@ class _UserEmergencyContactsScreenState
       _contacts[index].dispose();
       _contacts.removeAt(index);
     });
+
+    if (!_isSaving) {
+      setState(() => _isSaving = true);
+    }
+
+    try {
+      await _persistContacts(showSuccessMessage: true);
+    } catch (error) {
+      _showSnackBar(
+        'Failed to save emergency contacts: $error'.translate(),
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   Future<_EmergencyContactModel?> _showContactEditor({
@@ -339,11 +441,11 @@ class _UserEmergencyContactsScreenState
       text: contact?.phoneController.text ?? '',
     );
     String? nameError;
-    String? relation = contact?.relation;
+    String? relation = _normalizeRelationValue(contact?.relation);
     String? phoneError;
     String? relationError;
 
-    final result = await showDialog<_EmergencyContactModel>(
+    final result = await showDialog<_EmergencyContactModel?>(
       context: context,
       builder: (context) {
         return StatefulBuilder(
@@ -455,7 +557,7 @@ class _UserEmergencyContactsScreenState
                       _EmergencyContactModel(
                         name: nameController.text.trim(),
                         phone: normalizedPhone,
-                        relation: relation,
+                        relation: _normalizeRelationValue(relation),
                       ),
                     );
                   },
@@ -468,8 +570,10 @@ class _UserEmergencyContactsScreenState
       },
     );
 
-    nameController.dispose();
-    phoneController.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      nameController.dispose();
+      phoneController.dispose();
+    });
     return result;
   }
 
@@ -480,6 +584,8 @@ class _UserEmergencyContactsScreenState
       ..clearSnackBars()
       ..showSnackBar(
         SnackBar(
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 1),
           content: Text(message),
           backgroundColor: isError ? const Color(0xFFC63F3F) : Colors.green,
         ),
@@ -493,70 +599,72 @@ class _UserEmergencyContactsScreenState
     return ScaffoldMessenger(
       key: _scaffoldKey,
       child: Scaffold(
-        backgroundColor: isDark ? const Color(0xFF0F1726) : const Color(0xFFF4F7FB),
+        backgroundColor: isDark
+            ? const Color(0xFF0F1726)
+            : const Color(0xFFF4F7FB),
         // AppBar has been removed completely to give a clean modern look
         body: SafeArea(
           bottom: false,
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _currentUser == null
-                  ? Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24.r),
-                        child: Container(
-                          padding: EdgeInsets.all(18.r),
-                          decoration: BoxDecoration(
-                            color: isDark ? const Color(0xFF24344C) : Colors.white,
-                            borderRadius: BorderRadius.circular(22.r),
-                            border: Border.all(
-                              color: isDark
-                                  ? const Color(0xFF2A3550)
-                                  : const Color(0xFFE6ECF5),
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.lock_outline_rounded,
-                                color: AppColors.navyBlue,
-                                size: 40.sp,
-                              ),
-                              SizedBox(height: 14.h),
-                              Text(
-                                'No signed in user found'.translate(),
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.cairo(
-                                  fontSize: 18.sp,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.navyBlue,
-                                ),
-                              ),
-                            ],
-                          ),
+              ? Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24.r),
+                    child: Container(
+                      padding: EdgeInsets.all(18.r),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF24344C) : Colors.white,
+                        borderRadius: BorderRadius.circular(22.r),
+                        border: Border.all(
+                          color: isDark
+                              ? const Color(0xFF2A3550)
+                              : const Color(0xFFE6ECF5),
                         ),
                       ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadContacts,
-                      child: ListView(
-                        padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 150.h),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          _buildHeaderCard(isDark),
-                          SizedBox(height: 16.h),
-                          if (_contacts.isEmpty)
-                            _buildEmptyState(isDark)
-                          else
-                            ...List<Widget>.generate(
-                              _contacts.length,
-                              (index) => Padding(
-                                padding: EdgeInsets.only(bottom: 14.h),
-                                child: _buildContactCard(index, isDark),
-                              ),
+                          Icon(
+                            Icons.lock_outline_rounded,
+                            color: AppColors.navyBlue,
+                            size: 40.sp,
+                          ),
+                          SizedBox(height: 14.h),
+                          Text(
+                            'No signed in user found'.translate(),
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.cairo(
+                              fontSize: 18.sp,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.navyBlue,
                             ),
+                          ),
                         ],
                       ),
                     ),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadContacts,
+                  child: ListView(
+                    padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 150.h),
+                    children: [
+                      _buildHeaderCard(isDark),
+                      SizedBox(height: 16.h),
+                      if (_contacts.isEmpty)
+                        _buildEmptyState(isDark)
+                      else
+                        ...List<Widget>.generate(
+                          _contacts.length,
+                          (index) => Padding(
+                            padding: EdgeInsets.only(bottom: 14.h),
+                            child: _buildContactCard(index, isDark),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
         ),
         bottomNavigationBar: _buildStickyActionBar(isDark),
       ),
@@ -648,7 +756,10 @@ class _UserEmergencyContactsScreenState
                   borderRadius: BorderRadius.circular(14.r),
                 ),
                 child: IconButton(
-                  icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                  icon: const Icon(
+                    Icons.arrow_back_rounded,
+                    color: Colors.white,
+                  ),
                   onPressed: () => Navigator.of(context).maybePop(),
                   padding: EdgeInsets.zero,
                 ),
@@ -918,8 +1029,8 @@ class _EmergencyContactModel {
   String? relationError;
 
   _EmergencyContactModel({String name = '', String phone = '', this.relation})
-      : nameController = TextEditingController(text: name),
-        phoneController = TextEditingController(text: phone);
+    : nameController = TextEditingController(text: name),
+      phoneController = TextEditingController(text: phone);
 
   void dispose() {
     nameController.dispose();

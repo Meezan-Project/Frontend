@@ -12,8 +12,12 @@ import 'package:mezaan/shared/navigation/loading_navigator.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/theme/theme_controller.dart';
 import 'package:mezaan/user/screens/government_map_screen.dart';
+import 'package:mezaan/user/screens/lawyers_list_screen.dart';
 import 'package:mezaan/user/screens/messages_screen.dart';
 import 'package:mezaan/user/screens/user_cases_screen.dart';
+import 'package:mezaan/user/screens/rescue.dart';
+import 'package:mezaan/user/screens/saved_cards_screen.dart';
+import 'package:mezaan/user/screens/user_categories_screen.dart';
 import 'package:mezaan/user/screens/user_edit_profile_screen.dart';
 import 'package:mezaan/user/screens/user_emergency_contacts_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
@@ -109,10 +113,17 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                         _payloadFuture = null;
                       });
                     }),
-                    onLanguage: () => _runPanelAction(_showLanguageSheet),
-                    onSavedCards: () => _runPanelAction(
-                      () => _showComingSoon('Saved cards'.translate()),
-                    ),
+                    onLanguage: () => _runPanelAction(() {
+                      LocalizationController.instance.toggleLanguage();
+                      if (mounted) setState(() {});
+                    }),
+                    onSavedCards: () => _runPanelAction(() async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) => const SavedCardsScreen(),
+                        ),
+                      );
+                    }),
                     onSettings: () => _runPanelAction(
                       () => _showComingSoon('Settings'.translate()),
                     ),
@@ -194,68 +205,6 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
     );
   }
 
-  Future<void> _showLanguageSheet() async {
-    final localizationController = LocalizationController.instance;
-    final selectedLanguage = await showModalBottomSheet<String>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Language'.translate(),
-                  style: GoogleFonts.cairo(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                ListTile(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  leading: const Icon(Icons.language_rounded),
-                  title: const Text('English'),
-                  trailing: localizationController.currentLanguage.value == 'en'
-                      ? const Icon(Icons.check_rounded, color: Colors.green)
-                      : null,
-                  onTap: () => Navigator.of(context).pop('en'),
-                ),
-                ListTile(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  leading: const Icon(Icons.language_rounded),
-                  title: const Text('العربية'),
-                  trailing: localizationController.currentLanguage.value == 'ar'
-                      ? const Icon(Icons.check_rounded, color: Colors.green)
-                      : null,
-                  onTap: () => Navigator.of(context).pop('ar'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-    if (selectedLanguage == null) {
-      return;
-    }
-
-    localizationController.setLanguage(selectedLanguage);
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
   Widget _buildDashboardView(_UserDashboardPayload payload) {
     return ListView(
       padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
@@ -270,7 +219,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
         if (payload.categories.isEmpty)
           const _DataEmptyHint(message: 'No categories found in Firebase yet.')
         else
-          _CategoryGrid(categories: payload.categories),
+          _CategoryRow(categories: payload.categories),
         SizedBox(height: 12.h),
         _LegalAIAssistantCard(
           onStartChat: () {
@@ -479,7 +428,11 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                   }
 
                   if (index == 0) {
-                    _showComingSoon('Urgent Rescue'.translate());
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (context) => const RescueScreen(),
+                      ),
+                    );
                   } else if (index == 1) {
                     if (_selectedIndex != 1) {
                       setState(() => _selectedIndex = 1);
@@ -613,42 +566,32 @@ class _HeroCard extends StatelessWidget {
   }
 }
 
-class _CategoryGrid extends StatelessWidget {
+class _CategoryRow extends StatelessWidget {
   final List<_UserCategory> categories;
 
-  const _CategoryGrid({required this.categories});
+  const _CategoryRow({required this.categories});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark
-        ? const Color(0xFF223149)
-        : Theme.of(context).cardColor;
-    final textColor = isDark
-        ? Colors.white
-        : Theme.of(context).textTheme.bodyMedium?.color;
-    final borderColor = isDark
-        ? const Color(0xFF2A3550)
-        : const Color(0xFFE7EDF7);
+    final displayCount = categories.length > 3 ? 3 : categories.length;
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: categories.length,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisExtent: 112.h,
-        crossAxisSpacing: 10.w,
-        mainAxisSpacing: 10.h,
-      ),
-      itemBuilder: (context, index) {
+    return Row(
+      children: List.generate(displayCount, (index) {
         final category = categories[index];
-        return Container(
+        final isLastAndMore = index == 2 && categories.length > 2;
+
+        Widget card = Container(
+          height: 112.h,
           padding: EdgeInsets.all(12.r),
           decoration: BoxDecoration(
-            color: cardColor,
+            color: isDark
+                ? const Color(0xFF223149)
+                : Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(16.r),
-            border: Border.all(color: borderColor),
+            border: Border.all(
+              color: isDark ? const Color(0xFF2A3550) : const Color(0xFFE7EDF7),
+            ),
             boxShadow: [
               BoxShadow(
                 color: const Color(0xFF0D2345).withValues(alpha: 0.06),
@@ -675,16 +618,94 @@ class _CategoryGrid extends StatelessWidget {
               Text(
                 category.title.translate(),
                 textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.cairo(
                   fontSize: 13.sp,
                   fontWeight: FontWeight.w700,
-                  color: textColor,
+                  color: isDark
+                      ? Colors.white
+                      : Theme.of(context).textTheme.bodyMedium?.color,
                 ),
               ),
             ],
           ),
         );
-      },
+
+        if (isLastAndMore) {
+          card = Stack(
+            children: [
+              card,
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16.r),
+                    gradient: LinearGradient(
+                      colors: [
+                        (isDark ? const Color(0xFF223149) : Colors.white)
+                            .withValues(alpha: 0.55),
+                        (isDark ? const Color(0xFF223149) : Colors.white)
+                            .withValues(alpha: 0.95),
+                      ],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          color: isDark ? Colors.white : AppColors.navyBlue,
+                          size: 22.sp,
+                        ),
+                        SizedBox(height: 4.h),
+                        Text(
+                          'See All'.translate(),
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.cairo(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13.sp,
+                            color: isDark ? Colors.white : AppColors.navyBlue,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+
+        return Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(
+              right: index < displayCount - 1 ? 10.w : 0,
+            ),
+            child: GestureDetector(
+              onTap: isLastAndMore
+                  ? () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const UserCategoriesScreen(),
+                        ),
+                      );
+                    }
+                  : () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              LawyersListScreen(categoryName: category.title),
+                        ),
+                      );
+                    },
+              child: card,
+            ),
+          ),
+        );
+      }),
     );
   }
 }
@@ -1227,8 +1248,7 @@ class _UserDashboardRepository {
   ) async {
     try {
       final snapshot = await firestore
-          .collection('legal_categories')
-          .orderBy('order')
+          .collection('lawyer_specializations')
           .limit(12)
           .get();
 
@@ -1243,11 +1263,9 @@ class _UserDashboardRepository {
               return null;
             }
 
-            return _UserCategory(
-              title,
-              _iconFromName(data['icon']?.toString()),
-              _colorFromDynamic(data['color']),
-            );
+            final style = _getCategoryStyle(title);
+
+            return _UserCategory(title, style.icon, style.color);
           })
           .whereType<_UserCategory>()
           .toList(growable: false);
@@ -1417,6 +1435,65 @@ class _UserDashboardRepository {
       return const Color(0xFF0D2345);
     }
     return Color(parsed);
+  }
+
+  static ({IconData icon, Color color}) _getCategoryStyle(String name) {
+    final lowerName = name.toLowerCase();
+
+    if (lowerName.contains('family') ||
+        lowerName.contains('أسرة') ||
+        lowerName.contains('احوال') ||
+        lowerName.contains('أحوال')) {
+      return (
+        icon: Icons.family_restroom_rounded,
+        color: const Color(0xFFE91E63),
+      );
+    }
+    if (lowerName.contains('criminal') || lowerName.contains('جنائي')) {
+      return (icon: Icons.local_police_rounded, color: const Color(0xFF424242));
+    }
+    if (lowerName.contains('corporate') ||
+        lowerName.contains('business') ||
+        lowerName.contains('شركات') ||
+        lowerName.contains('تجاري')) {
+      return (
+        icon: Icons.business_center_rounded,
+        color: const Color(0xFF1976D2),
+      );
+    }
+    if (lowerName.contains('labor') ||
+        lowerName.contains('employment') ||
+        lowerName.contains('عمال')) {
+      return (icon: Icons.engineering_rounded, color: const Color(0xFFFF9800));
+    }
+    if (lowerName.contains('real estate') ||
+        lowerName.contains('property') ||
+        lowerName.contains('عقار')) {
+      return (icon: Icons.apartment_rounded, color: const Color(0xFF4CAF50));
+    }
+    if (lowerName.contains('civil') || lowerName.contains('مدني')) {
+      return (icon: Icons.groups_rounded, color: const Color(0xFF009688));
+    }
+    if (lowerName.contains('tax') || lowerName.contains('ضريب')) {
+      return (
+        icon: Icons.request_quote_rounded,
+        color: const Color(0xFFF44336),
+      );
+    }
+    if (lowerName.contains('intellectual') || lowerName.contains('فكرية')) {
+      return (icon: Icons.lightbulb_rounded, color: const Color(0xFF673AB7));
+    }
+    if (lowerName.contains('administrative') ||
+        lowerName.contains('إداري') ||
+        lowerName.contains('اداري')) {
+      return (
+        icon: Icons.account_balance_rounded,
+        color: const Color(0xFF607D8B),
+      );
+    }
+
+    // Default fallback if no specific keywords match
+    return (icon: Icons.gavel_rounded, color: const Color(0xFF0D2345));
   }
 }
 

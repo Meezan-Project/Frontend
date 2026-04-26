@@ -978,10 +978,14 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
       'on_hold': {'bg': 0xFFF44336, 'label': 'On Hold'.translate()},
     };
 
-    final statusInfo = statusColors[status] ??
-        {'bg': 0xFF757575, 'label': status.replaceAll('_', ' ')};
-    final bgColor = statusInfo['bg'] as int;
-    final label = statusInfo['label'] as String;
+    int bgColor = 0xFF757575;
+    String label = status.replaceAll('_', ' ');
+    
+    if (statusColors.containsKey(status)) {
+      final info = statusColors[status]!;
+      bgColor = (info['bg'] as int?) ?? 0xFF757575;
+      label = (info['label'] as String?) ?? label;
+    }
 
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
@@ -1007,9 +1011,14 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
       'cancelled': {'bg': 0xFFF44336, 'label': 'Cancelled'.translate()},
     };
 
-    final statusInfo = statusMap[status] ?? {'bg': 0xFF757575, 'label': status};
-    final bgColor = statusInfo['bg'] as int;
-    final label = statusInfo['label'] as String;
+    int bgColor = 0xFF757575;
+    String label = status;
+    
+    if (statusMap.containsKey(status)) {
+      final info = statusMap[status]!;
+      bgColor = (info['bg'] as int?) ?? 0xFF757575;
+      label = (info['label'] as String?) ?? status;
+    }
 
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
