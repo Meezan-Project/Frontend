@@ -13,6 +13,7 @@ import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/theme/theme_controller.dart';
 import 'package:mezaan/user/screens/government_map_screen.dart';
 import 'package:mezaan/user/screens/messages_screen.dart';
+import 'package:mezaan/user/screens/user_cases_screen.dart';
 import 'package:mezaan/user/screens/user_edit_profile_screen.dart';
 import 'package:mezaan/user/screens/user_emergency_contacts_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
@@ -310,6 +311,8 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
 
   Widget _buildCurrentView(_UserDashboardPayload payload) {
     switch (_selectedIndex) {
+      case 1:
+        return const UserCasesScreen(embedded: true);
       case 3:
         return const MessagesScreen(embedded: true);
       case 2:
@@ -478,7 +481,9 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                   if (index == 0) {
                     _showComingSoon('Urgent Rescue'.translate());
                   } else if (index == 1) {
-                    _showComingSoon('Cases'.translate());
+                    if (_selectedIndex != 1) {
+                      setState(() => _selectedIndex = 1);
+                    }
                   } else if (index == 3) {
                     if (_selectedIndex != 3) {
                       setState(() => _selectedIndex = 3);

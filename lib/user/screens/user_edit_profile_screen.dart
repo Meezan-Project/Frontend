@@ -20,7 +20,6 @@ import 'package:mezaan/shared/navigation/app_routes.dart';
 
 import 'package:mezaan/shared/localization/translate_extension.dart';
 
-import 'package:mezaan/shared/navigation/loading_navigator.dart';
 
 import 'package:mezaan/shared/theme/app_colors.dart';
 
