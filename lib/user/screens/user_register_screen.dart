@@ -542,6 +542,13 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     return null;
   }
 
+  bool _isContactCompletelyEmpty(_EmergencyContactEntry contact) {
+    final hasName = contact.nameController.text.trim().isNotEmpty;
+    final hasPhone = contact.phoneController.text.trim().isNotEmpty;
+    final hasRelation = (contact.relation ?? '').trim().isNotEmpty;
+    return !hasName && !hasPhone && !hasRelation;
+  }
+
   Future<void> _pickEmergencyContactFromDevice(int index) async {
     if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) {
       if (!mounted) {
@@ -638,9 +645,18 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     }
 
     bool hasEntryError = false;
+    var hasAnyFilledContact = false;
     final seenNumbers = <String>{};
 
     for (final contact in _emergencyContacts) {
+      if (_isContactCompletelyEmpty(contact)) {
+        contact.nameError = null;
+        contact.phoneError = null;
+        contact.relationError = null;
+        continue;
+      }
+
+      hasAnyFilledContact = true;
       final nameError = contact.nameController.text.trim().isEmpty
           ? 'Emergency contact name is required'
           : null;
@@ -669,6 +685,10 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           contact.relationError != null) {
         hasEntryError = true;
       }
+    }
+
+    if (!hasAnyFilledContact) {
+      return 'At least one emergency contact is required';
     }
 
     if (hasEntryError) {
@@ -1533,6 +1553,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
     );
 
     final emergencyContacts = _emergencyContacts
+        .where((contact) => !_isContactCompletelyEmpty(contact))
         .map(
           (contact) => <String, String>{
             'name': contact.nameController.text.trim(),
@@ -1703,6 +1724,7 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       final firestore = FirebaseFirestore.instance;
       final testDocRef = firestore.collection('users').doc(user.uid);
       final emergencyContacts = _emergencyContacts
+          .where((contact) => !_isContactCompletelyEmpty(contact))
           .map(
             (contact) => <String, String>{
               'name': contact.nameController.text.trim(),
