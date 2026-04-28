@@ -13,6 +13,7 @@ import 'package:mezaan/shared/screens/register_screen.dart';
 import 'package:mezaan/shared/theme/responsive_page_wrapper.dart';
 import 'package:mezaan/user/screens/user_ai_chat_screen.dart';
 import 'package:mezaan/user/screens/user_dashboard_screen.dart';
+import 'package:mezaan/user/screens/lawyer_request_screen.dart';
 
 class RouteGenerator {
   static Route<dynamic> _buildModernRoute({
@@ -124,6 +125,11 @@ class RouteGenerator {
         return _buildModernRoute(
           page: const AdminDashboardScreen(),
           routeName: AppRoutes.adminHome,
+        );
+      case AppRoutes.lawyerRequest:
+        return _buildModernRoute(
+          page: const LawyerRequestScreen(),
+          routeName: AppRoutes.lawyerRequest,
         );
       default:
         return _buildModernRoute(
