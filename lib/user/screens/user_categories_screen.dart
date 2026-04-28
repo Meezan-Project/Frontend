@@ -29,20 +29,35 @@ class _UserCategoriesScreenState extends State<UserCategoriesScreen> {
           .collection('lawyer_specializations')
           .get();
 
-      final loaded = snapshot.docs
+      final sortedDocs = snapshot.docs.toList()
+        ..sort((left, right) {
+          final leftOrder = _extractCategorySortOrder(left.data());
+          final rightOrder = _extractCategorySortOrder(right.data());
+          final orderCompare = leftOrder.compareTo(rightOrder);
+          if (orderCompare != 0) {
+            return orderCompare;
+          }
+          final leftTitle = _extractCategoryTitle(left.data(), left.id);
+          final rightTitle = _extractCategoryTitle(right.data(), right.id);
+          return leftTitle.toLowerCase().compareTo(rightTitle.toLowerCase());
+        });
+
+      final loaded = sortedDocs
           .map((doc) {
             final data = doc.data();
-            final title =
-                data['title']?.toString().trim() ??
-                data['name']?.toString().trim() ??
-                '';
-            if (title.isEmpty) return null;
+            final title = _extractCategoryTitle(data, doc.id);
+            if (title.isEmpty || !_isCategoryEnabled(data)) return null;
 
-            final style = _getCategoryStyle(title);
+            final style = _getCategoryStyle(
+              data['icon']?.toString().trim().isNotEmpty == true
+                  ? data['icon'].toString().trim()
+                  : title,
+              data,
+            );
             return _CategoryData(title, style.icon, style.color);
           })
           .whereType<_CategoryData>()
-          .toList();
+          .toList(growable: false);
 
       if (mounted) {
         setState(() {
@@ -55,7 +70,48 @@ class _UserCategoriesScreenState extends State<UserCategoriesScreen> {
     }
   }
 
-  static ({IconData icon, Color color}) _getCategoryStyle(String name) {
+  static bool _isCategoryEnabled(Map<String, dynamic> data) {
+    return data['enabled'] != false;
+  }
+
+  static String _extractCategoryTitle(
+    Map<String, dynamic> data,
+    String fallback,
+  ) {
+    final title =
+        data['title']?.toString().trim() ??
+        data['name']?.toString().trim() ??
+        '';
+    if (title.isNotEmpty) {
+      return title;
+    }
+    return fallback.trim();
+  }
+
+  static int _extractCategorySortOrder(Map<String, dynamic> data) {
+    final value = data['sortOrder'];
+    if (value is int) {
+      return value;
+    }
+    return 9999;
+  }
+
+  static ({IconData icon, Color color}) _getCategoryStyle(
+    String name,
+    Map<String, dynamic> data,
+  ) {
+    final iconName = data['iconName']?.toString().trim() ?? '';
+    final colorValue = data['color'] ?? data['colorHex'];
+
+    return (
+      icon:
+          _iconFromName(iconName.isNotEmpty ? iconName : name) ??
+          _getCategoryStyleFromName(name).icon,
+      color: _colorFromDynamic(colorValue),
+    );
+  }
+
+  static ({IconData icon, Color color}) _getCategoryStyleFromName(String name) {
     final lowerName = name.toLowerCase();
 
     if (lowerName.contains('family') ||
@@ -111,6 +167,63 @@ class _UserCategoriesScreenState extends State<UserCategoriesScreen> {
     }
 
     return (icon: Icons.gavel_rounded, color: const Color(0xFF0D2345));
+  }
+
+  static IconData? _iconFromName(String? value) {
+    final normalized = value?.toLowerCase().trim() ?? '';
+    switch (normalized) {
+      case 'family_restroom':
+      case 'family_restroom_rounded':
+        return Icons.family_restroom_rounded;
+      case 'local_police':
+      case 'local_police_rounded':
+        return Icons.local_police_rounded;
+      case 'business_center':
+      case 'business_center_rounded':
+        return Icons.business_center_rounded;
+      case 'engineering':
+      case 'engineering_rounded':
+        return Icons.engineering_rounded;
+      case 'apartment':
+      case 'apartment_rounded':
+        return Icons.apartment_rounded;
+      case 'groups':
+      case 'groups_rounded':
+        return Icons.groups_rounded;
+      case 'request_quote':
+      case 'request_quote_rounded':
+        return Icons.request_quote_rounded;
+      case 'lightbulb':
+      case 'lightbulb_rounded':
+        return Icons.lightbulb_rounded;
+      case 'account_balance':
+      case 'account_balance_rounded':
+        return Icons.account_balance_rounded;
+      case 'gavel':
+      case 'gavel_rounded':
+        return Icons.gavel_rounded;
+      default:
+        return null;
+    }
+  }
+
+  static Color _colorFromDynamic(dynamic value) {
+    if (value is int) {
+      return Color(value);
+    }
+
+    final raw = value?.toString().trim() ?? '';
+    if (raw.isEmpty) {
+      return const Color(0xFF0D2345);
+    }
+
+    final normalized = raw.replaceAll('#', '').toUpperCase();
+    final withAlpha = normalized.length == 6 ? 'FF$normalized' : normalized;
+    final parsed = int.tryParse(withAlpha, radix: 16);
+    if (parsed == null) {
+      return const Color(0xFF0D2345);
+    }
+    return Color(parsed);
   }
 
   @override

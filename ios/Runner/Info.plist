@@ -6,7 +6,11 @@
 <string>We need your location to find nearby government services.</string>
 <key>NSContactsUsageDescription</key>
 <string>We need access to your contacts so you can pick emergency numbers during registration.</string>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>We need your location to show your position on the map.</string>
+<key>io.flutter.embedded_views_preview</key>
+<true/>
+<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>

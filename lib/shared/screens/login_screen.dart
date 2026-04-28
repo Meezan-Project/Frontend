@@ -37,6 +37,8 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isGoogleSigningIn = false;
   bool _isSigningIn = false;
 
+  static final RegExp _emailRegex = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+
   @override
   void initState() {
     super.initState();
@@ -191,7 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
         },
       );
     } else {
-      if (!_emailController.text.toLowerCase().endsWith('@gmail.com')) {
+      if (!_isValidEmail(_emailController.text)) {
         setState(() => _isEmailValid = false);
         return;
       }
@@ -280,28 +282,94 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
+  bool _isValidEmail(String input) {
+    return _emailRegex.hasMatch(input.trim().toLowerCase());
+  }
+
   Future<AppRole> _resolveRoleForCurrentUser(User? user) async {
     if (user == null) {
       return AppRole.user;
     }
 
     final firestore = FirebaseFirestore.instance;
+    final normalizedEmail = user.email?.trim().toLowerCase();
+
+    // 1) Fast path by UID in users collection.
     final userDoc = await firestore.collection('users').doc(user.uid).get();
+    if (userDoc.exists) {
+      return _roleFromDocData(userDoc.data(), fallback: AppRole.user);
+    }
 
-    Map<String, dynamic>? data = userDoc.data();
+    // 2) Fast path by UID in lawyers collection.
+    final lawyerDoc = await firestore.collection('lawyers').doc(user.uid).get();
+    if (lawyerDoc.exists) {
+      return _roleFromDocData(lawyerDoc.data(), fallback: AppRole.lawyer);
+    }
 
-    if ((data == null || data.isEmpty) && user.email != null) {
-      final byEmail = await firestore
+    if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
+      // 3) Query users by emailLower first, then email.
+      final userByEmailLower = await firestore
+          .collection('users')
+          .where('emailLower', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+      if (userByEmailLower.docs.isNotEmpty) {
+        return _roleFromDocData(
+          userByEmailLower.docs.first.data(),
+          fallback: AppRole.user,
+        );
+      }
+
+      final userByEmail = await firestore
           .collection('users')
           .where('email', isEqualTo: user.email!.trim())
           .limit(1)
           .get();
-      if (byEmail.docs.isNotEmpty) {
-        data = byEmail.docs.first.data();
+      if (userByEmail.docs.isNotEmpty) {
+        return _roleFromDocData(
+          userByEmail.docs.first.data(),
+          fallback: AppRole.user,
+        );
+      }
+
+      // 4) Query lawyers by emailLower first, then email.
+      final lawyerByEmailLower = await firestore
+          .collection('lawyers')
+          .where('emailLower', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+      if (lawyerByEmailLower.docs.isNotEmpty) {
+        return _roleFromDocData(
+          lawyerByEmailLower.docs.first.data(),
+          fallback: AppRole.lawyer,
+        );
+      }
+
+      final lawyerByEmail = await firestore
+          .collection('lawyers')
+          .where('email', isEqualTo: user.email!.trim())
+          .limit(1)
+          .get();
+      if (lawyerByEmail.docs.isNotEmpty) {
+        return _roleFromDocData(
+          lawyerByEmail.docs.first.data(),
+          fallback: AppRole.lawyer,
+        );
       }
     }
 
-    final rawRole = (data?['role'] ?? data?['accountType'] ?? 'user')
+    return AppRole.user;
+  }
+
+  AppRole _roleFromDocData(
+    Map<String, dynamic>? data, {
+    required AppRole fallback,
+  }) {
+    if (data == null || data.isEmpty) {
+      return fallback;
+    }
+
+    final rawRole = (data['role'] ?? data['accountType'] ?? data['userType'])
         .toString()
         .trim()
         .toLowerCase();
@@ -312,7 +380,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (rawRole == 'lawyer') {
       return AppRole.lawyer;
     }
-    return AppRole.user;
+    if (rawRole == 'user') {
+      return AppRole.user;
+    }
+
+    return fallback;
   }
 
   Future<bool> _isPhoneRegistered(String normalizedPhone) async {
@@ -463,9 +535,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 controller: _emailController,
                                 isValid: _isEmailValid,
                                 onChanged: (val) => setState(
-                                  () => _isEmailValid = val
-                                      .toLowerCase()
-                                      .endsWith('@gmail.com'),
+                                  () => _isEmailValid = _isValidEmail(val),
                                 ),
                               ),
                               SizedBox(height: 16.h),

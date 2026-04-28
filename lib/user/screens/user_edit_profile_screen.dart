@@ -104,12 +104,6 @@ class _UserEditProfileScreenState extends State<UserEditProfileScreen> {
 
   String _originalPhone = '';
 
-  String _originalBirthDate = '';
-
-  String _originalGender = '';
-
-  String _originalNationalId = '';
-
   String _originalCountry = '';
 
   String _originalGovernorate = '';
@@ -271,12 +265,6 @@ class _UserEditProfileScreenState extends State<UserEditProfileScreen> {
         _originalEmail = _emailController.text.trim();
 
         _originalPhone = _phoneController.text.trim();
-
-        _originalBirthDate = _birthDateController.text.trim();
-
-        _originalGender = _genderController.text.trim();
-
-        _originalNationalId = _nationalIdController.text.trim();
 
         _originalCountry = _countryController.text.trim();
 
@@ -2442,58 +2430,6 @@ class _UserEditProfileScreenState extends State<UserEditProfileScreen> {
       ),
 
       style: TextStyle(color: isDark ? Colors.white : AppColors.textDark),
-    );
-  }
-
-  Widget _buildReadOnlyField({required String label, required String value}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 14.h),
-
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1C2A40) : const Color(0xFFF8FAFD),
-
-        borderRadius: BorderRadius.circular(14.r),
-
-        border: Border.all(
-          color: isDark ? const Color(0xFF334866) : const Color(0xFFE2E8F0),
-        ),
-      ),
-
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-
-        children: [
-          Text(
-            label,
-
-            style: TextStyle(
-              fontSize: 12.sp,
-
-              fontWeight: FontWeight.w600,
-
-              color: (isDark ? Colors.white : AppColors.textDark).withValues(
-                alpha: 0.62,
-              ),
-            ),
-          ),
-
-          SizedBox(height: 4.h),
-
-          Text(
-            value,
-
-            style: TextStyle(
-              fontSize: 14.sp,
-
-              fontWeight: FontWeight.w700,
-
-              color: isDark ? Colors.white : AppColors.navyBlue,
-            ),
-          ),
-        ],
-      ),
     );
   }
 

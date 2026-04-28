@@ -39,7 +39,6 @@ class _GovernmentMapScreenState extends State<GovernmentMapScreen> {
   final Distance _distance = const Distance();
 
   final List<_GovernmentPlace> _places = <_GovernmentPlace>[];
-  final int _tileRevision = DateTime.now().millisecondsSinceEpoch;
 
   LatLng _userLocation = const LatLng(30.0444, 31.2357);
   bool _isLoading = false;
@@ -47,7 +46,6 @@ class _GovernmentMapScreenState extends State<GovernmentMapScreen> {
   bool _showListView = false;
   String _searchQuery = '';
   String? _errorMessage;
-  LatLngBounds? _lastSearchedBounds;
   _GovernmentPlaceType? _selectedTypeFilter;
   _PlaceSort _sortMode = _PlaceSort.nearest;
   String? _selectedPlaceId;
@@ -315,7 +313,6 @@ out center;
       _places
         ..clear()
         ..addAll(places);
-      _lastSearchedBounds = bounds;
       if (places.isEmpty) {
         _errorMessage = _txt(
           en: 'No government places found in this area. Try zooming out then search again.',
@@ -394,7 +391,6 @@ out center;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
-      _lastSearchedBounds = bounds;
     });
 
     try {
@@ -1578,42 +1574,42 @@ out center;
             _buildListView()
           else
             FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _userLocation,
-              initialZoom: 14.5, // ظبطنا الزووم من البداية
-              onMapReady: () {
-                _mapReady = true;
-                // شلنا الـ _mapController.move من هنا عشان كانت بتعمل تعارض لحظة التحميل
-              },
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: _userLocation,
+                initialZoom: 14.5, // ظبطنا الزووم من البداية
+                onMapReady: () {
+                  _mapReady = true;
+                  // شلنا الـ _mapController.move من هنا عشان كانت بتعمل تعارض لحظة التحميل
+                },
+              ),
+              children: [
+                TileLayer(
+                  // السر هنا: ضفنا /256/ عشان الصور تنزل خفيفة وماتعملش Crash
+                  urlTemplate:
+                      'https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=HNGIJUr6VGmHEr8rxntj',
+                  userAgentPackageName: 'com.example.mezaan',
+                  tileSize: 256,
+                ),
+                MarkerLayer(markers: markers),
+                RichAttributionWidget(
+                  attributions: [
+                    TextSourceAttribution(
+                      '© MapTiler',
+                      onTap: () => launchUrl(
+                        Uri.parse('https://www.maptiler.com/copyright/'),
+                      ),
+                    ),
+                    TextSourceAttribution(
+                      '© OpenStreetMap contributors',
+                      onTap: () => launchUrl(
+                        Uri.parse('https://www.openstreetmap.org/copyright'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            children: [
-              TileLayer(
-                // السر هنا: ضفنا /256/ عشان الصور تنزل خفيفة وماتعملش Crash
-                urlTemplate:
-                    'https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=HNGIJUr6VGmHEr8rxntj',
-                userAgentPackageName: 'com.example.mezaan',
-                tileSize: 256,
-              ),
-              MarkerLayer(markers: markers),
-              RichAttributionWidget(
-                attributions: [
-                  TextSourceAttribution(
-                    '© MapTiler',
-                    onTap: () => launchUrl(
-                      Uri.parse('https://www.maptiler.com/copyright/'),
-                    ),
-                  ),
-                  TextSourceAttribution(
-                    '© OpenStreetMap contributors',
-                    onTap: () => launchUrl(
-                      Uri.parse('https://www.openstreetmap.org/copyright'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
           if (!_showListView)
             Positioned(
               left: 12.w,
