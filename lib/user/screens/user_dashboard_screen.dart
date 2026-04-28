@@ -574,138 +574,166 @@ class _CategoryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final displayCount = categories.length > 3 ? 3 : categories.length;
+    return SizedBox(
+      height: 112.h,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: categories.length + 1,
+        separatorBuilder: (_, _) => SizedBox(width: 10.w),
+        itemBuilder: (context, index) {
+          final isSeeAllCard = index == categories.length;
 
-    return Row(
-      children: List.generate(displayCount, (index) {
-        final category = categories[index];
-        final isLastAndMore = index == 2 && categories.length > 2;
-
-        Widget card = Container(
-          height: 112.h,
-          padding: EdgeInsets.all(12.r),
-          decoration: BoxDecoration(
-            color: isDark
-                ? const Color(0xFF223149)
-                : Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(16.r),
-            border: Border.all(
-              color: isDark ? const Color(0xFF2A3550) : const Color(0xFFE7EDF7),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0D2345).withValues(alpha: 0.06),
-                blurRadius: 14,
-                offset: Offset(0, 6.h),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircleAvatar(
-                radius: 24.r,
-                backgroundColor: isDark
-                    ? Colors.white.withValues(alpha: 0.14)
-                    : category.color.withValues(alpha: 0.12),
-                child: Icon(
-                  category.icon,
-                  color: isDark ? Colors.white : category.color,
-                  size: 28.sp,
-                ),
-              ),
-              SizedBox(height: 10.h),
-              Text(
-                category.title.translate(),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.cairo(
-                  fontSize: 13.sp,
-                  fontWeight: FontWeight.w700,
-                  color: isDark
-                      ? Colors.white
-                      : Theme.of(context).textTheme.bodyMedium?.color,
-                ),
-              ),
-            ],
-          ),
-        );
-
-        if (isLastAndMore) {
-          card = Stack(
-            children: [
-              card,
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16.r),
-                    gradient: LinearGradient(
-                      colors: [
-                        (isDark ? const Color(0xFF223149) : Colors.white)
-                            .withValues(alpha: 0.55),
-                        (isDark ? const Color(0xFF223149) : Colors.white)
-                            .withValues(alpha: 0.95),
-                      ],
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                    ),
+          if (isSeeAllCard) {
+            return GestureDetector(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const UserCategoriesScreen(),
                   ),
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.arrow_forward_rounded,
-                          color: isDark ? Colors.white : AppColors.navyBlue,
-                          size: 22.sp,
+                );
+              },
+              child: SizedBox(
+                width: 118.w,
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 118.w,
+                      padding: EdgeInsets.all(12.r),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xFF223149)
+                            : Theme.of(context).cardColor,
+                        borderRadius: BorderRadius.circular(16.r),
+                        border: Border.all(
+                          color: isDark
+                              ? const Color(0xFF2A3550)
+                              : const Color(0xFFE7EDF7),
                         ),
-                        SizedBox(height: 4.h),
-                        Text(
-                          'See All'.translate(),
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.cairo(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 13.sp,
-                            color: isDark ? Colors.white : AppColors.navyBlue,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(
+                              0xFF0D2345,
+                            ).withValues(alpha: 0.06),
+                            blurRadius: 14,
+                            offset: Offset(0, 6.h),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16.r),
+                          gradient: LinearGradient(
+                            colors: [
+                              (isDark ? const Color(0xFF223149) : Colors.white)
+                                  .withValues(alpha: 0.35),
+                              (isDark ? const Color(0xFF223149) : Colors.white)
+                                  .withValues(alpha: 0.92),
+                            ],
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
                           ),
                         ),
-                      ],
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.arrow_forward_rounded,
+                                color: isDark
+                                    ? Colors.white
+                                    : AppColors.navyBlue,
+                                size: 19.sp,
+                              ),
+                              SizedBox(height: 4.h),
+                              Text(
+                                'See All'.translate(),
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.cairo(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13.sp,
+                                  color: isDark
+                                      ? Colors.white
+                                      : AppColors.navyBlue,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
-            ],
-          );
-        }
+            );
+          }
 
-        return Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(
-              right: index < displayCount - 1 ? 10.w : 0,
+          final category = categories[index];
+          return GestureDetector(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      LawyersListScreen(categoryName: category.title),
+                ),
+              );
+            },
+            child: Container(
+              width: 118.w,
+              padding: EdgeInsets.all(12.r),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF223149)
+                    : Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(16.r),
+                border: Border.all(
+                  color: isDark
+                      ? const Color(0xFF2A3550)
+                      : const Color(0xFFE7EDF7),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0D2345).withValues(alpha: 0.06),
+                    blurRadius: 14,
+                    offset: Offset(0, 6.h),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircleAvatar(
+                    radius: 20.r,
+                    backgroundColor: isDark
+                        ? Colors.white.withValues(alpha: 0.14)
+                        : category.color.withValues(alpha: 0.12),
+                    child: Icon(
+                      category.icon,
+                      color: isDark ? Colors.white : category.color,
+                      size: 22.sp,
+                    ),
+                  ),
+                  SizedBox(height: 9.h),
+                  Text(
+                    category.title.translate(),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.cairo(
+                      fontSize: 13.sp,
+                      fontWeight: FontWeight.w700,
+                      color: isDark
+                          ? Colors.white
+                          : Theme.of(context).textTheme.bodyMedium?.color,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: GestureDetector(
-              onTap: isLastAndMore
-                  ? () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const UserCategoriesScreen(),
-                        ),
-                      );
-                    }
-                  : () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              LawyersListScreen(categoryName: category.title),
-                        ),
-                      );
-                    },
-              child: card,
-            ),
-          ),
-        );
-      }),
+          );
+        },
+      ),
     );
   }
 }
@@ -1249,21 +1277,35 @@ class _UserDashboardRepository {
     try {
       final snapshot = await firestore
           .collection('lawyer_specializations')
-          .limit(12)
           .get();
 
-      final loaded = snapshot.docs
+      final sortedDocs = snapshot.docs.toList()
+        ..sort((left, right) {
+          final leftOrder = _extractCategorySortOrder(left.data());
+          final rightOrder = _extractCategorySortOrder(right.data());
+          final orderCompare = leftOrder.compareTo(rightOrder);
+          if (orderCompare != 0) {
+            return orderCompare;
+          }
+          final leftTitle = _extractCategoryTitle(left.data(), left.id);
+          final rightTitle = _extractCategoryTitle(right.data(), right.id);
+          return leftTitle.toLowerCase().compareTo(rightTitle.toLowerCase());
+        });
+
+      final loaded = sortedDocs
           .map((doc) {
             final data = doc.data();
-            final title =
-                data['title']?.toString().trim() ??
-                data['name']?.toString().trim() ??
-                '';
-            if (title.isEmpty) {
+            final title = _extractCategoryTitle(data, doc.id);
+            if (title.isEmpty || !_isCategoryEnabled(data)) {
               return null;
             }
 
-            final style = _getCategoryStyle(title);
+            final style = _getCategoryStyle(
+              data['icon']?.toString().trim().isNotEmpty == true
+                  ? data['icon'].toString().trim()
+                  : title,
+              data,
+            );
 
             return _UserCategory(title, style.icon, style.color);
           })
@@ -1437,7 +1479,44 @@ class _UserDashboardRepository {
     return Color(parsed);
   }
 
-  static ({IconData icon, Color color}) _getCategoryStyle(String name) {
+  static bool _isCategoryEnabled(Map<String, dynamic> data) {
+    return data['enabled'] != false;
+  }
+
+  static String _extractCategoryTitle(
+    Map<String, dynamic> data,
+    String fallback,
+  ) {
+    final title =
+        data['title']?.toString().trim() ??
+        data['name']?.toString().trim() ??
+        '';
+    if (title.isNotEmpty) {
+      return title;
+    }
+    return fallback.trim();
+  }
+
+  static int _extractCategorySortOrder(Map<String, dynamic> data) {
+    final value = data['sortOrder'];
+    if (value is int) {
+      return value;
+    }
+    return 9999;
+  }
+
+  static ({IconData icon, Color color}) _getCategoryStyle(
+    String name,
+    Map<String, dynamic> data,
+  ) {
+    final colorValue = data['color'] ?? data['colorHex'];
+    return (
+      icon: _getCategoryStyleFromName(name).icon,
+      color: _colorFromDynamic(colorValue),
+    );
+  }
+
+  static ({IconData icon, Color color}) _getCategoryStyleFromName(String name) {
     final lowerName = name.toLowerCase();
 
     if (lowerName.contains('family') ||

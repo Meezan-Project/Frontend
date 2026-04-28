@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mezaan/shared/localization/localization_controller.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
@@ -14,6 +15,7 @@ import 'package:mezaan/shared/navigation/loading_navigator.dart';
 import 'package:mezaan/shared/services/supabase_storage_service.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/widgets/language_toggle_button.dart';
+import 'package:mezaan/lawyer/screens/lawyer_onboarding_screen.dart';
 
 class LawyerRegisterScreen extends StatefulWidget {
   const LawyerRegisterScreen({super.key});
@@ -37,12 +39,12 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
   final TextEditingController _nationalIdController = TextEditingController();
   final TextEditingController _specializationController =
       TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController(
+    text: '+2',
+  );
   final TextEditingController _countryController = TextEditingController(
     text: 'Egypt',
   );
-  final TextEditingController _governorateController = TextEditingController();
-  final TextEditingController _cityController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
 
   final ImagePicker _imagePicker = ImagePicker();
@@ -57,6 +59,9 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
   bool _isSubmitting = false;
   bool _isLoadingSpecializations = true;
   String? _selectedGender;
+  String? _selectedGovernorate;
+  String? _selectedCity;
+  Map<String, List<String>> _governoratesWithCities = <String, List<String>>{};
   final List<String> _selectedSpecializations = <String>[];
   List<String> _specializationOptions = <String>[];
   String? _specializationOptionsError;
@@ -95,8 +100,6 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
     _specializationController.dispose();
     _phoneController.dispose();
     _countryController.dispose();
-    _governorateController.dispose();
-    _cityController.dispose();
     _addressController.dispose();
     super.dispose();
   }
@@ -105,6 +108,7 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
   void initState() {
     super.initState();
     _loadSpecializationOptions();
+    _loadGovernoratesFromFirebase();
   }
 
   String get _password => _passwordController.text;
@@ -422,9 +426,11 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                 final data = doc.data();
                 final name = data['name']?.toString().trim() ?? '';
                 final title = data['title']?.toString().trim() ?? '';
-                final label = name.isNotEmpty ? name : title;
-                final enabled = data['enabled'] != false;
                 final sortOrder = data['sortOrder'];
+                final label = name.isNotEmpty
+                    ? name
+                    : (title.isNotEmpty ? title : doc.id);
+                final enabled = data['enabled'] != false;
 
                 if (!enabled || label.isEmpty) {
                   return null;
@@ -472,6 +478,38 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
         _specializationOptionsError = error.toString();
         _isLoadingSpecializations = false;
       });
+    }
+  }
+
+  Future<void> _loadGovernoratesFromFirebase() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('government')
+          .get();
+
+      final loaded = <String, List<String>>{};
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final name = data['name']?.toString().trim() ?? doc.id;
+        final citiesRaw = data['cities'];
+        final cities = <String>[];
+        if (citiesRaw is List) {
+          cities.addAll(citiesRaw.map((e) => e.toString()));
+        }
+        loaded[name] = cities..sort();
+      }
+
+      if (mounted) {
+        setState(() {
+          _governoratesWithCities = loaded;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _governorateError = 'Failed to load governorates';
+        });
+      }
     }
   }
 
@@ -602,8 +640,8 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
               : '',
           'address': {
             'country': _countryController.text.trim(),
-            'govern': _governorateController.text.trim(),
-            'city': _cityController.text.trim(),
+            'govern': _selectedGovernorate ?? '',
+            'city': _selectedCity ?? '',
             'details': _addressController.text.trim(),
           },
           'license_ID': _licenseNumberController.text.trim(),
@@ -619,6 +657,7 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
             'back_side': licenseBackUrl ?? '',
           },
           'role': 'lawyer',
+          'onboardingCompleted': false,
           'updatedAt': FieldValue.serverTimestamp(),
           'createdAt': FieldValue.serverTimestamp(),
           'source': 'lawyer_register_screen',
@@ -664,8 +703,8 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
     final specialization = _specializationController.text.trim();
     final phone = _phoneController.text.trim();
     final country = _countryController.text.trim();
-    final governorate = _governorateController.text.trim();
-    final city = _cityController.text.trim();
+    final governorate = _selectedGovernorate ?? '';
+    final city = _selectedCity ?? '';
     final address = _addressController.text.trim();
 
     String? firstNameError;
@@ -697,13 +736,17 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
     }
     if (email.isEmpty) {
       emailError = 'Email is required';
-    } else if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
-      emailError = 'Enter a valid email address';
+    } else if (!email.toLowerCase().endsWith('@gmail.com')) {
+      emailError = 'Email must strictly end with @gmail.com';
     }
     if (phone.isEmpty) {
       phoneError = 'Phone number is required';
-    } else if (!RegExp(r'^0[0-9]{10}$').hasMatch(phone)) {
-      phoneError = 'Phone number must be exactly 11 digits';
+    } else if (!phone.startsWith('+2')) {
+      phoneError = 'Must start with +2';
+    } else if (phone.length != 13) {
+      phoneError = 'Must be exactly 11 digits after +2';
+    } else if (!RegExp(r'^\+2[0-9]{11}$').hasMatch(phone)) {
+      phoneError = 'Must contain exactly 11 digits after +2';
     }
     if (_selectedGender == null || _selectedGender!.isEmpty) {
       genderError = 'Gender is required';
@@ -737,6 +780,8 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
     }
     if (licenseNumber.isEmpty) {
       licenseNumberError = 'License number is required';
+    } else if (!RegExp(r'^[0-9]{6,7}$').hasMatch(licenseNumber)) {
+      licenseNumberError = 'License ID must be strictly 6 or 7 digits';
     }
     if (nationalId.isEmpty) {
       nationalIdError = 'National ID is required';
@@ -837,7 +882,10 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
         ),
       );
 
-      LoadingNavigator.pushReplacementNamed(context, AppRoutes.lawyerHome);
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LawyerOnboardingScreen()),
+      );
     } on FirebaseAuthException catch (e) {
       if (!mounted) {
         return;
@@ -988,10 +1036,16 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                           _CustomTextField(
                             controller: _phoneController,
                             label: 'Phone Number',
-                            hintText: 'e.g. 01234567890',
+                            hintText: '+201xxxxxxxxx',
                             icon: Icons.phone_outlined,
                             keyboardType: TextInputType.phone,
                             errorText: _phoneError,
+                            inputFormatters: [
+                              LengthLimitingTextInputFormatter(13),
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r'[\+0-9]'),
+                              ),
+                            ],
                             onChanged: (_) => setState(() {
                               _phoneError = null;
                             }),
@@ -1011,26 +1065,33 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                           Row(
                             children: [
                               Expanded(
-                                child: _CustomTextField(
-                                  controller: _governorateController,
+                                child: _CustomDropdownField(
                                   label: 'Governorate',
-                                  hintText: 'e.g. Cairo',
                                   icon: Icons.map_outlined,
+                                  value: _selectedGovernorate,
+                                  items: _governoratesWithCities.keys.toList()
+                                    ..sort(),
                                   errorText: _governorateError,
-                                  onChanged: (_) => setState(() {
+                                  onChanged: (val) => setState(() {
+                                    _selectedGovernorate = val;
+                                    _selectedCity = null;
                                     _governorateError = null;
                                   }),
                                 ),
                               ),
                               SizedBox(width: 12.w),
                               Expanded(
-                                child: _CustomTextField(
-                                  controller: _cityController,
+                                child: _CustomDropdownField(
                                   label: 'City',
-                                  hintText: 'e.g. Nasr City',
                                   icon: Icons.location_city_outlined,
+                                  value: _selectedCity,
+                                  items: _selectedGovernorate == null
+                                      ? <String>[]
+                                      : (_governoratesWithCities[_selectedGovernorate] ??
+                                            <String>[]),
                                   errorText: _cityError,
-                                  onChanged: (_) => setState(() {
+                                  onChanged: (val) => setState(() {
+                                    _selectedCity = val;
                                     _cityError = null;
                                   }),
                                 ),
@@ -1052,8 +1113,13 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                           _CustomTextField(
                             controller: _licenseNumberController,
                             label: 'License ID',
-                            hintText: 'e.g. LAW123456789',
+                            hintText: '6 or 7 digits',
                             icon: Icons.badge_outlined,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              LengthLimitingTextInputFormatter(7),
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
                             errorText: _licenseNumberError,
                             onChanged: (_) => setState(() {
                               _licenseNumberError = null;
@@ -1066,6 +1132,10 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                             hintText: '14-digit national ID',
                             icon: Icons.credit_card_outlined,
                             keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              LengthLimitingTextInputFormatter(14),
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
                             errorText: _nationalIdError,
                             onChanged: (_) => setState(() {
                               _nationalIdError = null;
@@ -1418,6 +1488,7 @@ class _CustomTextField extends StatefulWidget {
   final bool readOnly;
   final TextInputType keyboardType;
   final VoidCallback? onTap;
+  final List<TextInputFormatter>? inputFormatters;
   final ValueChanged<String>? onChanged;
   final String? errorText;
 
@@ -1430,6 +1501,7 @@ class _CustomTextField extends StatefulWidget {
     this.readOnly = false,
     this.keyboardType = TextInputType.text,
     this.onTap,
+    this.inputFormatters,
     this.onChanged,
     this.errorText,
   });
@@ -1466,6 +1538,7 @@ class _CustomTextFieldState extends State<_CustomTextField> {
           obscureText: _obscureText,
           readOnly: widget.readOnly,
           keyboardType: widget.keyboardType,
+          inputFormatters: widget.inputFormatters,
           onChanged: widget.onChanged,
           onTap: widget.onTap,
           decoration: InputDecoration(
@@ -1552,6 +1625,9 @@ class _CustomDropdownField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final normalizedValue = value != null && items.contains(value)
+        ? value
+        : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1565,7 +1641,7 @@ class _CustomDropdownField extends StatelessWidget {
         ),
         SizedBox(height: 6.h),
         DropdownButtonFormField<String>(
-          initialValue: value,
+          initialValue: normalizedValue,
           isExpanded: true,
           items: items
               .map(

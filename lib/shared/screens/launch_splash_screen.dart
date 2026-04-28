@@ -63,54 +63,99 @@ class _LaunchSplashScreenState extends State<LaunchSplashScreen>
 
   Future<AppRole> _resolveRoleForCurrentUser(User user) async {
     final firestore = FirebaseFirestore.instance;
-    DocumentSnapshot<Map<String, dynamic>> userDoc;
+    final normalizedEmail = user.email?.trim().toLowerCase();
 
-    try {
-      userDoc = await firestore.collection('users').doc(user.uid).get();
-      final data = userDoc.data();
-      if (data != null && data.isNotEmpty) {
-        return _mapRole(data['role'] ?? data['accountType']);
+    // 1) Fast path by UID in users collection.
+    final userDoc = await firestore.collection('users').doc(user.uid).get();
+    if (userDoc.exists) {
+      return _roleFromDocData(userDoc.data(), fallback: AppRole.user);
+    }
+
+    // 2) Fast path by UID in lawyers collection.
+    final lawyerDoc = await firestore.collection('lawyers').doc(user.uid).get();
+    if (lawyerDoc.exists) {
+      return _roleFromDocData(lawyerDoc.data(), fallback: AppRole.lawyer);
+    }
+
+    if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
+      // 3) Query users by emailLower first, then email.
+      final userByEmailLower = await firestore
+          .collection('users')
+          .where('emailLower', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+      if (userByEmailLower.docs.isNotEmpty) {
+        return _roleFromDocData(
+          userByEmailLower.docs.first.data(),
+          fallback: AppRole.user,
+        );
       }
 
-      if (user.email != null && user.email!.trim().isNotEmpty) {
-        final byEmail = await firestore
-            .collection('users')
-            .where('email', isEqualTo: user.email!.trim())
-            .limit(1)
-            .get();
-        if (byEmail.docs.isNotEmpty) {
-          final fallback = byEmail.docs.first.data();
-          return _mapRole(fallback['role'] ?? fallback['accountType']);
-        }
+      final userByEmail = await firestore
+          .collection('users')
+          .where('email', isEqualTo: user.email!.trim())
+          .limit(1)
+          .get();
+      if (userByEmail.docs.isNotEmpty) {
+        return _roleFromDocData(
+          userByEmail.docs.first.data(),
+          fallback: AppRole.user,
+        );
       }
 
-      if (user.phoneNumber != null && user.phoneNumber!.trim().isNotEmpty) {
-        final byPhone = await firestore
-            .collection('users')
-            .where('phone', isEqualTo: user.phoneNumber!.trim())
-            .limit(1)
-            .get();
-        if (byPhone.docs.isNotEmpty) {
-          final fallback = byPhone.docs.first.data();
-          return _mapRole(fallback['role'] ?? fallback['accountType']);
-        }
+      // 4) Query lawyers by emailLower first, then email.
+      final lawyerByEmailLower = await firestore
+          .collection('lawyers')
+          .where('emailLower', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+      if (lawyerByEmailLower.docs.isNotEmpty) {
+        return _roleFromDocData(
+          lawyerByEmailLower.docs.first.data(),
+          fallback: AppRole.lawyer,
+        );
       }
-    } catch (_) {
-      return AppRole.user;
+
+      final lawyerByEmail = await firestore
+          .collection('lawyers')
+          .where('email', isEqualTo: user.email!.trim())
+          .limit(1)
+          .get();
+      if (lawyerByEmail.docs.isNotEmpty) {
+        return _roleFromDocData(
+          lawyerByEmail.docs.first.data(),
+          fallback: AppRole.lawyer,
+        );
+      }
     }
 
     return AppRole.user;
   }
 
-  AppRole _mapRole(Object? rawRole) {
-    final normalized = rawRole?.toString().trim().toLowerCase() ?? 'user';
+  AppRole _roleFromDocData(
+    Map<String, dynamic>? data, {
+    required AppRole fallback,
+  }) {
+    if (data == null || data.isEmpty) {
+      return fallback;
+    }
+
+    final normalized = (data['role'] ?? data['accountType'] ?? data['userType'])
+        .toString()
+        .trim()
+        .toLowerCase();
+
     if (normalized == 'admin') {
       return AppRole.admin;
     }
     if (normalized == 'lawyer') {
       return AppRole.lawyer;
     }
-    return AppRole.user;
+    if (normalized == 'user') {
+      return AppRole.user;
+    }
+
+    return fallback;
   }
 
   @override
