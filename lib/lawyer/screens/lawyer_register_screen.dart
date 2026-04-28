@@ -51,7 +51,6 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
 
   DateTime? _selectedDob;
   XFile? _licenseFrontImage;
-  XFile? _licenseBackImage;
   XFile? _nationalIdFrontImage;
   XFile? _nationalIdBackImage;
   XFile? _profileImage;
@@ -82,7 +81,6 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
   String? _addressError;
   String? _genderError;
   String? _licenseFrontImageError;
-  String? _licenseBackImageError;
   String? _nationalIdFrontImageError;
   String? _nationalIdBackImageError;
   String? _profileImageError;
@@ -170,21 +168,6 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
     setState(() {
       _licenseFrontImage = photo;
       _licenseFrontImageError = null;
-    });
-  }
-
-  Future<void> _captureLicenseBackImage() async {
-    final photo = await _imagePicker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 85,
-      preferredCameraDevice: CameraDevice.rear,
-    );
-
-    if (photo == null) return;
-
-    setState(() {
-      _licenseBackImage = photo;
-      _licenseBackImageError = null;
     });
   }
 
@@ -600,11 +583,7 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
       file: _licenseFrontImage,
       fileName: 'license_front.jpg',
     );
-    final licenseBackUrl = await _uploadImageToStorage(
-      uid: firebaseUser.uid,
-      file: _licenseBackImage,
-      fileName: 'license_back.jpg',
-    );
+    // license back image removed - no upload
     final nationalFrontUrl = await _uploadImageToStorage(
       uid: firebaseUser.uid,
       file: _nationalIdFrontImage,
@@ -652,10 +631,7 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
             'front_side': nationalFrontUrl ?? '',
             'back_side': nationalBackUrl ?? '',
           },
-          'photo_license_ID': {
-            'front_side': licenseFrontUrl ?? '',
-            'back_side': licenseBackUrl ?? '',
-          },
+          'photo_license_ID': {'front_side': licenseFrontUrl ?? ''},
           'role': 'lawyer',
           'onboardingCompleted': false,
           'updatedAt': FieldValue.serverTimestamp(),
@@ -723,7 +699,6 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
     String? addressError;
     String? genderError;
     String? licenseFrontImageError;
-    String? licenseBackImageError;
     String? nationalIdFrontImageError;
     String? nationalIdBackImageError;
     String? profileImageError;
@@ -794,9 +769,6 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
     if (_licenseFrontImage == null) {
       licenseFrontImageError = 'Capture license front photo from camera';
     }
-    if (_licenseBackImage == null) {
-      licenseBackImageError = 'Capture license back photo from camera';
-    }
     if (_nationalIdFrontImage == null) {
       nationalIdFrontImageError = 'Capture national ID front photo from camera';
     }
@@ -824,7 +796,6 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
       _addressError = addressError;
       _genderError = genderError;
       _licenseFrontImageError = licenseFrontImageError;
-      _licenseBackImageError = licenseBackImageError;
       _nationalIdFrontImageError = nationalIdFrontImageError;
       _nationalIdBackImageError = nationalIdBackImageError;
       _profileImageError = profileImageError;
@@ -846,7 +817,6 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
         nationalIdError == null &&
         specializationError == null &&
         licenseFrontImageError == null &&
-        licenseBackImageError == null &&
         nationalIdFrontImageError == null &&
         nationalIdBackImageError == null &&
         profileImageError == null;
@@ -1219,13 +1189,6 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                             imagePath: _licenseFrontImage?.path,
                             errorText: _licenseFrontImageError,
                             onCapturePressed: _captureLicenseFrontImage,
-                          ),
-                          SizedBox(height: 12.h),
-                          _IdCaptureCard(
-                            title: 'License Photo (Back Side)',
-                            imagePath: _licenseBackImage?.path,
-                            errorText: _licenseBackImageError,
-                            onCapturePressed: _captureLicenseBackImage,
                           ),
                           SizedBox(height: 12.h),
                           _IdCaptureCard(

@@ -172,12 +172,6 @@ class UserProfileSidePanel extends StatelessWidget {
                       subtitle: 'Arabic / English'.translate(),
                       onTap: onLanguage,
                     ),
-                    _PanelSwitchTile(
-                      icon: Icons.dark_mode_outlined,
-                      title: 'Dark Mode'.translate(),
-                      value: isDarkMode,
-                      onChanged: onDarkModeChanged,
-                    ),
                     _PanelTile(
                       icon: Icons.credit_card_rounded,
                       title: 'Saved Cards'.translate(),
@@ -203,12 +197,67 @@ class UserProfileSidePanel extends StatelessWidget {
                       title: 'Need Help?'.translate(),
                       onTap: onHelp,
                     ),
-                    SizedBox(height: 6.h),
-                    _PanelTile(
-                      icon: Icons.logout_rounded,
-                      title: 'Logout'.translate(),
-                      isDanger: true,
-                      onTap: onLogout,
+                  ],
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 16.h),
+                child: Column(
+                  children: [
+                    Container(
+                      height: 1.h,
+                      color: isDark
+                          ? const Color(0xFF334766)
+                          : const Color(0xFFE5E7EB),
+                      margin: EdgeInsets.only(bottom: 14.h),
+                    ),
+                    Row(
+                      children: [
+                        Icon(
+                          isDarkMode
+                              ? Icons.dark_mode_rounded
+                              : Icons.light_mode_rounded,
+                          size: 20.sp,
+                          color: isDark ? Colors.white : AppColors.navyBlue,
+                        ),
+                        SizedBox(width: 12.w),
+                        Expanded(
+                          child: Text(
+                            'Dark Mode'.translate(),
+                            style: GoogleFonts.cairo(
+                              fontSize: 14.sp,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? Colors.white : AppColors.navyBlue,
+                            ),
+                          ),
+                        ),
+                        Switch(
+                          value: isDarkMode,
+                          onChanged: onDarkModeChanged,
+                          activeThumbColor: AppColors.navyBlue,
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 14.h),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.tonal(
+                        onPressed: onLogout,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(
+                            0xFFEF6A6A,
+                          ).withValues(alpha: 0.1),
+                          foregroundColor: const Color(0xFFEF6A6A),
+                          padding: EdgeInsets.symmetric(vertical: 12.h),
+                        ),
+                        child: Text(
+                          'Logout'.translate(),
+                          style: GoogleFonts.cairo(
+                            fontSize: 14.sp,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -30,10 +31,20 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
   final _employerLawyerController = TextEditingController();
 
   // "Owns an Office" Fields
+  final _officeNameController = TextEditingController();
   final _officeGovernorateController = TextEditingController();
   final _officeCityController = TextEditingController();
   final _officeAddressController = TextEditingController();
-  final _officePhoneController = TextEditingController();
+  // dynamic office phones (type + controller)
+  final List<_OfficePhoneEntry> _officePhones = [
+    _OfficePhoneEntry(type: 'Phone', controller: TextEditingController()),
+  ];
+
+  // "Freelancer" Fields
+  final List<_FreelancerLocationEntry> _freelancerLocations = [
+    _FreelancerLocationEntry(),
+  ];
+  Map<String, List<String>> _governoratesWithCities = <String, List<String>>{};
 
   // Professional Details
   final _bioController = TextEditingController();
@@ -69,19 +80,56 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
       _startTime[day] = null;
       _endTime[day] = null;
     }
+    _loadGovernoratesFromFirebase();
   }
 
   @override
   void dispose() {
+    _officeNameController.dispose();
     _employerLawyerController.dispose();
     _officeGovernorateController.dispose();
     _officeCityController.dispose();
     _officeAddressController.dispose();
-    _officePhoneController.dispose();
+    for (final e in _officePhones) {
+      e.controller.dispose();
+    }
+    for (final e in _freelancerLocations) {
+      e.dispose();
+    }
     _bioController.dispose();
     _experienceController.dispose();
     _feesController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadGovernoratesFromFirebase() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('government')
+          .get();
+
+      final loaded = <String, List<String>>{};
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final name = data['name']?.toString().trim() ?? doc.id;
+        final citiesRaw = data['cities'];
+        final cities = <String>[];
+        if (citiesRaw is List) {
+          cities.addAll(citiesRaw.map((e) => e.toString()));
+        }
+        loaded[name] = cities..sort();
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _governoratesWithCities = loaded;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _governoratesWithCities = <String, List<String>>{};
+      });
+    }
   }
 
   Future<void> _selectTime(String day, bool isStart) async {
@@ -115,6 +163,38 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
         ),
       );
       return;
+    }
+
+    if (_workStatus == 'Owns an Office' &&
+        _officeNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please enter your office name.'.translate()),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (_workStatus == 'Freelancer') {
+      final hasValidLocation = _freelancerLocations.any((entry) {
+        return entry.governorate != null &&
+            entry.governorate!.trim().isNotEmpty &&
+            entry.city != null &&
+            entry.city!.trim().isNotEmpty;
+      });
+      if (!hasValidLocation) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Please add at least one governorate and city for freelancer work areas.'
+                  .translate(),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
     }
 
     // Validate Schedule
@@ -181,10 +261,18 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
             .trim();
       } else if (_workStatus == 'Owns an Office') {
         updateData['office_details'] = {
+          'office_name': _officeNameController.text.trim(),
           'governorate': _officeGovernorateController.text.trim(),
           'city': _officeCityController.text.trim(),
           'address': _officeAddressController.text.trim(),
-          'phone': _officePhoneController.text.trim(),
+          'phones': _officePhones.map((e) {
+            final raw = e.controller.text.trim();
+            final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+            if (e.type == 'Landline') {
+              return '+02$digits';
+            }
+            return '+2$digits';
+          }).toList(),
           'location': _selectedOfficeLocation == null
               ? null
               : {
@@ -193,6 +281,22 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                   'displayName': _selectedOfficeLocationName ?? '',
                 },
         };
+      } else if (_workStatus == 'Freelancer') {
+        updateData['freelancer_locations'] = _freelancerLocations
+            .where(
+              (entry) =>
+                  entry.governorate != null &&
+                  entry.governorate!.trim().isNotEmpty &&
+                  entry.city != null &&
+                  entry.city!.trim().isNotEmpty,
+            )
+            .map(
+              (entry) => {
+                'governorate': entry.governorate!.trim(),
+                'city': entry.city!.trim(),
+              },
+            )
+            .toList(growable: false);
       }
 
       await lawyersRef
@@ -396,6 +500,10 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                                     });
                                   },
                                 ),
+                                if (_workStatus == 'Freelancer') ...[
+                                  SizedBox(height: 10.h),
+                                  _buildFreelancerLocationsSection(),
+                                ],
                                 if (_workStatus == 'Works in an Office') ...[
                                   SizedBox(height: 10.h),
                                   TextFormField(
@@ -592,17 +700,190 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                                   ),
                                   SizedBox(height: 10.h),
                                   TextFormField(
-                                    controller: _officePhoneController,
-                                    keyboardType: TextInputType.phone,
+                                    controller: _officeNameController,
                                     decoration: _inputDecoration(
-                                      label: 'Office Phone Number'.translate(),
-                                      hint: '+201XXXXXXXXX'.translate(),
-                                      icon: Icons.phone_outlined,
+                                      label: 'Office Name'.translate(),
+                                      hint: 'Enter office name'.translate(),
+                                      icon: Icons.business_outlined,
                                     ),
                                     validator: (value) =>
                                         value == null || value.trim().isEmpty
                                         ? 'Required field'.translate()
                                         : null,
+                                  ),
+                                  SizedBox(height: 10.h),
+                                  // Multiple office phone entries
+                                  Column(
+                                    children: [
+                                      ..._officePhones.asMap().entries.map((
+                                        entry,
+                                      ) {
+                                        final idx = entry.key;
+                                        final phoneEntry = entry.value;
+                                        return Padding(
+                                          padding: EdgeInsets.only(bottom: 8.h),
+                                          child: Row(
+                                            children: [
+                                              SizedBox(
+                                                width: 120.w,
+                                                child:
+                                                    DropdownButtonFormField<
+                                                      String
+                                                    >(
+                                                      value: phoneEntry.type,
+                                                      items: const [
+                                                        DropdownMenuItem(
+                                                          value: 'Phone',
+                                                          child: Text('Phone'),
+                                                        ),
+                                                        DropdownMenuItem(
+                                                          value: 'Landline',
+                                                          child: Text(
+                                                            'Landline',
+                                                          ),
+                                                        ),
+                                                      ],
+                                                      onChanged: (val) {
+                                                        if (val == null) return;
+                                                        setState(() {
+                                                          phoneEntry.type = val;
+                                                          phoneEntry
+                                                              .controller
+                                                              .text = phoneEntry
+                                                              .controller
+                                                              .text
+                                                              .replaceAll(
+                                                                RegExp(
+                                                                  r'[^0-9\+]',
+                                                                ),
+                                                                '',
+                                                              );
+                                                        });
+                                                      },
+                                                      decoration:
+                                                          const InputDecoration(
+                                                            isDense: true,
+                                                            contentPadding:
+                                                                EdgeInsets.symmetric(
+                                                                  horizontal: 8,
+                                                                  vertical: 12,
+                                                                ),
+                                                          ),
+                                                    ),
+                                              ),
+                                              SizedBox(width: 8.w),
+                                              Expanded(
+                                                child: TextFormField(
+                                                  controller:
+                                                      phoneEntry.controller,
+                                                  keyboardType:
+                                                      TextInputType.phone,
+                                                  inputFormatters: [
+                                                    FilteringTextInputFormatter
+                                                        .digitsOnly,
+                                                    LengthLimitingTextInputFormatter(
+                                                      phoneEntry.type ==
+                                                              'Landline'
+                                                          ? 8
+                                                          : 11,
+                                                    ),
+                                                  ],
+                                                  decoration: _inputDecoration(
+                                                    label: idx == 0
+                                                        ? 'Office Phone Number'
+                                                              .translate()
+                                                        : null,
+                                                    hint:
+                                                        phoneEntry.type ==
+                                                            'Landline'
+                                                        ? 'Enter 8 digits'
+                                                        : 'Enter 11 digits'
+                                                              .translate(),
+                                                    icon: idx == 0
+                                                        ? Icons.phone_outlined
+                                                        : null,
+                                                    prefixText:
+                                                        phoneEntry.type ==
+                                                            'Landline'
+                                                        ? '+02 '
+                                                        : '+2 ',
+                                                  ),
+                                                  maxLength:
+                                                      phoneEntry.type ==
+                                                          'Landline'
+                                                      ? 8
+                                                      : 11,
+                                                  validator: (value) {
+                                                    if (value == null ||
+                                                        value.trim().isEmpty) {
+                                                      return 'Required field'
+                                                          .translate();
+                                                    }
+                                                    final v = value.trim();
+                                                    final digitsOnly = v
+                                                        .replaceAll(
+                                                          RegExp(r'[^0-9]'),
+                                                          '',
+                                                        );
+                                                    if (phoneEntry.type ==
+                                                        'Landline') {
+                                                      if (digitsOnly.length !=
+                                                          8) {
+                                                        return 'Landline must be exactly 8 digits'
+                                                            .translate();
+                                                      }
+                                                    } else {
+                                                      if (digitsOnly.length !=
+                                                          11) {
+                                                        return 'Phone must be exactly 11 digits'
+                                                            .translate();
+                                                      }
+                                                    }
+                                                    return null;
+                                                  },
+                                                ),
+                                              ),
+                                              SizedBox(width: 8.w),
+                                              if (_officePhones.length > 1)
+                                                IconButton(
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      final removed =
+                                                          _officePhones
+                                                              .removeAt(idx);
+                                                      removed.controller
+                                                          .dispose();
+                                                    });
+                                                  },
+                                                  icon: Icon(
+                                                    Icons.delete_outline,
+                                                    color: Colors.red,
+                                                    size: 20.sp,
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        );
+                                      }).toList(),
+                                      Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: TextButton.icon(
+                                          onPressed: () {
+                                            setState(() {
+                                              _officePhones.add(
+                                                _OfficePhoneEntry(
+                                                  type: 'Phone',
+                                                  controller:
+                                                      TextEditingController(),
+                                                ),
+                                              );
+                                            });
+                                          },
+                                          icon: const Icon(Icons.add),
+                                          label: Text('Add Phone'.translate()),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ],
@@ -821,17 +1102,140 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
     );
   }
 
+  Widget _buildFreelancerLocationsSection() {
+    final governorateNames = _governoratesWithCities.keys.toList()..sort();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Freelancer Work Areas'.translate(),
+          style: TextStyle(
+            color: AppColors.navyBlue,
+            fontSize: 14.sp,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        SizedBox(height: 8.h),
+        ..._freelancerLocations.asMap().entries.map((entry) {
+          final index = entry.key;
+          final locationEntry = entry.value;
+          final cities = locationEntry.governorate == null
+              ? <String>[]
+              : (_governoratesWithCities[locationEntry.governorate] ??
+                    <String>[]);
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: 8.h),
+            child: Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: locationEntry.governorate,
+                    decoration: _inputDecoration(
+                      label: 'Governorate'.translate(),
+                      hint: 'Select governorate'.translate(),
+                      icon: Icons.map_outlined,
+                    ),
+                    items: governorateNames
+                        .map(
+                          (gov) => DropdownMenuItem<String>(
+                            value: gov,
+                            child: Text(gov),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: (value) {
+                      setState(() {
+                        locationEntry.governorate = value;
+                        locationEntry.city = null;
+                      });
+                    },
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Required field'.translate();
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+                SizedBox(width: 8.w),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: locationEntry.city,
+                    decoration: _inputDecoration(
+                      label: 'City'.translate(),
+                      hint: 'Select city'.translate(),
+                      icon: Icons.location_city_outlined,
+                    ),
+                    items: cities
+                        .map(
+                          (city) => DropdownMenuItem<String>(
+                            value: city,
+                            child: Text(city),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: (value) {
+                      setState(() {
+                        locationEntry.city = value;
+                      });
+                    },
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Required field'.translate();
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+                SizedBox(width: 8.w),
+                if (_freelancerLocations.length > 1)
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        _freelancerLocations.removeAt(index);
+                      });
+                    },
+                    icon: Icon(
+                      Icons.delete_outline,
+                      color: Colors.red,
+                      size: 20.sp,
+                    ),
+                  ),
+              ],
+            ),
+          );
+        }),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () {
+              setState(() {
+                _freelancerLocations.add(_FreelancerLocationEntry());
+              });
+            },
+            icon: const Icon(Icons.add),
+            label: Text('Add Location'.translate()),
+          ),
+        ),
+      ],
+    );
+  }
+
   InputDecoration _inputDecoration({
-    required String label,
-    required String hint,
-    required IconData icon,
+    String? label,
+    String? hint,
+    IconData? icon,
+    String? prefixText,
     bool alignLabelWithHint = false,
   }) {
     return InputDecoration(
       labelText: label,
       hintText: hint,
       alignLabelWithHint: alignLabelWithHint,
-      prefixIcon: Icon(icon, color: AppColors.navyBlue),
+      prefixIcon: icon != null ? Icon(icon, color: AppColors.navyBlue) : null,
+      prefixText: prefixText,
       filled: true,
       fillColor: const Color(0xFFF8FBFF),
       border: OutlineInputBorder(
@@ -994,6 +1398,20 @@ class _TimePickerButton extends StatelessWidget {
       ),
     );
   }
+}
+
+class _OfficePhoneEntry {
+  String type; // 'Phone' or 'Landline'
+  final TextEditingController controller;
+
+  _OfficePhoneEntry({required this.type, required this.controller});
+}
+
+class _FreelancerLocationEntry {
+  String? governorate;
+  String? city;
+
+  void dispose() {}
 }
 
 class _OfficeLocationSelection {
