@@ -245,7 +245,6 @@ class _OfferCard extends StatelessWidget {
   final VoidCallback onDecline;
 
   const _OfferCard({
-    super.key,
     required this.offer,
     required this.onAccept,
     required this.onDecline,
@@ -457,7 +456,7 @@ class _OfferCard extends StatelessWidget {
 class _BottomStickyPanel extends StatelessWidget {
   final VoidCallback onCancelRequest;
 
-  const _BottomStickyPanel({super.key, required this.onCancelRequest});
+  const _BottomStickyPanel({required this.onCancelRequest});
 
   @override
   Widget build(BuildContext context) {
