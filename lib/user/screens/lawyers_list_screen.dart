@@ -20,8 +20,8 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
   String? _selectedCity;
   String _searchQuery = '';
   bool _isLoading = true;
-  List<LawyerMockModel> _allLawyers = <LawyerMockModel>[];
-  List<LawyerMockModel> _displayedLawyers = <LawyerMockModel>[];
+  List<LawyerModel> _allLawyers = <LawyerModel>[];
+  List<LawyerModel> _displayedLawyers = <LawyerModel>[];
   List<String> _availableGovs = [];
   List<String> _availableCities = [];
 
@@ -72,7 +72,15 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
             final workStatus = _extractWorkStatus(data);
             final govsAndCities = _extractGovsAndCities(data, workStatus);
 
-            return LawyerMockModel(
+            final baseFee = _readDouble(data, [
+              'consultation_fees',
+              'fee',
+              'consultationFee',
+              'price',
+            ]) ?? 0.0;
+
+            return LawyerModel(
+              id: doc.id,
               name: name,
               specialization: _extractSpecializationLabel(data),
               rating: _readDouble(data, ['rating', 'averageRating']) ?? 4.5,
@@ -83,12 +91,17 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
               location: _buildLocationLabel(data, workStatus),
               governorates: govsAndCities['govs'] ?? [],
               cities: govsAndCities['cities'] ?? [],
-              fee: _readDouble(data, ['consultation_fees', 'fee', 'consultationFee', 'price']) ?? 0.0,
+              fee: baseFee,
               availability: _extractAvailability(data),
               imageUrl: _extractImageUrl(data),
+              about: _readString(data, ['professional_bio', 'about', 'bio']),
+              experience: _readInt(data, ['years_of_experience', 'experience']) ?? 0,
+              schedule: data['schedule'] is Map ? Map<String, dynamic>.from(data['schedule']) : null,
+              onlineFee: _readDouble(data, ['online_consultation_fee', 'onlineFee', 'online_fee']) ?? baseFee,
+              inOfficeFee: _readDouble(data, ['in_office_consultation_fee', 'inOfficeFee', 'in_office_fee']) ?? baseFee,
             );
           })
-          .whereType<LawyerMockModel>()
+          .whereType<LawyerModel>()
           .toList(growable: false);
 
       if (!mounted) return;
@@ -101,8 +114,8 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _allLawyers = <LawyerMockModel>[];
-        _displayedLawyers = <LawyerMockModel>[];
+        _allLawyers = <LawyerModel>[];
+        _displayedLawyers = <LawyerModel>[];
         _isLoading = false;
       });
     }
@@ -122,22 +135,26 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
   }
 
   void _applyFiltersAndSort() {
-    List<LawyerMockModel> result = List.from(_allLawyers);
+    List<LawyerModel> result = List.from(_allLawyers);
 
     if (_searchQuery.isNotEmpty) {
       final query = _normalizeText(_searchQuery);
       result = result.where((lawyer) {
         return _normalizeText(lawyer.name).contains(query) ||
-               _normalizeText(lawyer.specialization).contains(query);
+            _normalizeText(lawyer.specialization).contains(query);
       }).toList();
     }
 
     if (_selectedGov != null && _selectedGov!.isNotEmpty) {
-      result = result.where((lawyer) => lawyer.governorates.contains(_selectedGov)).toList();
+      result = result
+          .where((lawyer) => lawyer.governorates.contains(_selectedGov))
+          .toList();
     }
 
     if (_selectedCity != null && _selectedCity!.isNotEmpty) {
-      result = result.where((lawyer) => lawyer.cities.contains(_selectedCity)).toList();
+      result = result
+          .where((lawyer) => lawyer.cities.contains(_selectedCity))
+          .toList();
     }
 
     result.sort((a, b) {
@@ -328,7 +345,8 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
       }
     }
 
-    if (workStatus == 'Working in an Office' || workStatus == 'Owns an Office') {
+    if (workStatus == 'Working in an Office' ||
+        workStatus == 'Owns an Office') {
       final officeDetails = data['office_details'];
       if (officeDetails is Map) {
         final officeMap = officeDetails.cast<String, dynamic>();
@@ -360,7 +378,10 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
         : 'Location not available';
   }
 
-  static Map<String, List<String>> _extractGovsAndCities(Map<String, dynamic> data, String workStatus) {
+  static Map<String, List<String>> _extractGovsAndCities(
+    Map<String, dynamic> data,
+    String workStatus,
+  ) {
     final Set<String> govs = {};
     final Set<String> cities = {};
 
@@ -377,7 +398,8 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
       }
     }
 
-    if (workStatus == 'Working in an Office' || workStatus == 'Owns an Office') {
+    if (workStatus == 'Working in an Office' ||
+        workStatus == 'Owns an Office') {
       final officeDetails = data['office_details'];
       if (officeDetails is Map) {
         final officeMap = officeDetails.cast<String, dynamic>();
@@ -397,10 +419,7 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
       if (city.isNotEmpty) cities.add(city);
     }
 
-    return {
-      'govs': govs.toList(),
-      'cities': cities.toList(),
-    };
+    return {'govs': govs.toList(), 'cities': cities.toList()};
   }
 
   static String _readString(Map<String, dynamic> data, List<String> keys) {
@@ -561,11 +580,9 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                         child: Text('All'),
                       ),
                       ..._availableGovs.map(
-                        (e) => DropdownMenuItem<String?>(
-                          value: e,
-                          child: Text(e),
-                        ),
-                      )
+                        (e) =>
+                            DropdownMenuItem<String?>(value: e, child: Text(e)),
+                      ),
                     ],
                     onChanged: (val) {
                       setModalState(() => _selectedGov = val);
@@ -588,11 +605,9 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                         child: Text('All'),
                       ),
                       ..._availableCities.map(
-                        (e) => DropdownMenuItem<String?>(
-                          value: e,
-                          child: Text(e),
-                        ),
-                      )
+                        (e) =>
+                            DropdownMenuItem<String?>(value: e, child: Text(e)),
+                      ),
                     ],
                     onChanged: (val) {
                       setModalState(() => _selectedCity = val);
@@ -681,7 +696,7 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
         ),
       ),
       style: OutlinedButton.styleFrom(
-        side: BorderSide(color: AppColors.navyBlue.withValues(alpha: 0.5)),
+        side: BorderSide(color: AppColors.navyBlue.withOpacity(0.5)),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10.r),
         ),
@@ -817,7 +832,7 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                           borderRadius: BorderRadius.circular(16.r),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.05),
+                              color: Colors.black.withOpacity(0.05),
                               blurRadius: 10,
                               offset: const Offset(0, 4),
                             ),
@@ -941,7 +956,10 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                                         Navigator.push(
                                           context,
                                           MaterialPageRoute(
-                                            builder: (context) => LawyerProfileScreen(lawyer: lawyer),
+                                            builder: (context) =>
+                                                LawyerProfileScreen(
+                                                  lawyer: lawyer,
+                                                ),
                                           ),
                                         );
                                       },
@@ -949,7 +967,9 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                                         backgroundColor: AppColors.legalGold,
                                         elevation: 0,
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(10.r),
+                                          borderRadius: BorderRadius.circular(
+                                            10.r,
+                                          ),
                                         ),
                                       ),
                                       child: Text(
@@ -975,34 +995,4 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
       ),
     );
   }
-}
-
-class LawyerMockModel {
-  final String name;
-  final String specialization;
-  final String workStatus;
-  final String officeName;
-  final double rating;
-  final int reviewsCount;
-  final String location;
-  final List<String> governorates;
-  final List<String> cities;
-  final double fee;
-  final String availability;
-  final String imageUrl;
-
-  LawyerMockModel({
-    required this.name,
-    required this.specialization,
-    required this.workStatus,
-    required this.officeName,
-    required this.rating,
-    required this.reviewsCount,
-    required this.location,
-    required this.governorates,
-    required this.cities,
-    required this.fee,
-    required this.availability,
-    required this.imageUrl,
-  });
 }

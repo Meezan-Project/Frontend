@@ -3,8 +3,9 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/user/screens/user_balance_screen.dart';
 
-class UserTopHeader extends StatelessWidget {
+class UserTopHeader extends StatefulWidget {
   final String balance;
   final String appName;
   final VoidCallback? onNotificationTap;
@@ -15,6 +16,43 @@ class UserTopHeader extends StatelessWidget {
     this.appName = 'Mezaan',
     this.onNotificationTap,
   });
+
+  @override
+  State<UserTopHeader> createState() => _UserTopHeaderState();
+}
+
+class _UserTopHeaderState extends State<UserTopHeader> {
+  bool _isBalanceVisible = false;
+
+  void _handleWalletTap() async {
+    if (!_isBalanceVisible) {
+      // إظهار نافذة إدخال / إنشاء رمز المرور
+      final success = await WalletPasscodeDialog.show(context);
+
+      if (success) {
+        setState(() {
+          _isBalanceVisible = true;
+        });
+
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => UserBalanceScreen(currentBalance: widget.balance),
+            ),
+          );
+        }
+      }
+    } else {
+      // إذا كان الرصيد مكشوفاً بالفعل، انتقل لشاشة المحفظة مباشرة
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => UserBalanceScreen(currentBalance: widget.balance),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +112,7 @@ class UserTopHeader extends StatelessWidget {
               SizedBox(width: 10.w),
               Expanded(
                 child: Text(
-                  appName,
+                  widget.appName,
                   style: GoogleFonts.cairo(
                     fontSize: 22.sp,
                     fontWeight: FontWeight.w800,
@@ -82,31 +120,46 @@ class UserTopHeader extends StatelessWidget {
                   ),
                 ),
               ),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
-                decoration: BoxDecoration(
-                  color: balanceContainerColor,
-                  borderRadius: BorderRadius.circular(12.r),
-                  border: Border.all(color: balanceBorderColor),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.account_balance_wallet_rounded,
-                      color: balanceTextColor,
-                      size: 18.sp,
-                    ),
-                    SizedBox(width: 6.w),
-                    Text(
-                      balance,
-                      style: GoogleFonts.cairo(
-                        fontSize: 14.sp,
-                        fontWeight: FontWeight.w800,
+              GestureDetector(
+                onTap: _handleWalletTap,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 10.w,
+                    vertical: 8.h,
+                  ),
+                  decoration: BoxDecoration(
+                    color: balanceContainerColor,
+                    borderRadius: BorderRadius.circular(12.r),
+                    border: Border.all(color: balanceBorderColor),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.account_balance_wallet_rounded,
                         color: balanceTextColor,
+                        size: 18.sp,
                       ),
-                    ),
-                  ],
+                      SizedBox(width: 6.w),
+                      Text(
+                        _isBalanceVisible ? widget.balance : '***',
+                        style: GoogleFonts.cairo(
+                          fontSize: 14.sp,
+                          fontWeight: FontWeight.w800,
+                          color: balanceTextColor,
+                        ),
+                      ),
+                      SizedBox(width: 6.w),
+                      Icon(
+                        _isBalanceVisible
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        color: balanceTextColor,
+                        size: 18.sp,
+                      ),
+                    ],
+                  ),
                 ),
               ),
               SizedBox(width: 8.w),
@@ -118,7 +171,7 @@ class UserTopHeader extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12.r),
                 ),
                 child: IconButton(
-                  onPressed: onNotificationTap,
+                  onPressed: widget.onNotificationTap,
                   icon: Icon(
                     Icons.notifications_none_rounded,
                     color: const Color(0xFFEF6A6A),

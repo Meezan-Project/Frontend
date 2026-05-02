@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -29,6 +31,11 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
 
   // "Works in an Office" Fields
   final _employerLawyerController = TextEditingController();
+  final _employerLicenseController = TextEditingController();
+  Map<String, dynamic>? _selectedEmployer;
+  List<Map<String, dynamic>> _employerSearchResults = [];
+  bool _isSearchingEmployer = false;
+  Timer? _employerSearchDebounce;
 
   // "Owns an Office" Fields
   final _officeNameController = TextEditingController();
@@ -50,6 +57,11 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
   final _bioController = TextEditingController();
   final _experienceController = TextEditingController();
   final _feesController = TextEditingController();
+
+  // Booking Fees
+  final _officeFeesController = TextEditingController();
+  final _videoCallFeesController = TextEditingController();
+  bool _isVideoCallAvailable = false;
 
   // Schedule Builder
   final List<String> _daysOfWeek = [
@@ -86,7 +98,9 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
   @override
   void dispose() {
     _officeNameController.dispose();
+    _employerSearchDebounce?.cancel();
     _employerLawyerController.dispose();
+    _employerLicenseController.dispose();
     _officeGovernorateController.dispose();
     _officeCityController.dispose();
     _officeAddressController.dispose();
@@ -99,6 +113,8 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
     _bioController.dispose();
     _experienceController.dispose();
     _feesController.dispose();
+    _officeFeesController.dispose();
+    _videoCallFeesController.dispose();
     super.dispose();
   }
 
@@ -135,18 +151,173 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
   Future<void> _selectTime(String day, bool isStart) async {
     final initialTime =
         (isStart ? _startTime[day] : _endTime[day]) ?? TimeOfDay.now();
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: initialTime,
+    final now = DateTime.now();
+    DateTime tempDateTime = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      initialTime.hour,
+      initialTime.minute,
     );
-    if (picked != null) {
-      setState(() {
-        if (isStart) {
-          _startTime[day] = picked;
-        } else {
-          _endTime[day] = picked;
-        }
-      });
+
+    await showDialog(
+      context: context,
+      builder: (BuildContext builder) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24.r),
+          ),
+          child: Padding(
+            padding: EdgeInsets.all(20.r),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isStart
+                      ? 'Select Start Time'.translate()
+                      : 'Select End Time'.translate(),
+                  style: TextStyle(
+                    fontSize: 18.sp,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.navyBlue,
+                  ),
+                ),
+                SizedBox(height: 20.h),
+                SizedBox(
+                  height: 180.h,
+                  child: CupertinoTheme(
+                    data: CupertinoThemeData(
+                      textTheme: CupertinoTextThemeData(
+                        dateTimePickerTextStyle: TextStyle(
+                          fontSize:
+                              20, // Fixed size to prevent vertical clipping
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.navyBlue,
+                        ),
+                      ),
+                    ),
+                    child: CupertinoDatePicker(
+                      mode: CupertinoDatePickerMode.time,
+                      initialDateTime: tempDateTime,
+                      onDateTimeChanged: (DateTime newDateTime) {
+                        tempDateTime = newDateTime;
+                      },
+                    ),
+                  ),
+                ),
+                SizedBox(height: 24.h),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Colors.red),
+                          foregroundColor: Colors.red,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12.r),
+                          ),
+                          padding: EdgeInsets.symmetric(vertical: 12.h),
+                        ),
+                        child: Text(
+                          'Cancel'.translate(),
+                          style: TextStyle(
+                            fontSize: 15.sp,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 12.w),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            final picked = TimeOfDay.fromDateTime(tempDateTime);
+                            if (isStart) {
+                              _startTime[day] = picked;
+                            } else {
+                              _endTime[day] = picked;
+                            }
+                          });
+                          Navigator.of(context).pop();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.legalGold,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12.r),
+                          ),
+                          elevation: 0,
+                          padding: EdgeInsets.symmetric(vertical: 12.h),
+                        ),
+                        child: Text(
+                          'Confirm'.translate(),
+                          style: TextStyle(
+                            fontSize: 15.sp,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _onEmployerSearchChanged(String query) {
+    if (_employerSearchDebounce?.isActive ?? false) {
+      _employerSearchDebounce!.cancel();
+    }
+    _employerSearchDebounce = Timer(const Duration(milliseconds: 500), () {
+      _searchEmployerLawyers();
+    });
+  }
+
+  Future<void> _searchEmployerLawyers() async {
+    final query = _employerLawyerController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      setState(() => _employerSearchResults = []);
+      return;
+    }
+    setState(() => _isSearchingEmployer = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('lawyers')
+          .where('work_status', isEqualTo: 'Owns an Office')
+          .get();
+
+      final results = snapshot.docs
+          .where((doc) {
+            final data = doc.data();
+            final name = (data['name'] ?? '').toString().toLowerCase();
+            final officeName = (data['office_details']?['office_name'] ?? '')
+                .toString()
+                .toLowerCase();
+            return name.contains(query) || officeName.contains(query);
+          })
+          .map((doc) => {'id': doc.id, ...doc.data()})
+          .toList();
+
+      if (mounted) {
+        setState(() {
+          _employerSearchResults = results;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Search failed: $e'.translate())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSearchingEmployer = false);
     }
   }
 
@@ -231,6 +402,35 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
       return;
     }
 
+    if (_workStatus == 'Works in an Office') {
+      if (_selectedEmployer == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Please search and select your employer lawyer/office.'
+                  .translate(),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      final inputLicense = _employerLicenseController.text.trim();
+      final actualLicense = _selectedEmployer!['license_ID']?.toString().trim();
+      if (inputLicense.isEmpty || inputLicense != actualLicense) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'The License ID entered does not match the selected employer.'
+                  .translate(),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() => _isSubmitting = true);
 
     try {
@@ -250,6 +450,12 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
             int.tryParse(_experienceController.text.trim()) ?? 0,
         'consultation_fees':
             double.tryParse(_feesController.text.trim()) ?? 0.0,
+        'in_office_consultation_fee':
+            double.tryParse(_officeFeesController.text.trim()) ?? 0.0,
+        'online_consultation_fee': _isVideoCallAvailable
+            ? (double.tryParse(_videoCallFeesController.text.trim()) ?? 0.0)
+            : 0.0,
+        'isOnline': _isVideoCallAvailable,
         'schedule': firestoreSchedule,
         'onboardingCompleted': true,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -257,8 +463,13 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
 
       // Include Conditional Data
       if (_workStatus == 'Works in an Office') {
-        updateData['employer_lawyer_name'] = _employerLawyerController.text
-            .trim();
+        updateData['employer_lawyer_id'] = _selectedEmployer!['id'];
+        updateData['employer_lawyer_name'] = _selectedEmployer!['name'];
+        updateData['employer_office_name'] =
+            _selectedEmployer!['office_details']?['office_name'] ?? '';
+        if (_selectedEmployer!['office_details'] != null) {
+          updateData['office_details'] = _selectedEmployer!['office_details'];
+        }
       } else if (_workStatus == 'Owns an Office') {
         updateData['office_details'] = {
           'office_name': _officeNameController.text.trim(),
@@ -461,7 +672,6 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                             ),
                           ),
                           SizedBox(height: 18.h),
-
                           _OnboardingSectionCard(
                             title: 'Work Status'.translate(),
                             icon: Icons.apartment_rounded,
@@ -485,6 +695,10 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                                     setState(() {
                                       _workStatus = value;
                                       _selectedOfficeLocation = null;
+                                      _selectedEmployer = null;
+                                      _employerSearchResults = [];
+                                      _employerLawyerController.clear();
+                                      _employerLicenseController.clear();
                                     });
                                   },
                                 ),
@@ -497,6 +711,10 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                                     setState(() {
                                       _workStatus = value;
                                       _selectedOfficeLocation = null;
+                                      _selectedEmployer = null;
+                                      _employerSearchResults = [];
+                                      _employerLawyerController.clear();
+                                      _employerLicenseController.clear();
                                     });
                                   },
                                 ),
@@ -506,20 +724,191 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                                 ],
                                 if (_workStatus == 'Works in an Office') ...[
                                   SizedBox(height: 10.h),
-                                  TextFormField(
-                                    controller: _employerLawyerController,
-                                    decoration: _inputDecoration(
-                                      label: 'Office/Lawyer Name'.translate(),
-                                      hint:
-                                          'Search or type the name manually...'
-                                              .translate(),
-                                      icon: Icons.search_rounded,
+                                  if (_selectedEmployer == null) ...[
+                                    TextFormField(
+                                      controller: _employerLawyerController,
+                                      onChanged: _onEmployerSearchChanged,
+                                      decoration:
+                                          _inputDecoration(
+                                            label: 'Search Employer / Office'
+                                                .translate(),
+                                            hint:
+                                                'Type lawyer or office name...'
+                                                    .translate(),
+                                            icon: Icons.search_rounded,
+                                          ).copyWith(
+                                            suffixIcon: _isSearchingEmployer
+                                                ? const Padding(
+                                                    padding: EdgeInsets.all(12),
+                                                    child: SizedBox(
+                                                      width: 16,
+                                                      height: 16,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                            strokeWidth: 2,
+                                                          ),
+                                                    ),
+                                                  )
+                                                : IconButton(
+                                                    icon: const Icon(
+                                                      Icons.send_rounded,
+                                                    ),
+                                                    onPressed:
+                                                        _searchEmployerLawyers,
+                                                    color: AppColors.navyBlue,
+                                                  ),
+                                          ),
+                                      onFieldSubmitted: (_) =>
+                                          _searchEmployerLawyers(),
                                     ),
-                                    validator: (value) =>
-                                        value == null || value.trim().isEmpty
-                                        ? 'Required field'.translate()
-                                        : null,
-                                  ),
+                                    if (_employerSearchResults.isNotEmpty)
+                                      Container(
+                                        margin: EdgeInsets.only(top: 8.h),
+                                        constraints: BoxConstraints(
+                                          maxHeight: 200.h,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            12.r,
+                                          ),
+                                          border: Border.all(
+                                            color: const Color(0xFFDCE6F5),
+                                          ),
+                                        ),
+                                        child: ListView.separated(
+                                          shrinkWrap: true,
+                                          itemCount:
+                                              _employerSearchResults.length,
+                                          separatorBuilder: (_, __) =>
+                                              const Divider(height: 1),
+                                          itemBuilder: (context, index) {
+                                            final emp =
+                                                _employerSearchResults[index];
+                                            final name =
+                                                emp['name'] ?? 'Unknown';
+                                            final officeName =
+                                                emp['office_details']?['office_name'] ??
+                                                'No office name';
+                                            return ListTile(
+                                              title: Text(
+                                                '$name / $officeName',
+                                                style: TextStyle(
+                                                  fontSize: 13.sp,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.navyBlue,
+                                                ),
+                                              ),
+                                              leading: const Icon(
+                                                Icons.business_center_outlined,
+                                                color: AppColors.legalGold,
+                                              ),
+                                              onTap: () {
+                                                setState(() {
+                                                  _selectedEmployer = emp;
+                                                  _employerSearchResults = [];
+                                                  _employerLawyerController
+                                                      .clear();
+                                                });
+                                              },
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                  ] else ...[
+                                    Container(
+                                      padding: EdgeInsets.all(12.r),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF8FBFF),
+                                        borderRadius: BorderRadius.circular(
+                                          12.r,
+                                        ),
+                                        border: Border.all(
+                                          color: AppColors.legalGold,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.business_center_rounded,
+                                            color: AppColors.legalGold,
+                                          ),
+                                          SizedBox(width: 10.w),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  'Selected Employer'
+                                                      .translate(),
+                                                  style: TextStyle(
+                                                    fontSize: 11.sp,
+                                                    color: Colors.grey[600],
+                                                  ),
+                                                ),
+                                                Text(
+                                                  '${_selectedEmployer!['name']} / ${_selectedEmployer!['office_details']?['office_name'] ?? ''}',
+                                                  style: TextStyle(
+                                                    fontSize: 13.sp,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: AppColors.navyBlue,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.clear,
+                                              color: Colors.red,
+                                            ),
+                                            onPressed: () => setState(
+                                              () => _selectedEmployer = null,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    SizedBox(height: 12.h),
+                                    TextFormField(
+                                      controller: _employerLicenseController,
+                                      keyboardType: TextInputType.number,
+                                      inputFormatters: [
+                                        LengthLimitingTextInputFormatter(7),
+                                        FilteringTextInputFormatter.digitsOnly,
+                                      ],
+                                      decoration: _inputDecoration(
+                                        label: "Employer's License ID"
+                                            .translate(),
+                                        hint: 'Enter to verify employment'
+                                            .translate(),
+                                        icon: Icons.badge_outlined,
+                                      ),
+                                      validator: (value) {
+                                        if (value == null ||
+                                            value.trim().isEmpty) {
+                                          return 'Required field'.translate();
+                                        }
+                                        if (!RegExp(
+                                          r'^[0-9]{6,7}$',
+                                        ).hasMatch(value.trim())) {
+                                          return 'License ID must be 6 or 7 digits'
+                                              .translate();
+                                        }
+                                        final actualLicense =
+                                            _selectedEmployer?['license_ID']
+                                                ?.toString()
+                                                .trim();
+                                        if (actualLicense != null &&
+                                            value.trim() != actualLicense) {
+                                          return "Does not match the employer's license ID"
+                                              .translate();
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ],
                                 ],
                                 if (_workStatus == 'Owns an Office') ...[
                                   SizedBox(height: 10.h),
@@ -730,7 +1119,8 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                                                     DropdownButtonFormField<
                                                       String
                                                     >(
-                                                      value: phoneEntry.type,
+                                                      initialValue:
+                                                          phoneEntry.type,
                                                       items: const [
                                                         DropdownMenuItem(
                                                           value: 'Phone',
@@ -864,7 +1254,7 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                                             ],
                                           ),
                                         );
-                                      }).toList(),
+                                      }),
                                       Align(
                                         alignment: Alignment.centerLeft,
                                         child: TextButton.icon(
@@ -890,7 +1280,6 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                             ),
                           ),
                           SizedBox(height: 14.h),
-
                           _OnboardingSectionCard(
                             title: 'Professional Details'.translate(),
                             icon: Icons.workspace_premium_outlined,
@@ -963,7 +1352,93 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                             ),
                           ),
                           SizedBox(height: 14.h),
-
+                          _OnboardingSectionCard(
+                            title: 'Booking Fees'.translate(),
+                            icon: Icons.request_quote_outlined,
+                            child: Column(
+                              children: [
+                                TextFormField(
+                                  controller: _officeFeesController,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  decoration: _inputDecoration(
+                                    label: 'In-Office Visit Fee'.translate(),
+                                    hint: 'e.g. 700'.translate(),
+                                    icon: Icons.storefront_outlined,
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Required'.translate();
+                                    }
+                                    if (double.tryParse(value) == null) {
+                                      return 'Must be a valid number'
+                                          .translate();
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                SizedBox(height: 12.h),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FBFF),
+                                    borderRadius: BorderRadius.circular(12.r),
+                                    border: Border.all(
+                                      color: const Color(0xFFDCE6F5),
+                                    ),
+                                  ),
+                                  child: SwitchListTile(
+                                    title: Text(
+                                      'Video Call Available'.translate(),
+                                      style: TextStyle(
+                                        color: AppColors.navyBlue,
+                                        fontSize: 13.sp,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    value: _isVideoCallAvailable,
+                                    activeThumbColor: AppColors.legalGold,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12.r),
+                                    ),
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _isVideoCallAvailable = value;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                if (_isVideoCallAvailable) ...[
+                                  SizedBox(height: 12.h),
+                                  TextFormField(
+                                    controller: _videoCallFeesController,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    decoration: _inputDecoration(
+                                      label: 'Video Call Fee'.translate(),
+                                      hint: 'e.g. 500'.translate(),
+                                      icon: Icons.video_call_outlined,
+                                    ),
+                                    validator: (value) {
+                                      if (value == null ||
+                                          value.trim().isEmpty) {
+                                        return 'Required'.translate();
+                                      }
+                                      if (double.tryParse(value) == null) {
+                                        return 'Must be a valid number'
+                                            .translate();
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 14.h),
                           _OnboardingSectionCard(
                             title: 'Schedule Builder'.translate(),
                             icon: Icons.calendar_month_rounded,
@@ -1053,7 +1528,6 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                               }).toList(),
                             ),
                           ),
-
                           SizedBox(height: 24.h),
                           SizedBox(
                             width: double.infinity,
@@ -1700,7 +2174,6 @@ class _OfficeLocationPickerScreenState
                 ),
             ],
           ),
-
           Positioned(
             top: 12.h,
             left: 12.w,
@@ -1778,7 +2251,6 @@ class _OfficeLocationPickerScreenState
               ],
             ),
           ),
-
           Positioned(
             bottom: 16.h,
             right: 12.w,
@@ -1798,7 +2270,6 @@ class _OfficeLocationPickerScreenState
                   : const Icon(Icons.my_location_rounded),
             ),
           ),
-
           Positioned(
             left: 12.w,
             right: 12.w,

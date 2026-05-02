@@ -70,7 +70,7 @@ class UserProfileSidePanel extends StatelessWidget {
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF03264A).withValues(alpha: 0.26),
+                      color: const Color(0xFF03264A).withOpacity(0.26),
                       blurRadius: 18,
                       offset: Offset(0, 10.h),
                     ),
@@ -137,7 +137,7 @@ class UserProfileSidePanel extends StatelessWidget {
                               Text(
                                 'Manage your account'.translate(),
                                 style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.85),
+                                  color: Colors.white.withOpacity(0.85),
                                 ),
                               ),
                             ],
@@ -246,7 +246,7 @@ class UserProfileSidePanel extends StatelessWidget {
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(
                             0xFFEF6A6A,
-                          ).withValues(alpha: 0.1),
+                          ).withOpacity(0.1),
                           foregroundColor: const Color(0xFFEF6A6A),
                           padding: EdgeInsets.symmetric(vertical: 12.h),
                         ),
@@ -299,8 +299,8 @@ class _PanelTile extends StatelessWidget {
         ? const Color(0xFFB91C1C)
         : (isDark ? const Color(0xFFD8E4FF) : AppColors.navyBlue);
     final subtitleColor = isDark
-        ? Colors.white.withValues(alpha: 0.72)
-        : Colors.black.withValues(alpha: 0.58);
+        ? Colors.white.withOpacity(0.72)
+        : Colors.black.withOpacity(0.58);
 
     return Container(
       margin: EdgeInsets.only(bottom: 10.h),
@@ -315,7 +315,7 @@ class _PanelTile extends StatelessWidget {
         ),
         leading: CircleAvatar(
           radius: 18.r,
-          backgroundColor: iconColor.withValues(alpha: 0.12),
+          backgroundColor: iconColor.withOpacity(0.12),
           child: Icon(icon, color: iconColor, size: 19.sp),
         ),
         title: Text(
@@ -337,65 +337,6 @@ class _PanelTile extends StatelessWidget {
           size: 24.sp,
         ),
         onTap: onTap,
-      ),
-    );
-  }
-}
-
-class _PanelSwitchTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  const _PanelSwitchTile({
-    required this.icon,
-    required this.title,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final tileColor = isDark ? const Color(0xFF24344C) : Colors.white;
-    final borderColor = isDark
-        ? const Color(0xFF2A3550)
-        : const Color(0xFFE1EAF8);
-    final switchTextColor = isDark ? Colors.white : AppColors.navyBlue;
-    final iconColor = isDark ? const Color(0xFFD8E4FF) : AppColors.navyBlue;
-
-    return Container(
-      margin: EdgeInsets.only(bottom: 10.h),
-      padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 8.h),
-      decoration: BoxDecoration(
-        color: tileColor,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: borderColor),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 18.r,
-            backgroundColor: iconColor.withValues(alpha: 0.12),
-            child: Icon(icon, color: iconColor, size: 19.sp),
-          ),
-          SizedBox(width: 10.w),
-          Expanded(
-            child: Text(
-              title,
-              style: GoogleFonts.cairo(
-                fontWeight: FontWeight.w700,
-                color: switchTextColor,
-              ),
-            ),
-          ),
-          Switch.adaptive(
-            value: value,
-            activeColor: const Color(0xFF0B5E55),
-            onChanged: onChanged,
-          ),
-        ],
       ),
     );
   }

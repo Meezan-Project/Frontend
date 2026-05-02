@@ -442,7 +442,8 @@ class _LawyerDashboardRepository {
       final lawyerDoc = await FirebaseFirestore.instance
           .collection('lawyers')
           .doc(user.uid)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 15));
 
       if (!lawyerDoc.exists) {
         return _LawyerDashboardPayload.empty(
@@ -684,7 +685,9 @@ class _LawyerDashboardRepository {
 
     Future<void> readQuery(Query<Map<String, dynamic>> query) async {
       try {
-        final snapshot = await query.limit(50).get();
+        final snapshot = await query.limit(50)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 10));
         for (final doc in snapshot.docs) {
           final data = doc.data();
           final title = _firstNonEmpty([
@@ -987,8 +990,6 @@ class _AIAssistantCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return GestureDetector(
       onTap: onStartChat,
       child: Container(

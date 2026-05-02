@@ -401,7 +401,8 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('lawyer_specializations')
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 10));
 
       final loadedOptions =
           snapshot.docs
@@ -512,7 +513,8 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
     final existingEmail = await lawyersCollection
         .where('emailLower', isEqualTo: emailLower)
         .limit(1)
-        .get();
+        .get(const GetOptions(source: Source.serverAndCache))
+        .timeout(const Duration(seconds: 10));
     if (existingEmail.docs.isNotEmpty) {
       return false;
     }

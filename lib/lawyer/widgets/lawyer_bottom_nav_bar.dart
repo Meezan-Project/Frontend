@@ -123,8 +123,6 @@ class LawyerBottomNavBar extends StatelessWidget {
   }
 
   Widget _buildCenterAction(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Container(
       height: 50.h,
       width: 50.w,
