@@ -369,7 +369,9 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
         Future.delayed(const Duration(seconds: 2), () {
           if (mounted) {
             Navigator.of(context).pop(); // إغلاق الـ Popup
-            Navigator.of(context).popUntil((route) => route.isFirst); // العودة لصفحة الـ Dashboard
+            Navigator.of(
+              context,
+            ).popUntil((route) => route.isFirst); // العودة لصفحة الـ Dashboard
           }
         });
       }
@@ -490,10 +492,23 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
                 ),
               ],
             ),
-            child: CircleAvatar(
-              radius: 42.r,
-              backgroundImage: NetworkImage(widget.lawyerImage),
-              backgroundColor: Colors.grey.shade200,
+            child: ClipOval(
+              child: Image.network(
+                widget.lawyerImage,
+                width: 84.r,
+                height: 84.r,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: 84.r,
+                  height: 84.r,
+                  color: Colors.grey.shade200,
+                  child: Icon(
+                    Icons.person_rounded,
+                    size: 42.sp,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -503,7 +518,7 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
 
   Widget _buildUserInfoCard() {
     return _buildSectionCard(
-      title: 'Patient Details',
+      title: 'User Details',
       child: _isLoadingUser
           ? const Center(child: CircularProgressIndicator())
           : Column(

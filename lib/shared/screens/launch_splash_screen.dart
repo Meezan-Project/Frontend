@@ -65,68 +65,75 @@ class _LaunchSplashScreenState extends State<LaunchSplashScreen>
     final firestore = FirebaseFirestore.instance;
     final normalizedEmail = user.email?.trim().toLowerCase();
 
-    // 1) Fast path by UID in users collection.
-    final userDoc = await firestore.collection('users').doc(user.uid).get();
-    if (userDoc.exists) {
-      return _roleFromDocData(userDoc.data(), fallback: AppRole.user);
-    }
-
-    // 2) Fast path by UID in lawyers collection.
-    final lawyerDoc = await firestore.collection('lawyers').doc(user.uid).get();
-    if (lawyerDoc.exists) {
-      return _roleFromDocData(lawyerDoc.data(), fallback: AppRole.lawyer);
-    }
-
-    if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
-      // 3) Query users by emailLower first, then email.
-      final userByEmailLower = await firestore
-          .collection('users')
-          .where('emailLower', isEqualTo: normalizedEmail)
-          .limit(1)
-          .get();
-      if (userByEmailLower.docs.isNotEmpty) {
-        return _roleFromDocData(
-          userByEmailLower.docs.first.data(),
-          fallback: AppRole.user,
-        );
+    try {
+      // 1) Fast path by UID in users collection.
+      final userDoc = await firestore.collection('users').doc(user.uid).get();
+      if (userDoc.exists) {
+        return _roleFromDocData(userDoc.data(), fallback: AppRole.user);
       }
 
-      final userByEmail = await firestore
-          .collection('users')
-          .where('email', isEqualTo: user.email!.trim())
-          .limit(1)
-          .get();
-      if (userByEmail.docs.isNotEmpty) {
-        return _roleFromDocData(
-          userByEmail.docs.first.data(),
-          fallback: AppRole.user,
-        );
-      }
-
-      // 4) Query lawyers by emailLower first, then email.
-      final lawyerByEmailLower = await firestore
+      // 2) Fast path by UID in lawyers collection.
+      final lawyerDoc = await firestore
           .collection('lawyers')
-          .where('emailLower', isEqualTo: normalizedEmail)
-          .limit(1)
+          .doc(user.uid)
           .get();
-      if (lawyerByEmailLower.docs.isNotEmpty) {
-        return _roleFromDocData(
-          lawyerByEmailLower.docs.first.data(),
-          fallback: AppRole.lawyer,
-        );
+      if (lawyerDoc.exists) {
+        return _roleFromDocData(lawyerDoc.data(), fallback: AppRole.lawyer);
       }
 
-      final lawyerByEmail = await firestore
-          .collection('lawyers')
-          .where('email', isEqualTo: user.email!.trim())
-          .limit(1)
-          .get();
-      if (lawyerByEmail.docs.isNotEmpty) {
-        return _roleFromDocData(
-          lawyerByEmail.docs.first.data(),
-          fallback: AppRole.lawyer,
-        );
+      if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
+        // 3) Query users by emailLower first, then email.
+        final userByEmailLower = await firestore
+            .collection('users')
+            .where('emailLower', isEqualTo: normalizedEmail)
+            .limit(1)
+            .get();
+        if (userByEmailLower.docs.isNotEmpty) {
+          return _roleFromDocData(
+            userByEmailLower.docs.first.data(),
+            fallback: AppRole.user,
+          );
+        }
+
+        final userByEmail = await firestore
+            .collection('users')
+            .where('email', isEqualTo: user.email!.trim())
+            .limit(1)
+            .get();
+        if (userByEmail.docs.isNotEmpty) {
+          return _roleFromDocData(
+            userByEmail.docs.first.data(),
+            fallback: AppRole.user,
+          );
+        }
+
+        // 4) Query lawyers by emailLower first, then email.
+        final lawyerByEmailLower = await firestore
+            .collection('lawyers')
+            .where('emailLower', isEqualTo: normalizedEmail)
+            .limit(1)
+            .get();
+        if (lawyerByEmailLower.docs.isNotEmpty) {
+          return _roleFromDocData(
+            lawyerByEmailLower.docs.first.data(),
+            fallback: AppRole.lawyer,
+          );
+        }
+
+        final lawyerByEmail = await firestore
+            .collection('lawyers')
+            .where('email', isEqualTo: user.email!.trim())
+            .limit(1)
+            .get();
+        if (lawyerByEmail.docs.isNotEmpty) {
+          return _roleFromDocData(
+            lawyerByEmail.docs.first.data(),
+            fallback: AppRole.lawyer,
+          );
+        }
       }
+    } catch (e) {
+      debugPrint('Firestore unavailable, defaulting to AppRole.user: $e');
     }
 
     return AppRole.user;

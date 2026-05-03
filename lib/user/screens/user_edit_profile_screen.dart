@@ -2144,7 +2144,7 @@ class _UserEditProfileScreenState extends State<UserEditProfileScreen> {
                 ),
               ),
 
-              ?trailing,
+              if (trailing != null) trailing,
             ],
           ),
 

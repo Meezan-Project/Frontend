@@ -291,20 +291,25 @@ class LocalizationController extends GetxController {
     'Choose one or more': 'اختر واحدًا أو أكثر',
     'Apply': 'تطبيق',
     'Loading specializations...': 'جاري تحميل التخصصات...',
-    'No specialization options are available right now.': 'لا توجد خيارات تخصص متاحة الآن.',
+    'No specialization options are available right now.':
+        'لا توجد خيارات تخصص متاحة الآن.',
     'Choose specializations': 'اختر التخصصات',
     'Tap to edit specializations': 'اضغط لتعديل التخصصات',
-    'Could not load specialization options from Firebase.': 'تعذر تحميل خيارات التخصص من قاعدة البيانات.',
+    'Could not load specialization options from Firebase.':
+        'تعذر تحميل خيارات التخصص من قاعدة البيانات.',
     'Must be more than 22': 'يجب أن يكون العمر أكثر من 22',
     'Age must be more than 22': 'يجب أن يكون العمر أكثر من 22',
     'License Photo (Front Side)': 'صورة الرخصة (الجانب الأمامي)',
     'National ID Photo (Front Side)': 'صورة الهوية الوطنية (الجانب الأمامي)',
     'National ID Photo (Back Side)': 'صورة الهوية الوطنية (الجانب الخلفي)',
-    'Email must strictly end with @gmail.com': 'يجب أن ينتهي البريد الإلكتروني بـ @gmail.com حصرياً',
+    'Email must strictly end with @gmail.com':
+        'يجب أن ينتهي البريد الإلكتروني بـ @gmail.com حصرياً',
     'Must start with +2': 'يجب أن يبدأ بـ +2',
     'Must be exactly 11 digits after +2': 'يجب أن يكون 11 رقماً بالضبط بعد +2',
-    'Must contain exactly 11 digits after +2': 'يجب أن يحتوي على 11 رقماً بالضبط بعد +2',
-    'License ID must be strictly 6 or 7 digits': 'يجب أن يكون رقم الرخصة 6 أو 7 أرقام حصرياً',
+    'Must contain exactly 11 digits after +2':
+        'يجب أن يحتوي على 11 رقماً بالضبط بعد +2',
+    'License ID must be strictly 6 or 7 digits':
+        'يجب أن يكون رقم الرخصة 6 أو 7 أرقام حصرياً',
     'Capture license photo from camera': 'التقط صورة الرخصة من الكاميرا',
     'Capture profile photo from camera': 'التقط صورة الملف الشخصي من الكاميرا',
     'Join as User': 'انضم كمستخدم',
@@ -365,6 +370,16 @@ class LocalizationController extends GetxController {
     'Need Help?': 'تحتاج مساعدة؟',
     'AI Chat': 'محادثة الذكاء الاصطناعي',
     'SOS': 'استغاثة',
+    'Transaction History': 'سجل المعاملات',
+
+    'My Appointments': 'مواعيدي',
+    'In Office': 'حضوري (في المكتب)',
+    'Online Meeting': 'لقاء عبر الإنترنت',
+    'Open in Map': 'فتح في الخريطة',
+    'Cancel Appointment': 'إلغاء الموعد',
+    'Are you sure you want to cancel this appointment?':
+        'هل أنت متأكد من رغبتك في إلغاء هذا الموعد؟',
+    'Yes, Cancel': 'نعم، قم بالإلغاء',
     'Edit profile': 'تعديل الملف الشخصي',
     'Saved cards': 'البطاقات المحفوظة',
     'Emergency contacts': 'جهات اتصال الطوارئ',

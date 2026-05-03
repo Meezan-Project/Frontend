@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -92,8 +93,16 @@ class LawyerModel {
       schedule: data['schedule'] is Map
           ? Map<String, dynamic>.from(data['schedule'])
           : null,
-      onlineFee: parseFee(['online_consultation_fee', 'online_fee', 'onlineFee'], baseFee),
-      inOfficeFee: parseFee(['in_office_consultation_fee', 'in_office_fee', 'inOfficeFee'], baseFee),
+      onlineFee: parseFee([
+        'online_consultation_fee',
+        'online_fee',
+        'onlineFee',
+      ], baseFee),
+      inOfficeFee: parseFee([
+        'in_office_consultation_fee',
+        'in_office_fee',
+        'inOfficeFee',
+      ], baseFee),
     );
   }
 }
@@ -109,11 +118,14 @@ class LawyerProfileScreen extends StatefulWidget {
 }
 
 class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
-  int? _selectedDaySlotIndex;
-  String? _selectedConsultationType; // 'online' or 'office'
-  List<_ScheduleSlot> _availableSlots = [];
+  String _selectedConsultationType = 'online'; // 'online' or 'office'
+  DateTime? _selectedDate;
+  String? _selectedTimeSlot;
+  List<DateTime> _availableDates = [];
   LawyerModel? _fetchedLawyer;
   bool _isLoading = false;
+  Map<String, List<String>> _bookedSlots = {};
+  StreamSubscription<QuerySnapshot>? _appointmentsSub;
 
   LawyerModel? get _currentLawyer => _fetchedLawyer ?? widget.lawyer;
 
@@ -121,22 +133,30 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
   void initState() {
     super.initState();
     if (widget.lawyer != null) {
-      _generateAvailableSlots();
+      _generateAvailableDates();
+      _listenToBookedSlots();
     } else if (widget.lawyerId != null) {
       _fetchLawyerData();
     }
+  }
+
+  @override
+  void dispose() {
+    _appointmentsSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetchLawyerData() async {
     setState(() => _isLoading = true);
     try {
       final doc = await FirebaseFirestore.instance
-          .collection('users')
+          .collection('lawyers')
           .doc(widget.lawyerId)
           .get();
       if (doc.exists && mounted) {
         setState(() => _fetchedLawyer = LawyerModel.fromFirestore(doc));
-        _generateAvailableSlots();
+        _generateAvailableDates();
+        _listenToBookedSlots();
       }
     } catch (e) {
       debugPrint('Error fetching lawyer: $e');
@@ -145,76 +165,135 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
     }
   }
 
-  void _generateAvailableSlots() {
-    final List<_ScheduleSlot> slots = [];
-    final now = DateTime.now();
+  void _listenToBookedSlots() {
+    if (_currentLawyer == null) return;
+    _appointmentsSub?.cancel();
+
+    _appointmentsSub = FirebaseFirestore.instance
+        .collection('appointments')
+        .where('lawyerId', isEqualTo: _currentLawyer!.id)
+        .snapshots()
+        .listen((snap) {
+          final Map<String, List<String>> booked = {};
+
+          for (var doc in snap.docs) {
+            final data = doc.data();
+            final status = data['status'] ?? data['bookingStatus'] ?? 'pending';
+            if (status == 'cancelled') continue; // Allow booking if cancelled
+
+            final day = data['day'] as String?;
+            final time = data['time'] as String?;
+            if (day != null && time != null) {
+              booked.putIfAbsent(day, () => []).add(time);
+            }
+          }
+
+          if (mounted) {
+            setState(() {
+              _bookedSlots = booked;
+              // Deselect the slot if it was just booked by someone else
+              if (_selectedDate != null && _selectedTimeSlot != null) {
+                final dayLabel = DateFormat(
+                  'EEEE, d MMM yyyy',
+                ).format(_selectedDate!);
+                if (booked[dayLabel]?.contains(_selectedTimeSlot) == true) {
+                  _selectedTimeSlot = null;
+                }
+              }
+            });
+          }
+        }, onError: (e) => debugPrint('Error listening to booked slots: $e'));
+  }
+
+  Map<String, String>? _getStartEndTimeForDate(DateTime date) {
     final safeSchedule = _currentLawyer?.schedule ?? {};
+    if (safeSchedule.isEmpty) return null;
 
-    if (safeSchedule.isEmpty) return;
+    final dayNameTitle = DateFormat('EEEE').format(date);
+    final dayNameLower = dayNameTitle.toLowerCase();
 
+    final String? matchedKey = safeSchedule.containsKey(dayNameTitle)
+        ? dayNameTitle
+        : (safeSchedule.containsKey(dayNameLower) ? dayNameLower : null);
+
+    if (matchedKey != null) {
+      final val = safeSchedule[matchedKey];
+      if (val is Map) {
+        final f = val['from']?.toString() ?? val['start']?.toString() ?? '';
+        final t = val['to']?.toString() ?? val['end']?.toString() ?? '';
+        return {'start': f, 'end': t};
+      } else {
+        final str = val.toString();
+        if (str.contains('-')) {
+          final parts = str.split('-');
+          return {'start': parts[0].trim(), 'end': parts[1].trim()};
+        }
+      }
+    }
+    return null;
+  }
+
+  void _generateAvailableDates() {
+    final List<DateTime> dates = [];
+    final now = DateTime.now();
     for (int i = 0; i < 14; i++) {
       final date = now.add(Duration(days: i));
-      final dayNameTitle = DateFormat('EEEE').format(date);
-      final dayNameLower = dayNameTitle.toLowerCase();
-
-      final String? matchedKey = safeSchedule.containsKey(dayNameTitle)
-          ? dayNameTitle
-          : (safeSchedule.containsKey(dayNameLower) ? dayNameLower : null);
-
-      if (matchedKey != null) {
-        final rawValue = safeSchedule[matchedKey];
-        final timeRange = _formatTimeRange(rawValue);
-        if (timeRange.isNotEmpty) {
-          slots.add(_ScheduleSlot.fromDateTime(date, timeRange));
-        }
+      if (_getStartEndTimeForDate(date) != null) {
+        dates.add(date);
       }
     }
     if (mounted) {
       setState(() {
-        _availableSlots = slots;
+        _availableDates = dates;
       });
     }
   }
 
-  String _to12HourFormat(String timeStr) {
-    final t = timeStr.trim();
-    if (t.toLowerCase().contains('am') || t.toLowerCase().contains('pm')) {
-      return t;
-    }
-    try {
-      final parts = t.split(':');
-      if (parts.length >= 2) {
-        int hour = int.parse(parts[0]);
-        int minute = int.parse(parts[1]);
-        final dt = DateTime(2022, 1, 1, hour, minute);
-        return DateFormat('h:mm a').format(dt);
-      }
-    } catch (_) {}
-    return t;
+  int _parseTimeToMinutes(String timeStr) {
+    timeStr = timeStr.trim().toLowerCase();
+    bool isPm = timeStr.contains('pm');
+    bool isAm = timeStr.contains('am');
+    timeStr = timeStr.replaceAll('am', '').replaceAll('pm', '').trim();
+
+    final parts = timeStr.split(':');
+    if (parts.isEmpty) return 0;
+
+    int h = int.tryParse(parts[0]) ?? 0;
+    int m = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+
+    if (isPm && h < 12) h += 12;
+    if (isAm && h == 12) h = 0;
+
+    return h * 60 + m;
   }
 
-  String _formatTimeRange(dynamic value) {
-    if (value == null) return '';
-    if (value is Map) {
-      final fromStr =
-          value['from']?.toString() ?? value['start']?.toString() ?? '';
-      final toStr = value['to']?.toString() ?? value['end']?.toString() ?? '';
-      final fFrom = _to12HourFormat(fromStr);
-      final fTo = _to12HourFormat(toStr);
-      if (fFrom.isNotEmpty && fTo.isNotEmpty) return '$fFrom - $fTo';
-      if (fFrom.isNotEmpty) return fFrom;
-      if (fTo.isNotEmpty) return fTo;
-    } else {
-      final str = value.toString();
-      if (str.contains('-')) {
-        final parts = str.split('-');
-        final fFrom = _to12HourFormat(parts[0]);
-        final fTo = _to12HourFormat(parts[1]);
-        return '$fFrom - $fTo';
+  String _formatMinsTo12h(int mins) {
+    int h = mins ~/ 60;
+    int m = mins % 60;
+    String amPm = h >= 12 ? 'PM' : 'AM';
+    int h12 = h > 12 ? h - 12 : (h == 0 ? 12 : h);
+    return '${h12.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} $amPm';
+  }
+
+  List<String> _generateTimeSlots(String start, String end, DateTime date) {
+    int startMins = _parseTimeToMinutes(start);
+    int endMins = _parseTimeToMinutes(end);
+    if (startMins == 0 && endMins == 0) return [];
+
+    final dayLabel = DateFormat('EEEE, d MMM yyyy').format(date);
+    final bookedForDay = _bookedSlots[dayLabel] ?? [];
+
+    List<String> slots = [];
+    while (startMins + 45 <= endMins) {
+      int eMins = startMins + 45;
+      String slotStr =
+          '${_formatMinsTo12h(startMins)} - ${_formatMinsTo12h(eMins)}';
+      if (!bookedForDay.contains(slotStr)) {
+        slots.add(slotStr);
       }
-      return _to12HourFormat(str);
+      startMins += 55; // 45 min session + 10 min break
     }
-    return value.toString();
+    return slots;
   }
 
   String _formatFee(double fee) {
@@ -381,10 +460,23 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                     ),
                   ],
                 ),
-                child: CircleAvatar(
-                  radius: 54.r,
-                  backgroundImage: NetworkImage(_currentLawyer!.imageUrl),
-                  backgroundColor: Colors.grey.shade200,
+                child: ClipOval(
+                  child: Image.network(
+                    _currentLawyer!.imageUrl,
+                    width: 108.r,
+                    height: 108.r,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      width: 108.r,
+                      height: 108.r,
+                      color: Colors.grey.shade200,
+                      child: Icon(
+                        Icons.person_rounded,
+                        size: 54.sp,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -439,42 +531,46 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
   Widget _buildQuickStats(bool isDark) {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 16.w),
-      child: Row(
-        children: [
-          Expanded(
-            child: _statCard(
-              'Experience',
-              '+${_currentLawyer!.experience} Years',
-              Icons.workspace_premium_outlined,
-              isDark,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: _statCard(
+                'Experience',
+                '+${_currentLawyer!.experience} Years',
+                Icons.workspace_premium_outlined,
+                isDark,
+              ),
             ),
-          ),
-          SizedBox(width: 10.w),
-          Expanded(
-            child: _statCard(
-              'Rating',
-              '${_currentLawyer!.rating.toStringAsFixed(1)} ⭐',
-              Icons.star_outline_rounded,
-              isDark,
+            SizedBox(width: 10.w),
+            Expanded(
+              child: _statCard(
+                'Rating',
+                '${_currentLawyer!.rating.toStringAsFixed(1)} ⭐',
+                Icons.star_outline_rounded,
+                isDark,
+              ),
             ),
-          ),
-          SizedBox(width: 10.w),
-          Expanded(
-            child: _statCard(
-              'Reviews',
-              '${_currentLawyer!.reviewsCount}',
-              Icons.people_outline_rounded,
-              isDark,
+            SizedBox(width: 10.w),
+            Expanded(
+              child: _statCard(
+                'Reviews',
+                '${_currentLawyer!.reviewsCount}',
+                Icons.people_outline_rounded,
+                isDark,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _statCard(String title, String value, IconData icon, bool isDark) {
     return Container(
-      padding: EdgeInsets.symmetric(vertical: 12.h),
+      padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 4.w),
+      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1C2A40) : Colors.white,
         borderRadius: BorderRadius.circular(16.r),
@@ -483,11 +579,14 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, color: AppColors.legalGold, size: 24.sp),
           SizedBox(height: 6.h),
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.cairo(
               fontSize: 15.sp,
               fontWeight: FontWeight.w800,
@@ -496,6 +595,8 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
           ),
           Text(
             title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.cairo(
               fontSize: 12.sp,
               color: isDark ? Colors.white70 : Colors.grey.shade600,
@@ -666,114 +767,284 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
       isDark: isDark,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: _availableSlots.isEmpty
-            ? [
-                Text(
-                  'No available appointments in the next 14 days.',
-                  style: GoogleFonts.cairo(
-                    color: isDark ? Colors.white70 : Colors.grey.shade600,
-                  ),
+        children: [
+          // 1. Consultation Type
+          Text(
+            '1. Select Consultation Type',
+            style: GoogleFonts.cairo(
+              fontSize: 15.sp,
+              fontWeight: FontWeight.w700,
+              color: isDark ? Colors.white : AppColors.navyBlue,
+            ),
+          ),
+          SizedBox(height: 12.h),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildConsultationTypeCard(
+                  type: 'online',
+                  title: 'Online Meeting',
+                  icon: Icons.video_call_outlined,
+                  fee: _currentLawyer!.onlineFee,
+                  isDark: isDark,
                 ),
-              ]
-            : [
-                // Schedule Slots
-                SizedBox(
-                  height: 120.h,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _availableSlots.length,
-                    itemBuilder: (context, index) {
-                      final slot = _availableSlots[index];
-                      final isSelected = _selectedDaySlotIndex == index;
+                SizedBox(width: 12.w),
+                _buildConsultationTypeCard(
+                  type: 'office',
+                  title: 'In-Office Visit',
+                  icon: Icons.work_outline,
+                  fee: _currentLawyer!.inOfficeFee,
+                  isDark: isDark,
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 24.h),
+
+          // 2. Select Day
+          Text(
+            '2. Select Day',
+            style: GoogleFonts.cairo(
+              fontSize: 15.sp,
+              fontWeight: FontWeight.w700,
+              color: isDark ? Colors.white : AppColors.navyBlue,
+            ),
+          ),
+          SizedBox(height: 12.h),
+          if (_availableDates.isEmpty)
+            Text(
+              'No available appointments in the next 14 days.',
+              style: GoogleFonts.cairo(
+                color: isDark ? Colors.white70 : Colors.grey.shade600,
+              ),
+            )
+          else
+            SizedBox(
+              height: 85.h,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _availableDates.length,
+                itemBuilder: (context, index) {
+                  final date = _availableDates[index];
+                  final isSelected = _selectedDate == date;
+                  final dayName = DateFormat('EEE').format(date);
+                  final dayNum = DateFormat('d').format(date);
+                  final monthName = DateFormat('MMM').format(date);
+
+                  return GestureDetector(
+                    onTap: () => setState(() {
+                      _selectedDate = date;
+                      _selectedTimeSlot = null; // Reset time when day changes
+                    }),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 75.w,
+                      margin: EdgeInsets.only(right: 12.w),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppColors.navyBlue
+                            : (isDark ? const Color(0xFF1C2A40) : Colors.white),
+                        borderRadius: BorderRadius.circular(16.r),
+                        border: Border.all(
+                          color: isSelected
+                              ? AppColors.navyBlue
+                              : (isDark
+                                    ? const Color(0xFF334866)
+                                    : Colors.grey.shade300),
+                        ),
+                        boxShadow: isSelected
+                            ? [
+                                BoxShadow(
+                                  color: AppColors.navyBlue.withOpacity(0.2),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ]
+                            : [],
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            dayName,
+                            style: GoogleFonts.cairo(
+                              fontSize: 13.sp,
+                              fontWeight: FontWeight.w600,
+                              color: isSelected
+                                  ? Colors.white70
+                                  : (isDark
+                                        ? Colors.white70
+                                        : Colors.grey.shade600),
+                            ),
+                          ),
+                          Text(
+                            dayNum,
+                            style: GoogleFonts.cairo(
+                              fontSize: 20.sp,
+                              fontWeight: FontWeight.w800,
+                              color: isSelected
+                                  ? Colors.white
+                                  : (isDark
+                                        ? Colors.white
+                                        : AppColors.navyBlue),
+                            ),
+                          ),
+                          Text(
+                            monthName,
+                            style: GoogleFonts.cairo(
+                              fontSize: 12.sp,
+                              fontWeight: FontWeight.w600,
+                              color: isSelected
+                                  ? Colors.white70
+                                  : (isDark
+                                        ? Colors.white70
+                                        : Colors.grey.shade600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+          // 3. Dynamic Time Section Based on Type
+          if (_selectedDate != null) ...[
+            SizedBox(height: 24.h),
+            Text(
+              _selectedConsultationType == 'online'
+                  ? '3. Select Time Slot'
+                  : '3. Working Hours',
+              style: GoogleFonts.cairo(
+                fontSize: 15.sp,
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : AppColors.navyBlue,
+              ),
+            ),
+            SizedBox(height: 12.h),
+
+            Builder(
+              builder: (context) {
+                final hours = _getStartEndTimeForDate(_selectedDate!);
+                if (hours == null) return const SizedBox.shrink();
+
+                if (_selectedConsultationType == 'online') {
+                  final slots = _generateTimeSlots(
+                    hours['start']!,
+                    hours['end']!,
+                    _selectedDate!,
+                  );
+                  if (slots.isEmpty) {
+                    return Text(
+                      'No slots available.',
+                      style: GoogleFonts.cairo(color: Colors.grey),
+                    );
+                  }
+                  return Wrap(
+                    spacing: 12.w,
+                    runSpacing: 12.h,
+                    children: slots.map((slot) {
+                      final isSelected = _selectedTimeSlot == slot;
                       return GestureDetector(
-                        onTap: () => setState(() {
-                          _selectedDaySlotIndex = index;
-                        }),
-                        child: Container(
-                          width: 140.w,
-                          margin: EdgeInsets.only(right: 12.w),
-                          padding: EdgeInsets.all(12.r),
+                        onTap: () => setState(
+                          () => _selectedTimeSlot = isSelected ? null : slot,
+                        ),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 16.w,
+                            vertical: 10.h,
+                          ),
                           decoration: BoxDecoration(
                             color: isSelected
                                 ? AppColors.navyBlue
                                 : (isDark
                                       ? const Color(0xFF1C2A40)
-                                      : Colors.grey.shade100),
-                            borderRadius: BorderRadius.circular(16.r),
+                                      : Colors.white),
+                            borderRadius: BorderRadius.circular(12.r),
                             border: Border.all(
                               color: isSelected
                                   ? AppColors.navyBlue
                                   : (isDark
                                         ? const Color(0xFF334866)
-                                        : Colors.grey.shade200),
+                                        : Colors.grey.shade300),
+                              width: isSelected ? 1.5 : 1,
                             ),
+                            boxShadow: isSelected
+                                ? [
+                                    BoxShadow(
+                                      color: AppColors.navyBlue.withOpacity(
+                                        0.2,
+                                      ),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ]
+                                : [],
                           ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                slot.dayLabel,
-                                style: GoogleFonts.cairo(
-                                  fontSize: 15.sp,
-                                  fontWeight: FontWeight.w800,
-                                  color: isSelected
-                                      ? Colors.white
-                                      : (isDark
-                                            ? Colors.white
-                                            : AppColors.navyBlue),
-                                ),
-                              ),
-                              SizedBox(height: 4.h),
-                              Text(
-                                slot.timeRange,
-                                style: GoogleFonts.cairo(
-                                  fontSize: 13.sp,
-                                  fontWeight: FontWeight.w600,
-                                  color: isSelected
-                                      ? Colors.white70
-                                      : Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            slot,
+                            style: GoogleFonts.cairo(
+                              color: isSelected
+                                  ? Colors.white
+                                  : (isDark
+                                        ? Colors.white70
+                                        : AppColors.navyBlue),
+                              fontWeight: isSelected
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                              fontSize: 13.sp,
+                            ),
                           ),
                         ),
                       );
-                    },
-                  ),
-                ),
-                SizedBox(height: 20.h),
-                // Consultation Type
-                Text(
-                  'Select Consultation Type',
-                  style: GoogleFonts.cairo(
-                    fontSize: 16.sp,
-                    fontWeight: FontWeight.w700,
-                    color: isDark
-                        ? Colors.white.withOpacity(0.9)
-                        : Colors.black87,
-                  ),
-                ),
-                SizedBox(height: 12.h),
-                Row(
-                  children: [
-                    _buildConsultationTypeCard(
-                      type: 'online',
-                      title: 'Online Meeting',
-                      icon: Icons.video_call_outlined,
-                      fee: _currentLawyer!.onlineFee,
-                      isDark: isDark,
+                    }).toList(),
+                  );
+                } else {
+                  return Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.all(16.r),
+                    decoration: BoxDecoration(
+                      color: AppColors.legalGold.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12.r),
+                      border: Border.all(
+                        color: AppColors.legalGold.withOpacity(0.3),
+                      ),
                     ),
-                    SizedBox(width: 12.w),
-                    _buildConsultationTypeCard(
-                      type: 'office',
-                      title: 'In-Office Visit',
-                      icon: Icons.work_outline,
-                      fee: _currentLawyer!.inOfficeFee,
-                      isDark: isDark,
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.access_time_filled_rounded,
+                          color: AppColors.legalGold,
+                          size: 28.sp,
+                        ),
+                        SizedBox(height: 8.h),
+                        Text(
+                          'Available for Office Visits',
+                          style: GoogleFonts.cairo(
+                            fontSize: 14.sp,
+                            color: isDark ? Colors.white : AppColors.navyBlue,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          '${_formatMinsTo12h(_parseTimeToMinutes(hours['start']!))} to ${_formatMinsTo12h(_parseTimeToMinutes(hours['end']!))}',
+                          style: GoogleFonts.cairo(
+                            fontSize: 16.sp,
+                            color: isDark ? Colors.white : AppColors.navyBlue,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ],
+                  );
+                }
+              },
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -792,12 +1063,17 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
     return Expanded(
       child: GestureDetector(
         onTap: isAvailable
-            ? () => setState(() => _selectedConsultationType = type)
+            ? () => setState(() {
+                _selectedConsultationType = type;
+                _selectedTimeSlot =
+                    null; // Reset time slot when switching modes
+              })
             : null,
         child: Opacity(
           opacity: isAvailable ? 1.0 : 0.5,
           child: Container(
-            padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 8.w),
+            padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 4.w),
+            alignment: Alignment.center,
             decoration: BoxDecoration(
               color: isSelected
                   ? AppColors.legalGold.withOpacity(0.15)
@@ -811,12 +1087,16 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
               ),
             ),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(icon, color: AppColors.legalGold, size: 24.sp),
                 SizedBox(height: 8.h),
                 Text(
                   title,
                   textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.cairo(
                     fontSize: 13.sp,
                     fontWeight: FontWeight.w700,
@@ -826,6 +1106,8 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                 SizedBox(height: 4.h),
                 Text(
                   feeText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.cairo(
                     fontSize: 14.sp,
                     fontWeight: FontWeight.w800,
@@ -929,7 +1211,10 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
 
   Widget _buildStickyBottomBar(bool isDark) {
     final bool canBook =
-        _selectedDaySlotIndex != null && _selectedConsultationType != null;
+        _selectedDate != null &&
+        (_selectedConsultationType == 'office' ||
+            (_selectedConsultationType == 'online' &&
+                _selectedTimeSlot != null));
 
     String feeDisplay = '--- EGP';
     double currentFee = _currentLawyer!.fee;
@@ -994,8 +1279,20 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                   child: ElevatedButton(
                     onPressed: canBook
                         ? () {
-                            final slot =
-                                _availableSlots[_selectedDaySlotIndex!];
+                            String timeRangeToPass = '';
+                            if (_selectedConsultationType == 'online') {
+                              timeRangeToPass = _selectedTimeSlot!;
+                            } else {
+                              final hours = _getStartEndTimeForDate(
+                                _selectedDate!,
+                              );
+                              timeRangeToPass =
+                                  '${_formatMinsTo12h(_parseTimeToMinutes(hours!['start']!))} to ${_formatMinsTo12h(_parseTimeToMinutes(hours['end']!))}';
+                            }
+                            final dayLabel = DateFormat(
+                              'EEEE, d MMM yyyy',
+                            ).format(_selectedDate!);
+
                             Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -1005,12 +1302,12 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                                   lawyerImage: _currentLawyer!.imageUrl,
                                   lawyerSpecialization:
                                       _currentLawyer!.specialization,
-                                  dateLabel: slot.dayLabel,
-                                  timeRange: slot.timeRange,
+                                  dateLabel: dayLabel,
+                                  timeRange: timeRangeToPass,
                                   officeAddress:
                                       _currentLawyer!.fullAddress ??
                                       _currentLawyer!.location,
-                                  consultationType: _selectedConsultationType!,
+                                  consultationType: _selectedConsultationType,
                                   fee: currentFee,
                                 ),
                               ),
@@ -1040,41 +1337,6 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _ScheduleSlot {
-  final DateTime date;
-  final String dayLabel;
-  final String timeRange;
-
-  _ScheduleSlot({
-    required this.date,
-    required this.dayLabel,
-    required this.timeRange,
-  });
-
-  factory _ScheduleSlot.fromDateTime(DateTime date, String timeRange) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final tomorrow = today.add(const Duration(days: 1));
-    final slotDate = DateTime(date.year, date.month, date.day);
-
-    String dayName;
-    if (slotDate == today) {
-      dayName = 'Today';
-    } else if (slotDate == tomorrow) {
-      dayName = 'Tomorrow';
-    } else {
-      dayName = DateFormat('E').format(date); // e.g., 'Thu'
-    }
-
-    final formattedDate = DateFormat('d/M').format(date);
-    return _ScheduleSlot(
-      date: date,
-      dayLabel: '$dayName, $formattedDate',
-      timeRange: timeRange,
     );
   }
 }

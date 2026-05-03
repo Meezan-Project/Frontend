@@ -6,62 +6,12 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/user/screens/deposit_screen.dart';
 
 class UserBalanceScreen extends StatelessWidget {
   final String currentBalance;
 
   const UserBalanceScreen({super.key, this.currentBalance = '0.00'});
-
-  /// TEMPORARY: Function to add mock data to Firestore.
-  /// Tied to the "Deposit Funds" button for now.
-  Future<void> _addDummyTransactions(BuildContext context) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) return;
-
-    final collection = FirebaseFirestore.instance.collection('transactions');
-
-    // 1. Wallet Deposit
-    await collection.add({
-      'userId': userId,
-      'amount': 1500.0,
-      'type': 'deposit',
-      'description': 'Wallet Deposit via Fawry',
-      'isWalletTransaction': true,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    // 2. Wallet Booking Payment
-    await collection.add({
-      'userId': userId,
-      'amount': -350.0,
-      'type': 'booking_payment',
-      'description': 'Consultation Booking - Legal Advice',
-      'isWalletTransaction': true,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    // 3. Direct Visa Payment (Not in Wallet - Will NOT show in this list)
-    await collection.add({
-      'userId': userId,
-      'amount': -600.0,
-      'type': 'booking_payment',
-      'description': 'Direct Visa Payment - Contract Review',
-      'isWalletTransaction': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Dummy transactions added!',
-            style: GoogleFonts.cairo(),
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,56 +25,62 @@ class UserBalanceScreen extends StatelessWidget {
             Stack(
               clipBehavior: Clip.none,
               children: [
-                // Navy Blue Header Background
-                Container(
-                  width: double.infinity,
-                  height: 240.h,
-                  decoration: BoxDecoration(
-                    color: AppColors.navyBlue,
-                    borderRadius: BorderRadius.only(
-                      bottomLeft: Radius.circular(30.r),
-                      bottomRight: Radius.circular(30.r),
-                    ),
-                  ),
-                  child: SafeArea(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 16.w,
-                        vertical: 10.h,
+                Column(
+                  children: [
+                    // Navy Blue Header Background
+                    Container(
+                      width: double.infinity,
+                      height: 220.h,
+                      decoration: BoxDecoration(
+                        color: AppColors.navyBlue,
+                        borderRadius: BorderRadius.only(
+                          bottomLeft: Radius.circular(30.r),
+                          bottomRight: Radius.circular(30.r),
+                        ),
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          IconButton(
-                            icon: const Icon(
-                              Icons.arrow_back_ios,
-                              color: Colors.white,
-                            ),
-                            onPressed: () => Navigator.of(context).pop(),
+                      child: SafeArea(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 16.w,
+                            vertical: 10.h,
                           ),
-                          Expanded(
-                            child: Padding(
-                              padding: EdgeInsets.only(top: 8.h),
-                              child: Text(
-                                'Wallet',
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.cairo(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.arrow_back_ios,
                                   color: Colors.white,
-                                  fontSize: 20.sp,
-                                  fontWeight: FontWeight.w800,
+                                ),
+                                onPressed: () => Navigator.of(context).pop(),
+                              ),
+                              Expanded(
+                                child: Padding(
+                                  padding: EdgeInsets.only(top: 8.h),
+                                  child: Text(
+                                    'Wallet',
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.cairo(
+                                      color: Colors.white,
+                                      fontSize: 20.sp,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
+                              SizedBox(width: 48.w), // Balance alignment
+                            ],
                           ),
-                          SizedBox(width: 48.w), // Balance alignment
-                        ],
+                        ),
                       ),
                     ),
-                  ),
+                    // وضع المساحة دي جوة الـ Stack بيسمح للزرار إنه يتضغط لأنه بقى جوة الحدود
+                    SizedBox(height: 110.h),
+                  ],
                 ),
                 // Overlapping Balance Card
                 Positioned(
-                  bottom: -60.h,
+                  top: 120.h,
                   left: 24.w,
                   right: 24.w,
                   child: Container(
@@ -151,20 +107,56 @@ class UserBalanceScreen extends StatelessWidget {
                           ),
                         ),
                         SizedBox(height: 8.h),
-                        Text(
-                          '$currentBalance EGP',
-                          style: GoogleFonts.cairo(
-                            fontSize: 32.sp,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.navyBlue,
-                          ),
+                        StreamBuilder<DocumentSnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('users')
+                              .doc(FirebaseAuth.instance.currentUser?.uid)
+                              .snapshots(),
+                          builder: (context, snapshot) {
+                            String displayBalance = currentBalance;
+                            if (snapshot.hasData &&
+                                snapshot.data != null &&
+                                snapshot.data!.exists) {
+                              final data =
+                                  snapshot.data!.data()
+                                      as Map<String, dynamic>?;
+                              if (data != null) {
+                                final bal =
+                                    data['balance'] ??
+                                    data['walletBalance'] ??
+                                    data['wallet_balance'] ??
+                                    0;
+                                displayBalance = (bal is num)
+                                    ? bal.toStringAsFixed(2)
+                                    : (double.tryParse(
+                                            bal.toString(),
+                                          )?.toStringAsFixed(2) ??
+                                          '0.00');
+                              }
+                            }
+                            return Text(
+                              '$displayBalance EGP',
+                              style: GoogleFonts.cairo(
+                                fontSize: 32.sp,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.navyBlue,
+                              ),
+                            );
+                          },
                         ),
                         SizedBox(height: 20.h),
                         SizedBox(
                           width: double.infinity,
                           height: 50.h,
                           child: ElevatedButton(
-                            onPressed: () => _addDummyTransactions(context),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const DepositScreen(),
+                                ),
+                              );
+                            },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.legalGold,
                               shape: RoundedRectangleBorder(
@@ -173,7 +165,7 @@ class UserBalanceScreen extends StatelessWidget {
                               elevation: 0,
                             ),
                             child: Text(
-                              'Deposit Funds',
+                              'Recharge Balance',
                               style: GoogleFonts.cairo(
                                 color: Colors.white,
                                 fontSize: 16.sp,
@@ -188,7 +180,6 @@ class UserBalanceScreen extends StatelessWidget {
                 ),
               ],
             ),
-            SizedBox(height: 80.h), // Space for overlapping card
             // Recent Transactions
             Expanded(
               child: Padding(
@@ -226,17 +217,17 @@ class UserBalanceScreen extends StatelessWidget {
                           }
 
                           if (snapshot.hasError) {
-                        debugPrint('Transactions Error: ${snapshot.error}');
+                            debugPrint('Transactions Error: ${snapshot.error}');
                             return Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(16.w),
-                            child: Text(
-                              'Firebase Index Required!\nCheck your Terminal/Console for the blue link to create it.',
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.cairo(
-                                fontSize: 14.sp,
-                                color: Colors.red,
-                              ),
+                              child: Padding(
+                                padding: EdgeInsets.all(16.w),
+                                child: Text(
+                                  'Firebase Index Required!\nCheck your Terminal/Console for the blue link to create it.',
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.cairo(
+                                    fontSize: 14.sp,
+                                    color: Colors.red,
+                                  ),
                                 ),
                               ),
                             );

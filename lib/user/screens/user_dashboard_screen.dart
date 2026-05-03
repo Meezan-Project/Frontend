@@ -19,6 +19,8 @@ import 'package:mezaan/user/screens/saved_cards_screen.dart';
 import 'package:mezaan/user/screens/user_categories_screen.dart';
 import 'package:mezaan/user/screens/user_edit_profile_screen.dart';
 import 'package:mezaan/user/screens/user_emergency_contacts_screen.dart';
+import 'package:mezaan/user/screens/transaction_history_screen.dart';
+import 'package:mezaan/user/screens/appointments_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
 import 'package:mezaan/user/widgets/user_profile_side_panel.dart';
 import 'package:mezaan/user/widgets/user_top_header.dart';
@@ -120,6 +122,20 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                       await Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           builder: (context) => const SavedCardsScreen(),
+                        ),
+                      );
+                    }),
+                    onTransactionHistory: () => _runPanelAction(() async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) => const TransactionHistoryScreen(),
+                        ),
+                      );
+                    }),
+                    onMyAppointments: () => _runPanelAction(() async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) => const AppointmentsScreen(),
                         ),
                       );
                     }),

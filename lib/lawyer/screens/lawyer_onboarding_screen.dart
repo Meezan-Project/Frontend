@@ -780,7 +780,7 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                                           shrinkWrap: true,
                                           itemCount:
                                               _employerSearchResults.length,
-                                          separatorBuilder: (_, __) =>
+                                          separatorBuilder: (_, _) =>
                                               const Divider(height: 1),
                                           itemBuilder: (context, index) {
                                             final emp =
