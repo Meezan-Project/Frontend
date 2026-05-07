@@ -259,7 +259,7 @@ class _CaseCard extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.1),
+              color: Colors.black.withOpacity(isDark ? 0.3 : 0.1),
               blurRadius: 12,
               offset: Offset(0, 4.h),
             ),
@@ -309,7 +309,7 @@ class _CaseCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 18.r,
-                  backgroundColor: AppColors.legalGold.withValues(alpha: 0.2),
+                  backgroundColor: AppColors.legalGold.withOpacity(0.2),
                   child: Text(
                     case_.lawyerName.isNotEmpty
                         ? case_.lawyerName[0].toUpperCase()
@@ -428,7 +428,7 @@ class _CaseCard extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
       decoration: BoxDecoration(
-        color: Color(config['bg'] as int).withValues(alpha: 0.15),
+        color: Color(config['bg'] as int).withOpacity(0.15),
         borderRadius: BorderRadius.circular(8.r),
       ),
       child: Text(

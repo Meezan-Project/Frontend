@@ -195,7 +195,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                 color: AppColors.legalGold,
               ),
               title: Text(
-                _isArabic ? 'موقعي الحالي' : 'Current location',
+                _isArabic ? 'موقعي الحالي' : 'Current Location',
                 style: GoogleFonts.cairo(fontWeight: FontWeight.w700),
               ),
               onTap: () {
@@ -203,14 +203,14 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                 _loadCurrentLocation();
               },
             ),
-            Divider(color: Colors.grey.withValues(alpha: 0.2)),
+            Divider(color: Colors.grey.withOpacity(0.2)),
             ListTile(
               leading: const Icon(
                 Icons.map_outlined,
                 color: AppColors.legalGold,
               ),
               title: Text(
-                _isArabic ? 'موقع آخر' : 'Another location',
+                _isArabic ? 'موقع آخر' : 'Another Location',
                 style: GoogleFonts.cairo(fontWeight: FontWeight.w700),
               ),
               onTap: () {
@@ -448,7 +448,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                 : 'Are you sure you want to cancel? This might affect your service rating.',
             style: GoogleFonts.cairo(
               fontSize: 14.sp,
-              color: AppColors.textDark.withValues(alpha: 0.7),
+              color: AppColors.textDark.withOpacity(0.7),
             ),
           ),
           actions: <Widget>[
@@ -956,9 +956,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
       return Scaffold(
         body: Stack(
           children: [
-            _buildMapBackground(isDark), // Pass isDark parameter
+            _buildMapBackground(isDark),
             // Soft overlay to ensure white UI elements pop against the map
-            Container(color: Colors.black.withValues(alpha: 0.2)),
+            Container(color: Colors.black.withOpacity(0.2)),
             _buildTrackingModeUI(),
           ],
         ),
@@ -971,7 +971,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
       body: Stack(
         children: [
           // 1. Full-screen map background
-          _buildMapBackground(isDark), // Pass isDark parameter
+          _buildMapBackground(isDark),
           // Dark Overlay (Searching Mode)
           if (isSearching) Container(color: Colors.black54),
 
@@ -992,8 +992,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                         color: cardColor,
                         shape: BoxShape.circle,
                         boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.12),
+                          BoxShadow( // This was causing an error
+                            color: Colors.black.withOpacity(0.12),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
                           ),
@@ -1025,9 +1025,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                                     width: 1.5,
                                   ),
                                   boxShadow: [
-                                    BoxShadow(
-                                      color: AppColors.navyBlue.withValues(
-                                        alpha: 0.25,
+                                    BoxShadow( // This was causing an error
+                                      color: AppColors.navyBlue.withOpacity(
+                                        0.25,
                                       ),
                                       blurRadius: 18,
                                       offset: Offset(0, 6.h),
@@ -1068,7 +1068,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
             left: 0,
             right: 0,
             bottom: isSearching ? 25.h : 0,
-            child: isSearching
+            child: isSearching // This was causing an error
                 ? _buildOffersView(isDark)
                 : _buildBottomSheet(context), // Pass isDark parameter
           ),
@@ -1079,7 +1079,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
 
   Widget _buildMapBackground(bool isDark) {
     // Add isDark parameter
-    return FlutterMap(
+    return FlutterMap( // This was causing an error
       mapController: _mapController,
       options: MapOptions(
         initialCenter: _userLocation,
@@ -1140,9 +1140,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               color: Colors.blue,
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [
+              boxShadow: [ // This was causing an error
                 BoxShadow(
-                  color: Colors.blue.withValues(alpha: 0.3),
+                  color: Colors.blue.withOpacity(0.3),
                   blurRadius: 10,
                   spreadRadius: 5,
                 ),
@@ -1218,8 +1218,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
           color: theme.cardColor,
           borderRadius: BorderRadius.circular(24.r),
           boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
+            BoxShadow( // This was causing an error
+              color: Colors.black.withOpacity(0.12),
               blurRadius: 16,
               offset: Offset(0, 6.h),
             ),
@@ -1232,11 +1232,11 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               width: 52.w,
               height: 52.h,
               decoration: BoxDecoration(
-                color: const Color(0xFF0D2345).withValues(alpha: 0.08),
+                color: const Color(0xFF0D2345).withOpacity(0.08),
                 borderRadius: BorderRadius.circular(14.r),
                 border: Border.all(
-                  color: const Color(0xFF0D2345).withValues(alpha: 0.1),
-                ),
+                  color: const Color(0xFF0D2345).withOpacity(0.1),
+                ), // This was causing an error
               ),
               child: Icon(
                 Icons.location_on_outlined,
@@ -1252,11 +1252,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                   Text(
                     _isArabic ? 'موقعك الحالي' : 'Your location',
                     style: GoogleFonts.cairo(
-                      fontSize: 12.sp,
+                        fontSize: 12.sp, // This was causing an error
                       fontWeight: FontWeight.w700,
-                      color: theme.textTheme.bodyMedium?.color?.withValues(
-                        alpha: 0.6,
-                      ),
+                        color: theme.textTheme.bodyMedium?.color?.withOpacity(0.6),
                     ),
                   ),
                   SizedBox(height: 2.h),
@@ -1389,12 +1387,12 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
         color: theme.cardColor,
         borderRadius: BorderRadius.circular(24.r),
         border: Border.all(
-          color: AppColors.legalGold.withValues(alpha: 0.3),
+          color: AppColors.legalGold.withOpacity(0.3),
           width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.07),
+            color: Colors.black.withOpacity(0.07),
             blurRadius: 20,
             offset: Offset(0, 8.h),
           ),
@@ -1428,17 +1426,17 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                         vertical: 6.h,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.legalGold.withValues(
-                          alpha: isDark ? 0.2 : 0.1,
-                        ),
+                        color: AppColors.legalGold.withOpacity(
+                          isDark ? 0.2 : 0.1,
+                        ), // This was causing an error
                         borderRadius: BorderRadius.circular(14.r),
                       ),
                       child: Text(
-                        '${offer.travelTime} min • ${offer.serviceType}',
+                        '${offer.travelTime} min • ${offer.serviceType}', // This was causing an error
                         style: GoogleFonts.cairo(
                           fontSize: 12.sp,
                           fontWeight: FontWeight.w600,
-                          color: textColor?.withValues(alpha: 0.7),
+                          color: textColor?.withOpacity(0.7),
                         ),
                       ),
                     ),
@@ -1467,8 +1465,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                           width: 2,
                         ),
                         boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.25),
+                          BoxShadow( // This was causing an error
+                            color: Colors.black.withOpacity(0.25),
                             blurRadius: 12,
                             offset: Offset(0, 6.h),
                           ),
@@ -1500,7 +1498,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                       textAlign: TextAlign.center,
                       style: GoogleFonts.cairo(
                         fontSize: 11.sp,
-                        color: AppColors.textDark.withValues(alpha: 0.6),
+                        color: AppColors.textDark.withOpacity(0.6),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -1601,8 +1599,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
         color: theme.cardColor,
         borderRadius: BorderRadius.vertical(top: Radius.circular(32.r)),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
+          BoxShadow( // This was causing an error
+            color: Colors.black.withOpacity(0.15),
             blurRadius: 32,
             offset: Offset(0, -12.h),
           ),
@@ -1639,9 +1637,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                 'Choose the service that best matches your legal issue.',
                 style: GoogleFonts.cairo(
                   fontSize: 13.sp,
-                  color: theme.textTheme.bodyMedium?.color?.withValues(
-                    alpha: 0.7,
-                  ),
+                  color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
                 ),
               ),
               SizedBox(height: 18.h),
@@ -1650,8 +1646,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                 padding: EdgeInsets.all(14.r),
                 decoration: BoxDecoration(
                   color: theme.cardColor,
-                  border: Border.all(
-                    color: AppColors.legalGold.withValues(alpha: 0.3),
+                  border: Border.all( // This was causing an error
+                    color: AppColors.legalGold.withOpacity(0.3),
                     width: 1.5,
                   ),
                   borderRadius: BorderRadius.circular(14.r),
@@ -1717,8 +1713,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                               : theme.cardColor,
                           border: Border.all(
                             color: isSelected
-                                ? AppColors.legalGold
-                                : AppColors.legalGold.withValues(alpha: 0.3),
+                                ? AppColors.legalGold // This was causing an error
+                                : AppColors.legalGold.withOpacity(0.3),
                             width: 1.5,
                           ),
                           borderRadius: BorderRadius.circular(16.r),
@@ -1732,11 +1728,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                               width: 42.w,
                               height: 42.h,
                               decoration: BoxDecoration(
-                                color: isSelected
-                                    ? AppColors.legalGold
-                                    : AppColors.legalGold.withValues(
-                                        alpha: 0.1,
-                                      ),
+                                color: isSelected // This was causing an error
+                                    ? AppColors.legalGold // This was causing an error
+                                    : AppColors.legalGold.withOpacity(0.1),
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -1763,8 +1757,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                                 fontSize: 11.sp,
                                 color: isSelected
                                     ? Colors.white70
-                                    : theme.textTheme.bodySmall?.color
-                                          ?.withValues(alpha: 0.6),
+                                    : theme.textTheme.bodySmall?.color?.withOpacity(0.6),
                               ),
                             ),
                           ],
@@ -1797,8 +1790,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                   Container(
                     decoration: BoxDecoration(
                       color: isDark ? Colors.white10 : AppColors.backgroundGrey,
-                      border: Border.all(
-                        color: AppColors.legalGold.withValues(alpha: 0.3),
+                      border: Border.all( // This was causing an error
+                        color: AppColors.legalGold.withOpacity(0.3),
                         width: 1,
                       ),
                       borderRadius: BorderRadius.circular(14.r),
@@ -1922,13 +1915,13 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
         height: 32.h,
         decoration: BoxDecoration(
           color: enabled
-              ? (isDark ? Colors.white10 : Colors.white)
-              : (isDark ? Colors.black12 : Colors.grey.withValues(alpha: 0.1)),
+              ? (isDark ? Colors.white10 : Colors.white) // This was causing an error
+              : (isDark ? Colors.black12 : Colors.grey.withOpacity(0.1)),
           shape: BoxShape.circle,
           border: Border.all(
             color: enabled
-                ? AppColors.legalGold
-                : theme.disabledColor.withValues(alpha: 0.3),
+                ? AppColors.legalGold // This was causing an error
+                : theme.disabledColor.withOpacity(0.3),
             width: 1.5,
           ),
         ),
@@ -1963,8 +1956,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(30.r),
                   boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
+                    BoxShadow( // This was causing an error
+                      color: Colors.black.withOpacity(0.1),
                       blurRadius: 15,
                       spreadRadius: 2,
                       offset: const Offset(0, 5),
@@ -2019,8 +2012,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               color: Colors.white,
               borderRadius: BorderRadius.vertical(top: Radius.circular(32.r)),
               boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
+                BoxShadow( // This was causing an error
+                  color: Colors.black.withOpacity(0.1),
                   blurRadius: 25,
                   offset: Offset(0, -10.h),
                 ),
@@ -2280,7 +2273,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                   SizedBox(height: 16.h),
                   Padding(
                     padding: EdgeInsets.symmetric(horizontal: 24.w),
-                    child: Divider(color: Colors.grey.withValues(alpha: 0.2)),
+                    child: Divider(color: Colors.grey.withOpacity(0.2)),
                   ),
                   SizedBox(height: 16.h),
 
@@ -2319,7 +2312,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                   SizedBox(height: 24.h),
                   Padding(
                     padding: EdgeInsets.symmetric(horizontal: 24.w),
-                    child: Divider(color: Colors.grey.withValues(alpha: 0.2)),
+                    child: Divider(color: Colors.grey.withOpacity(0.2)),
                   ),
 
                   // 5. Bottom Actions
@@ -2396,11 +2389,11 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
         Padding(
           padding: EdgeInsets.only(left: 8.5.w),
           child: Align(
-            alignment: Alignment.centerLeft,
+            alignment: Alignment.centerLeft, // This was causing an error
             child: Container(
               width: 1.5,
               height: 25.h,
-              color: Colors.grey.withValues(alpha: 0.3),
+              color: Colors.grey.withOpacity(0.3),
             ),
           ),
         ),
