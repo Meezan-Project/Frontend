@@ -6,75 +6,74 @@ import 'package:mezaan/shared/theme/app_colors.dart';
 
 class LawyerBottomNavBar extends StatelessWidget {
   final int currentIndex;
-  final ValueChanged<int> onDestinationSelected;
-  final VoidCallback? onCenterButtonTap;
+  final void Function(int) onDestinationSelected;
+  final VoidCallback? onOpenDrawer;
 
   const LawyerBottomNavBar({
     super.key,
     required this.currentIndex,
     required this.onDestinationSelected,
-    this.onCenterButtonTap,
+    this.onOpenDrawer,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final navBackground = isDark
-        ? const Color(0xFF18253A)
-        : const Color(0xFFFCFDFF);
-    final navBorder = isDark
-        ? const Color(0xFF304563)
-        : const Color(0xFFDCE6F5);
+    final backgroundColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final shadowColor = isDark ? Colors.black26 : Colors.black12;
 
-    return SafeArea(
-      child: Container(
-        margin: EdgeInsets.fromLTRB(16.w, 0, 16.w, 18.h),
-        padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 10.h),
-        decoration: BoxDecoration(
-          color: navBackground,
-          borderRadius: BorderRadius.circular(38.r),
-          border: Border.all(color: navBorder),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.28 : 0.1),
-              blurRadius: 24,
-              offset: Offset(0, 10.h),
-            ),
-          ],
+    return Container(
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(20.r),
+          topRight: Radius.circular(20.r),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _buildNavItem(
-              context: context,
-              index: 0,
-              icon: Icons.calendar_today_outlined,
-              activeIcon: Icons.calendar_today_rounded,
-              label: 'Schedule'.translate(),
-            ),
-            _buildNavItem(
-              context: context,
-              index: 1,
-              icon: Icons.assignment_outlined,
-              activeIcon: Icons.assignment_rounded,
-              label: 'Cases'.translate(),
-            ),
-            _buildCenterAction(context),
-            _buildNavItem(
-              context: context,
-              index: 3,
-              icon: Icons.chat_bubble_outline_rounded,
-              activeIcon: Icons.chat_bubble_rounded,
-              label: 'Chat'.translate(),
-            ),
-            _buildNavItem(
-              context: context,
-              index: 4,
-              icon: Icons.person_outline_rounded,
-              activeIcon: Icons.person_rounded,
-              label: 'Profile'.translate(),
-            ),
-          ],
+        boxShadow: [
+          BoxShadow(
+            color: shadowColor,
+            blurRadius: 20.r,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 8.h),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              // Left Item 1: Rescue (SOS)
+              _buildNavItem(
+                context: context,
+                index: 0,
+                icon: Icons.emergency_rounded,
+                label: 'Rescue'.translate(),
+                isSelected: currentIndex == 0,
+                iconColor: AppColors.sosRed,
+              ),
+              // Left Item 2: Schedule
+              _buildNavItem(
+                context: context,
+                index: 1,
+                icon: Icons.calendar_month_rounded,
+                label: 'Schedule'.translate(),
+                isSelected: currentIndex == 1,
+              ),
+              // Center Item: Home (Prominent FAB-style)
+              _buildCenterButton(context),
+              // Right Item 1: Cases
+              _buildNavItem(
+                context: context,
+                index: 2,
+                icon: Icons.work_rounded,
+                label: 'Cases'.translate(),
+                isSelected: currentIndex == 2,
+              ),
+              // Right Item 2: Menu (Opens Drawer)
+              _buildMenuItem(context),
+            ],
+          ),
         ),
       ),
     );
@@ -84,69 +83,127 @@ class LawyerBottomNavBar extends StatelessWidget {
     required BuildContext context,
     required int index,
     required IconData icon,
-    required IconData activeIcon,
     required String label,
+    required bool isSelected,
+    Color? iconColor,
   }) {
-    final bool isSelected = currentIndex == index;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final selectedColor = isDark ? const Color(0xFFE7EEFF) : AppColors.navyBlue;
-    final unselectedColor = isDark
-        ? const Color(0xFF9FB0CA)
-        : const Color(0xFF98A3B3);
+    final selectedColor = AppColors.navyBlue;
+    final unselectedColor = isDark ? Colors.white70 : Colors.grey;
+    final activeIconColor = iconColor ?? AppColors.legalGold;
 
-    return GestureDetector(
+    return InkWell(
       onTap: () => onDestinationSelected(index),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            isSelected ? activeIcon : icon,
-            color: isSelected ? selectedColor : unselectedColor,
-            size: 24.sp,
-          ),
-          if (isSelected) ...[
+      borderRadius: BorderRadius.circular(12.r),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.navyBlue.withValues(alpha: 0.1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12.r),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 24.sp,
+              color: isSelected ? activeIconColor : unselectedColor,
+            ),
             SizedBox(height: 4.h),
             Text(
               label,
               style: GoogleFonts.cairo(
-                fontSize: 10.sp,
-                fontWeight: FontWeight.w700,
-                color: selectedColor,
+                fontSize: 11.sp,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? selectedColor : unselectedColor,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildCenterAction(BuildContext context) {
-    return Container(
-      height: 50.h,
-      width: 50.w,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.navyBlue, Color(0xFF1E40AF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16.r),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.navyBlue.withValues(alpha: 0.35),
-            blurRadius: 12,
-            offset: Offset(0, 6.h),
+  Widget _buildCenterButton(BuildContext context) {
+    return GestureDetector(
+      onTap: () => onDestinationSelected(3), // Home index
+      child: Container(
+        width: 60.w,
+        height: 60.h,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppColors.navyBlue, Color(0xFF003366)],
           ),
-        ],
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.navyBlue.withValues(alpha: 0.4),
+              blurRadius: 15.r,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.home_rounded,
+              color: AppColors.legalGold,
+              size: 28.sp,
+            ),
+            Text(
+              'Home'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 10.sp,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onCenterButtonTap,
-          borderRadius: BorderRadius.circular(16.r),
-          child: Icon(Icons.add_rounded, color: Colors.white, size: 28.sp),
+    );
+  }
+
+  Widget _buildMenuItem(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isSelected = currentIndex == 4;
+    final selectedColor = AppColors.navyBlue;
+    final unselectedColor = isDark ? Colors.white70 : Colors.grey;
+
+    return InkWell(
+      onTap: onOpenDrawer,
+      borderRadius: BorderRadius.circular(12.r),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.navyBlue.withValues(alpha: 0.1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12.r),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.grid_view_rounded,
+              size: 24.sp,
+              color: isSelected ? AppColors.legalGold : unselectedColor,
+            ),
+            SizedBox(height: 4.h),
+            Text(
+              'Menu'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 11.sp,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? selectedColor : unselectedColor,
+              ),
+            ),
+          ],
         ),
       ),
     );

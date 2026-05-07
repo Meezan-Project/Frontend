@@ -20,6 +20,7 @@ import 'package:mezaan/user/screens/user_categories_screen.dart';
 import 'package:mezaan/user/screens/user_edit_profile_screen.dart';
 import 'package:mezaan/user/screens/user_emergency_contacts_screen.dart';
 import 'package:mezaan/user/screens/transaction_history_screen.dart';
+import 'package:mezaan/user/screens/sos_screen.dart';
 import 'package:mezaan/user/screens/appointments_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
 import 'package:mezaan/user/widgets/user_profile_side_panel.dart';
@@ -409,7 +410,12 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                         child: _SosFloatingButton(
                           pulse: _sosPulseController,
                           onTap: () {
-                            _showComingSoon('SOS'.translate());
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const SOSScreen(),
+                              ),
+                            );
                           },
                         ),
                       ),

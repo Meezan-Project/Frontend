@@ -57,8 +57,8 @@ class _BalancePasscodeDialogState extends State<BalancePasscodeDialog> {
           .doc(user.uid)
           .get();
 
-      if (doc.exists && doc.data()!.containsKey('balancePasscode')) {
-        _savedPasscode = doc.data()!['balancePasscode'];
+      if (doc.exists && doc.data()!.containsKey('walletPasscode')) {
+        _savedPasscode = doc.data()!['walletPasscode'];
         setState(() => _currentState = PasscodeState.enterPasscode);
       } else {
         setState(() => _currentState = PasscodeState.createStep1);
@@ -90,7 +90,7 @@ class _BalancePasscodeDialogState extends State<BalancePasscodeDialog> {
             await FirebaseFirestore.instance
                 .collection('users')
                 .doc(user.uid)
-                .set({'balancePasscode': input}, SetOptions(merge: true));
+                .set({'walletPasscode': input}, SetOptions(merge: true));
             if (mounted) Navigator.pop(context, true);
           }
         } catch (e) {

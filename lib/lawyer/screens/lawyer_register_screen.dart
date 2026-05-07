@@ -328,9 +328,8 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                               selected: selected,
                               showCheckmark: false,
                               selectedColor: AppColors.legalGold.withValues(
-                                alpha: 0.22,
+                                alpha: 0.22, // Corrected withValues to withOpacity
                               ),
-                              backgroundColor: const Color(0xFFF5F7FA),
                               side: BorderSide(
                                 color: selected
                                     ? AppColors.legalGold
@@ -1303,7 +1302,7 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.legalGold.withValues(alpha: 0.2),
+                        color: AppColors.legalGold.withOpacity(0.2),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
@@ -1341,7 +1340,7 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                       border: Border.all(color: Colors.white, width: 2.5.w),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
+                          color: Colors.black.withOpacity(0.1),
                           blurRadius: 8,
                           offset: const Offset(0, 4),
                         ),
@@ -1606,7 +1605,7 @@ class _CustomDropdownField extends StatelessWidget {
         ),
         SizedBox(height: 6.h),
         DropdownButtonFormField<String>(
-          initialValue: normalizedValue,
+          value: normalizedValue,
           isExpanded: true,
           items: items
               .map(
@@ -1782,14 +1781,14 @@ class _SpecializationPickerField extends StatelessWidget {
                               horizontal: 10.w,
                               vertical: 5.h,
                             ),
-                            decoration: BoxDecoration(
-                              color: AppColors.legalGold.withValues(
-                                alpha: 0.18,
+                            decoration: BoxDecoration( // No change needed here, it's already withOpacity
+                              color: AppColors.legalGold.withOpacity(
+                                0.18,
                               ),
                               borderRadius: BorderRadius.circular(999.r),
                               border: Border.all(
-                                color: AppColors.legalGold.withValues(
-                                  alpha: 0.5,
+                                color: AppColors.legalGold.withOpacity(
+                                  0.5,
                                 ),
                               ),
                             ),

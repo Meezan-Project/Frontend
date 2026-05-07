@@ -1119,8 +1119,7 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                                                     DropdownButtonFormField<
                                                       String
                                                     >(
-                                                      initialValue:
-                                                          phoneEntry.type,
+                                                      initialValue: phoneEntry.type,
                                                       items: const [
                                                         DropdownMenuItem(
                                                           value: 'Phone',

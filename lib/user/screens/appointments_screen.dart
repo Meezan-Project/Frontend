@@ -5,7 +5,6 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
-import 'package:mezaan/shared/theme/app_spacing.dart';
 import 'package:mezaan/shared/theme/app_typography.dart';
 import 'package:url_launcher/url_launcher.dart';
 

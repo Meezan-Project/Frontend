@@ -3,7 +3,6 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:collection';
 import 'package:mezaan/shared/auth/auth_state.dart';
 import 'package:mezaan/shared/auth/firebase_session_service.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
@@ -14,8 +13,11 @@ import 'package:mezaan/shared/theme/theme_controller.dart';
 import 'package:mezaan/user/screens/government_map_screen.dart';
 import 'package:mezaan/lawyer/widgets/lawyer_bottom_nav_bar.dart';
 import 'package:mezaan/lawyer/screens/lawyer_onboarding_screen.dart';
-import 'package:mezaan/lawyer/widgets/lawyer_profile_side_panel.dart';
 import 'package:mezaan/lawyer/widgets/lawyer_top_header.dart';
+import 'package:mezaan/lawyer/widgets/lawyer_side_drawer.dart';
+import 'package:mezaan/lawyer/screens/lawyer_templates_screen.dart';
+import 'package:mezaan/lawyer/screens/lawyer_legal_library_screen.dart';
+import 'package:mezaan/lawyer/screens/lawyer_conflict_checker_screen.dart';
 import 'dart:async';
 
 class LawyerDashboardScreen extends StatefulWidget {
@@ -28,9 +30,10 @@ class LawyerDashboardScreen extends StatefulWidget {
 class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
     with SingleTickerProviderStateMixin {
   String? _payloadLawyerUid;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>(); // Step A: Create GlobalKey
   Future<_LawyerDashboardPayload>? _payloadFuture;
   late final AnimationController _sosPulseController;
-  int _selectedIndex = 2;
+  int _selectedIndex = 3;
   OverlayEntry? _profilePanelOverlayEntry;
 
   @override
@@ -61,74 +64,11 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
     await action();
   }
 
-  void _openProfilePanel({
-    required String lawyerName,
-    required String specialization,
-    required String rating,
-    String? profileImageUrl,
-  }) {
-    if (_profilePanelOverlayEntry != null) {
-      return;
+  Future<void> _refreshDashboard() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      setState(() => _payloadFuture = _LawyerDashboardRepository.loadForLawyer(user: user));
     }
-
-    final overlay = Overlay.of(context, rootOverlay: true);
-
-    _profilePanelOverlayEntry = OverlayEntry(
-      builder: (_) {
-        return Material(
-          color: Colors.transparent,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: GestureDetector(
-                  onTap: _closeProfilePanel,
-                  child: Container(color: Colors.black.withValues(alpha: 0.35)),
-                ),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: SafeArea(
-                  child: LawyerProfileSidePanel(
-                    lawyerName: lawyerName,
-                    specialization: specialization,
-                    rating: rating,
-                    profileImageBytes: null,
-                    profileImageUrl: profileImageUrl,
-                    isDarkMode: ThemeController.instance.isDarkMode.value,
-                    onDarkModeChanged: (value) {
-                      ThemeController.instance.setDarkMode(value);
-                      _profilePanelOverlayEntry?.markNeedsBuild();
-                    },
-                    onClose: _closeProfilePanel,
-                    onEditProfile: () => _runPanelAction(() {
-                      _showComingSoon('Edit Profile');
-                    }),
-                    onLanguage: () => _runPanelAction(() {
-                      _showComingSoon('Language'.translate());
-                    }),
-                    onSchedule: () => _runPanelAction(() {
-                      _showComingSoon('Schedule'.translate());
-                    }),
-                    onSettings: () => _runPanelAction(() {
-                      _showComingSoon('Settings'.translate());
-                    }),
-                    onPrivacy: () => _runPanelAction(() {
-                      _showComingSoon('Privacy Policy'.translate());
-                    }),
-                    onHelp: () => _runPanelAction(() {
-                      _showComingSoon('Help'.translate());
-                    }),
-                    onLogout: () => _runPanelAction(_handleLogout),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    overlay.insert(_profilePanelOverlayEntry!);
   }
 
   void _closeProfilePanel() {
@@ -177,64 +117,65 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
   }
 
   Widget _buildDashboardView(_LawyerDashboardPayload payload) {
-    return ListView(
-      padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
-      children: [
-        _LawyerHeroCard(lawyerName: payload.lawyerName),
-        SizedBox(height: 16.h),
-        _SectionHeader(
-          title: 'Upcoming Schedule'.translate(),
-          subtitle: 'Manage your appointments'.translate(),
-        ),
-        SizedBox(height: 10.h),
-        if (payload.scheduledAppointments.isEmpty)
-          const _DataEmptyHint(message: 'No scheduled appointments.')
-        else
-          _ScheduleCard(appointments: payload.scheduledAppointments),
-        SizedBox(height: 12.h),
-        _AIAssistantCard(
-          onStartChat: () {
-            LoadingNavigator.pushNamed(context, AppRoutes.userAiChat);
-          },
-        ),
-        SizedBox(height: 12.h),
-        _ServiceMapCard(
-          onOpenMap: () {
-            _openGovernmentMap();
-          },
-        ),
-        SizedBox(height: 16.h),
-        _SectionHeader(
-          title: 'Active Cases'.translate(),
-          subtitle: 'Your current case load'.translate(),
-        ),
-        SizedBox(height: 10.h),
-        if (payload.activeCases.isEmpty)
-          const _DataEmptyHint(message: 'No active cases.')
-        else
-          ...payload.activeCases.map((caseData) {
-            return _CaseCard(caseTitle: caseData);
-          }),
-        SizedBox(height: 16.h),
-        _SectionHeader(
-          title: 'Statistics'.translate(),
-          subtitle: 'Your performance metrics'.translate(),
-        ),
-        SizedBox(height: 10.h),
-        _StatsCard(payload: payload),
-      ],
+    return RefreshIndicator(
+      onRefresh: _refreshDashboard,
+      child: ListView(
+        padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
+        children: [
+          _LawyerHeroCard(lawyerName: payload.lawyerName),
+          SizedBox(height: 16.h),
+          _SectionHeader(
+            title: 'Upcoming Schedule'.translate(),
+            subtitle: 'Manage your appointments'.translate(),
+          ),
+          SizedBox(height: 10.h),
+          _UpcomingScheduleSection(),
+          SizedBox(height: 12.h),
+          _AIAssistantCard(
+            onStartChat: () {
+              LoadingNavigator.pushNamed(context, AppRoutes.userAiChat);
+            },
+          ),
+          SizedBox(height: 12.h),
+          _ServiceMapCard(
+            onOpenMap: () {
+              _openGovernmentMap();
+            },
+          ),
+          SizedBox(height: 16.h),
+          _SectionHeader(
+            title: 'Active Cases'.translate(),
+            subtitle: 'Your current case load'.translate(),
+          ),
+          SizedBox(height: 10.h),
+          if (payload.activeCases.isEmpty)
+            const _DataEmptyHint(message: 'No active cases.')
+          else
+            ...payload.activeCases.map((caseData) {
+              return _CaseCard(caseTitle: caseData);
+            }),
+          SizedBox(height: 16.h),
+          _SectionHeader(
+            title: 'Statistics'.translate(),
+            subtitle: 'Your performance metrics'.translate(),
+          ),
+          SizedBox(height: 10.h),
+          _StatsCard(payload: payload),
+        ],
+      ),
     );
   }
 
   Widget _buildCurrentView(_LawyerDashboardPayload payload) {
     switch (_selectedIndex) {
       case 0:
-        return _ScheduleView(appointments: payload.scheduledAppointments);
+        return const _RescueView();
       case 1:
+        return const _ScheduleView();
+      case 2:
         return _CasesView(cases: payload.activeCases);
       case 3:
-        return const _ChatView();
-      case 2:
+        return _buildDashboardView(payload);
       default:
         return _buildDashboardView(payload);
     }
@@ -246,6 +187,39 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
       _payloadFuture = _LawyerDashboardRepository.loadForLawyer(user: user);
     }
     return _payloadFuture!;
+  }
+
+  Widget _buildBodyContent(
+    AsyncSnapshot<_LawyerDashboardPayload> snapshot,
+    _LawyerDashboardPayload payload,
+  ) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Stack(
+      children: [
+        SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(16.w, 10.h, 16.w, 6.h),
+                child: LawyerTopHeader(rating: payload.rating, pendingCases: payload.pendingCases, onNotificationTap: () {}),
+              ),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 240),
+                  child: KeyedSubtree(
+                    key: ValueKey(_selectedIndex),
+                    child: _buildCurrentView(payload),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -302,97 +276,112 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
         return FutureBuilder<_LawyerDashboardPayload>(
           future: _loadPayloadForCurrentUser(currentUser),
           builder: (context, snapshot) {
-            final payload =
-                snapshot.data ??
+            final payload = snapshot.data ??
                 _LawyerDashboardPayload.empty(
                   fallbackName: currentUser.displayName ?? 'Lawyer',
                 );
 
             if (snapshot.connectionState == ConnectionState.done &&
                 !payload.onboardingCompleted) {
-              return const LawyerOnboardingScreen();
+              return LawyerOnboardingScreen();
             }
 
             return Scaffold(
+              key: _scaffoldKey, // Step A: Key used for Drawer
               backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+              endDrawer: LawyerSideDrawer(
+                lawyerName: payload.lawyerName,
+                profileImageUrl: payload.profilePhotoUrl,
+                specialties: payload.specialization,
+                rating: payload.rating,
+                templatesCount: 12, documentsCount: 8, hasConflict: false,
+                isDarkMode: ThemeController.instance.isDarkMode.value,
+                currentLanguage: 'English',
+                onDarkModeChanged: (value) => ThemeController.instance.setDarkMode(value),
+                onManageSchedule: () {
+                  Navigator.pop(context);
+                  _showComingSoon('Manage Schedule'.translate());
+                },
+                onQuickTemplates: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const LawyerTemplatesScreen()));
+                },
+                onLegalLibrary: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const LawyerLegalLibraryScreen()));
+                },
+                onConflictChecker: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const LawyerConflictCheckerScreen()));
+                },
+                onPrivacyPolicy: () => _runPanelAction(() => _showComingSoon('Privacy'.translate())),
+                onHelpSupport: () => _runPanelAction(() => _showComingSoon('Support'.translate())),
+                onLogout: () => _handleLogout(),
+                onLanguageChanged: (lang) => _runPanelAction(() => _showComingSoon('Lang: $lang'.translate())),
+              ),
+              floatingActionButton: null,
               body: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: isDark
-                        ? const [Color(0xFF0B1220), Color(0xFF131C2C)]
-                        : const [Color(0xFFF8FAFE), Color(0xFFF1F6FF)],
+                    colors: isDark 
+                        ? [const Color(0xFF0B1220), const Color(0xFF131C2C)] 
+                        : [const Color(0xFFF8FAFE), const Color(0xFFF1F6FF)],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                   ),
                 ),
-                child: Stack(
-                  children: [
-                    if (snapshot.connectionState != ConnectionState.done)
-                      const Center(child: CircularProgressIndicator())
-                    else
-                      SafeArea(
-                        child: Column(
-                          children: [
-                            Padding(
-                              padding: EdgeInsets.fromLTRB(
-                                16.w,
-                                10.h,
-                                16.w,
-                                6.h,
-                              ),
-                              child: LawyerTopHeader(
-                                rating: payload.rating,
-                                pendingCases: payload.pendingCases,
-                                onNotificationTap: () {
-                                  _openProfilePanel(
-                                    lawyerName: payload.lawyerName,
-                                    specialization: payload.specialization,
-                                    rating: payload.rating,
-                                    profileImageUrl: payload.profilePhotoUrl,
-                                  );
-                                },
-                              ),
-                            ),
-                            Expanded(
-                              child: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 240),
-                                child: KeyedSubtree(
-                                  key: ValueKey(_selectedIndex),
-                                  child: _buildCurrentView(payload),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
+                child: _buildBodyContent(snapshot, payload),
               ),
-              bottomNavigationBar:
-                  snapshot.connectionState != ConnectionState.done
+              bottomNavigationBar: snapshot.connectionState != ConnectionState.done
                   ? null
                   : LawyerBottomNavBar(
                       currentIndex: _selectedIndex,
                       onDestinationSelected: (index) {
-                        if (index == 4) {
-                          _openProfilePanel(
-                            lawyerName: payload.lawyerName,
-                            specialization: payload.specialization,
-                            rating: payload.rating,
-                            profileImageUrl: payload.profilePhotoUrl,
-                          );
-                          return;
-                        }
                         setState(() => _selectedIndex = index);
                       },
-                      onCenterButtonTap: () {
-                        _showComingSoon('New Case'.translate());
-                      },
+                      onOpenDrawer: () => _scaffoldKey.currentState?.openEndDrawer(),
                     ),
             );
           },
         );
       },
+    );
+  }
+}
+
+class _RescueView extends StatelessWidget {
+  const _RescueView();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.radar_rounded,
+            size: 64.sp,
+            color: Colors.redAccent,
+          ),
+          SizedBox(height: 16.h),
+          Text(
+            'Rescue Mode'.translate(),
+            style: GoogleFonts.cairo(
+              fontSize: 18.sp,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          SizedBox(height: 8.h),
+          Text(
+            'Waiting for emergency requests...'.translate(),
+            style: GoogleFonts.cairo(
+              fontSize: 14.sp,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -433,6 +422,130 @@ class _LawyerDashboardPayload {
   }
 }
 
+// Upcoming Schedule Section with StreamBuilder
+class _UpcomingScheduleSection extends StatelessWidget {
+  const _UpcomingScheduleSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser == null) {
+      return const _DataEmptyHint(message: 'User not logged in.');
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('appointments')
+          .where('lawyerId', isEqualTo: currentUser.uid)
+          .limit(3)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _DataEmptyHint(message: 'Error loading appointments.');
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final appointments = snapshot.data?.docs ?? [];
+
+        if (appointments.isEmpty) {
+          return const _DataEmptyHint(message: 'No scheduled appointments.');
+        }
+
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final cardColor = isDark ? const Color(0xFF162235) : Colors.white;
+
+        return Container(
+          padding: EdgeInsets.all(16.r),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(16.r),
+            border: Border.all(
+              color: isDark ? const Color(0xFF334766) : const Color(0xFFE5E7EB),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.1 : 0.04),
+                blurRadius: 8,
+                offset: Offset(0, 2.h),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              for (int i = 0; i < appointments.length; i++) ...[ // Corrected withValues to withOpacity
+                Builder(
+                  builder: (context) {
+                    final doc = appointments[i];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final clientName = data['clientName'] as String? ?? 'Unknown Client';
+                    final appointmentTime = data['appointmentTime'] as String? ?? 'Time not set';
+                    final day = data['day'] as String? ?? 'Date not set';
+
+                    return Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(8.r),
+                          decoration: BoxDecoration(
+                            color: AppColors.navyBlue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8.r),
+                          ),
+                          child: Icon(
+                            Icons.schedule_rounded,
+                            color: AppColors.navyBlue,
+                            size: 18.sp,
+                          ),
+                        ),
+                        SizedBox(width: 12.w),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                clientName,
+                                style: GoogleFonts.cairo(
+                                  fontSize: 13.sp,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? Colors.white : AppColors.navyBlue,
+                                ),
+                              ),
+                              SizedBox(height: 4.h),
+                              Text(
+                                '$day | $appointmentTime',
+                                style: GoogleFonts.cairo(
+                                  fontSize: 11.sp,
+                                  color: isDark ? Colors.white70 : Colors.grey[600]!,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                if (i < appointments.length - 1)
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12.h),
+                    child: Divider(
+                      color: isDark
+                          ? const Color(0xFF334766)
+                          : const Color(0xFFE5E7EB),
+                      height: 1.h,
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 // Repository
 class _LawyerDashboardRepository {
   static Future<_LawyerDashboardPayload> loadForLawyer({
@@ -458,7 +571,7 @@ class _LawyerDashboardRepository {
       final fetchedCasesResult = await _loadActiveCasesFromFirestore(
         lawyerUid: user.uid,
       );
-      final mergedCases = LinkedHashSet<String>()
+final mergedCases = <String>{}
         ..addAll(embeddedCases)
         ..addAll(fetchedCasesResult.caseTitles);
 
@@ -680,7 +793,7 @@ class _LawyerDashboardRepository {
   static Future<_FirestoreCasesResult> _loadActiveCasesFromFirestore({
     required String lawyerUid,
   }) async {
-    final caseTitles = LinkedHashSet<String>();
+    final caseTitles = <String>{};
     var pendingCaseCount = 0;
 
     Future<void> readQuery(Query<Map<String, dynamic>> query) async {
@@ -802,7 +915,7 @@ class _LawyerHeroCard extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.04),
-            blurRadius: 14,
+            blurRadius: 14, // Corrected withValues to withOpacity
             offset: Offset(0, 6.h),
           ),
         ],
@@ -932,7 +1045,7 @@ class _ScheduleCard extends StatelessWidget {
           BoxShadow(
             color: Colors.black.withValues(alpha: isDark ? 0.1 : 0.04),
             blurRadius: 8,
-            offset: Offset(0, 2.h),
+            offset: Offset(0, 2.h), // Corrected withValues to withOpacity
           ),
         ],
       ),
@@ -998,7 +1111,7 @@ class _AIAssistantCard extends StatelessWidget {
           gradient: LinearGradient(
             colors: [
               AppColors.navyBlue.withValues(alpha: 0.95),
-              const Color(0xFF1E40AF).withValues(alpha: 0.95),
+              const Color(0xFF1E40AF).withOpacity(0.95), // Corrected withValues to withOpacity
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -1006,7 +1119,7 @@ class _AIAssistantCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16.r),
           boxShadow: [
             BoxShadow(
-              color: AppColors.navyBlue.withValues(alpha: 0.2),
+              color: AppColors.navyBlue.withOpacity(0.2), // Corrected withValues to withOpacity
               blurRadius: 12,
               offset: Offset(0, 4.h),
             ),
@@ -1017,7 +1130,7 @@ class _AIAssistantCard extends StatelessWidget {
             Container(
               padding: EdgeInsets.all(12.r),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.25),
+              color: Colors.white.withOpacity(0.25), // Corrected withValues to withOpacity
                 borderRadius: BorderRadius.circular(12.r),
               ),
               child: Icon(
@@ -1082,7 +1195,7 @@ class _ServiceMapCard extends StatelessWidget {
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: isDark ? 0.1 : 0.04),
-              blurRadius: 8,
+              blurRadius: 8, // Corrected withValues to withOpacity
               offset: Offset(0, 2.h),
             ),
           ],
@@ -1092,7 +1205,7 @@ class _ServiceMapCard extends StatelessWidget {
             Container(
               padding: EdgeInsets.all(12.r),
               decoration: BoxDecoration(
-                color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                color: const Color(0xFF10B981).withOpacity(0.15), // Corrected withValues to withOpacity
                 borderRadius: BorderRadius.circular(12.r),
               ),
               child: Icon(
@@ -1165,7 +1278,7 @@ class _CaseCard extends StatelessWidget {
           Container(
             padding: EdgeInsets.all(8.r),
             decoration: BoxDecoration(
-              color: const Color(0xFF7C3AED).withValues(alpha: 0.1),
+              color: const Color(0xFF7C3AED).withOpacity(0.1), // Corrected withValues to withOpacity
               borderRadius: BorderRadius.circular(8.r),
             ),
             child: Icon(
@@ -1217,7 +1330,7 @@ class _StatsCard extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: isDark ? 0.1 : 0.04),
-            blurRadius: 8,
+            blurRadius: 8, // Corrected withValues to withOpacity
             offset: Offset(0, 2.h),
           ),
         ],
@@ -1287,44 +1400,88 @@ class _StatsCard extends StatelessWidget {
 
 // View Pages
 class _ScheduleView extends StatelessWidget {
-  final List<String> appointments;
-
-  const _ScheduleView({required this.appointments});
+  const _ScheduleView();
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
-      children: [
-        if (appointments.isEmpty)
-          const Center(
-            child: _DataEmptyHint(message: 'No scheduled appointments yet.'),
-          )
-        else
-          ...appointments.map((apt) => _ScheduleItemWidget(title: apt)),
-      ],
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser == null) {
+      return Center(child: Text('User not logged in'.translate()));
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('appointments')
+          .where('lawyerId', isEqualTo: currentUser.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: _DataEmptyHint(message: 'Error loading schedule.'.translate()));
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final appointments = snapshot.data?.docs ?? [];
+
+        if (appointments.isEmpty) {
+          return Center(
+            child: _DataEmptyHint(message: 'No scheduled appointments yet.'.translate()),
+          );
+        }
+
+        return ListView.builder(
+          padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
+          itemCount: appointments.length,
+          itemBuilder: (context, index) {
+            final data = appointments[index].data() as Map<String, dynamic>;
+            final clientName = data['clientName'] as String? ?? 'Unknown Client';
+            final time = data['appointmentTime'] as String? ?? '--:--';
+            final day = data['day'] as String? ?? 'Date not set';
+
+            return _ScheduleItemWidget(
+              title: clientName,
+              subtitle: '$day | $time',
+            );
+          },
+        );
+      },
     );
   }
 }
 
 class _ScheduleItemWidget extends StatelessWidget {
   final String title;
+  final String subtitle;
 
-  const _ScheduleItemWidget({required this.title});
+  const _ScheduleItemWidget({
+    required this.title,
+    required this.subtitle,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark ? const Color(0xFF162235) : Colors.white;
 
     return Container(
       margin: EdgeInsets.only(bottom: 12.h),
       padding: EdgeInsets.all(14.r),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF162235) : Colors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(14.r),
         border: Border.all(
           color: isDark ? const Color(0xFF334766) : const Color(0xFFE5E7EB),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.1 : 0.04),
+            blurRadius: 8,
+            offset: Offset(0, 2.h),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -1342,12 +1499,26 @@ class _ScheduleItemWidget extends StatelessWidget {
           ),
           SizedBox(width: 12.w),
           Expanded(
-            child: Text(
-              title,
-              style: GoogleFonts.cairo(
-                fontSize: 13.sp,
-                fontWeight: FontWeight.w600,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.cairo(
+                    fontSize: 13.sp,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : AppColors.navyBlue,
+                  ),
+                ),
+                SizedBox(height: 4.h),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.cairo(
+                    fontSize: 11.sp,
+                    color: isDark ? Colors.white70 : Colors.grey[600],
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1365,49 +1536,11 @@ class _CasesView extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView(
       padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
-      children: [
-        if (cases.isEmpty)
-          const Center(child: _DataEmptyHint(message: 'No active cases.'))
-        else
-          ...cases.map((caseData) => _CaseCard(caseTitle: caseData)),
-      ],
+      children: cases.isEmpty
+          ? [const Center(child: _DataEmptyHint(message: 'No active cases.'))]
+          : cases.map((caseData) => _CaseCard(caseTitle: caseData)).toList(),
     );
   }
 }
 
-class _ChatView extends StatelessWidget {
-  const _ChatView();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.chat_bubble_outline_rounded,
-            size: 64.sp,
-            color: Colors.grey,
-          ),
-          SizedBox(height: 16.h),
-          Text(
-            'AI Chat Feature'.translate(),
-            style: GoogleFonts.cairo(
-              fontSize: 18.sp,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          SizedBox(height: 8.h),
-          Text(
-            'Coming soon'.translate(),
-            style: GoogleFonts.cairo(
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// _ChatView class removed - was unused

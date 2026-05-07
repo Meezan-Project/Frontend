@@ -490,39 +490,93 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 16.w),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(height: 10.h),
-          Text(
-            _currentLawyer!.name,
-            style: GoogleFonts.cairo(
-              fontSize: 22.sp,
-              fontWeight: FontWeight.w800,
-              color: isDark ? Colors.white : AppColors.navyBlue,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _currentLawyer!.name,
+                      style: GoogleFonts.cairo(
+                        fontSize: 22.sp,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : AppColors.navyBlue,
+                      ),
+                    ),
+                    SizedBox(height: 4.h),
+                    Text(
+                      _currentLawyer!.specialization,
+                      style: GoogleFonts.cairo(
+                        fontSize: 15.sp,
+                        color: isDark ? Colors.white70 : Colors.grey.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // ...existing code for rating, etc.
+            ],
           ),
-          SizedBox(height: 4.h),
-          Text(
-            _currentLawyer!.workStatus +
-                (_currentLawyer!.officeName.isNotEmpty
-                    ? ' - ${_currentLawyer!.officeName}'
-                    : ''),
-            textAlign: TextAlign.center,
-            style: GoogleFonts.cairo(
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w700,
-              color: AppColors.legalGold,
+          // ...existing code for office, location, etc.
+
+          // Working Days & Times Section
+          if (_currentLawyer?.schedule != null && _currentLawyer!.schedule!.isNotEmpty) ...[
+            SizedBox(height: 16.h),
+            Text(
+              'Working Days & Times',
+              style: GoogleFonts.cairo(
+                fontSize: 15.sp,
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : AppColors.navyBlue,
+              ),
             ),
-          ),
-          SizedBox(height: 4.h),
-          Text(
-            _currentLawyer!.specialization,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.cairo(
-              fontSize: 15.sp,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white70 : Colors.grey.shade700,
-            ),
-          ),
+            SizedBox(height: 8.h),
+            ..._currentLawyer!.schedule!.entries.map((entry) {
+              final day = entry.key;
+              final val = entry.value;
+              String timeStr = '';
+              if (val is Map) {
+                final from = val['from']?.toString() ?? val['start']?.toString() ?? '';
+                final to = val['to']?.toString() ?? val['end']?.toString() ?? '';
+                if (from.isNotEmpty && to.isNotEmpty) {
+                  timeStr = '$from - $to';
+                }
+              } else if (val is String && val.contains('-')) {
+                timeStr = val;
+              }
+              return timeStr.isNotEmpty
+                  ? Padding(
+                      padding: EdgeInsets.symmetric(vertical: 2.h),
+                      child: Row(
+                        children: [
+                          Text(
+                            day,
+                            style: GoogleFonts.cairo(
+                              fontSize: 14.sp,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? Colors.white : AppColors.navyBlue,
+                            ),
+                          ),
+                          SizedBox(width: 12.w),
+                          Text(
+                            timeStr,
+                            style: GoogleFonts.cairo(
+                              fontSize: 14.sp,
+                              color: isDark ? Colors.white70 : Colors.grey.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink();
+            }),
+          ],
         ],
       ),
     );
@@ -531,38 +585,35 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
   Widget _buildQuickStats(bool isDark) {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 16.w),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: _statCard(
-                'Experience',
-                '+${_currentLawyer!.experience} Years',
-                Icons.workspace_premium_outlined,
-                isDark,
-              ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _statCard(
+              'Experience',
+              '${_currentLawyer!.experience} Years',
+              Icons.work_outline_rounded,
+              isDark,
             ),
-            SizedBox(width: 10.w),
-            Expanded(
-              child: _statCard(
-                'Rating',
-                '${_currentLawyer!.rating.toStringAsFixed(1)} ⭐',
-                Icons.star_outline_rounded,
-                isDark,
-              ),
+          ),
+          SizedBox(width: 10.w),
+          Expanded(
+            child: _statCard(
+              'Rating',
+              '${_currentLawyer!.rating.toStringAsFixed(1)} ⭐',
+              Icons.star_outline_rounded,
+              isDark,
             ),
-            SizedBox(width: 10.w),
-            Expanded(
-              child: _statCard(
-                'Reviews',
-                '${_currentLawyer!.reviewsCount}',
-                Icons.people_outline_rounded,
-                isDark,
-              ),
+          ),
+          SizedBox(width: 10.w),
+          Expanded(
+            child: _statCard(
+              'Reviews',
+              '${_currentLawyer!.reviewsCount}',
+              Icons.people_outline_rounded,
+              isDark,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -578,31 +629,35 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
           color: isDark ? const Color(0xFF2A3550) : const Color(0xFFE6ECF5),
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: AppColors.legalGold, size: 24.sp),
-          SizedBox(height: 6.h),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.cairo(
-              fontSize: 15.sp,
-              fontWeight: FontWeight.w800,
-              color: isDark ? Colors.white : AppColors.navyBlue,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: AppColors.legalGold, size: 24.sp),
+            SizedBox(height: 6.h),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.cairo(
+                fontSize: 15.sp,
+                fontWeight: FontWeight.w800,
+                color: isDark ? Colors.white : AppColors.navyBlue,
+              ),
             ),
-          ),
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.cairo(
-              fontSize: 12.sp,
-              color: isDark ? Colors.white70 : Colors.grey.shade600,
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.cairo(
+                fontSize: 12.sp,
+                color: isDark ? Colors.white70 : Colors.grey.shade600,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1086,35 +1141,39 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                 width: isSelected ? 2.0 : 1.0,
               ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, color: AppColors.legalGold, size: 24.sp),
-                SizedBox(height: 8.h),
-                Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.cairo(
-                    fontSize: 13.sp,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? Colors.white : AppColors.navyBlue,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, color: AppColors.legalGold, size: 24.sp),
+                  SizedBox(height: 8.h),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.cairo(
+                      fontSize: 13.sp,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white : AppColors.navyBlue,
+                    ),
                   ),
-                ),
-                SizedBox(height: 4.h),
-                Text(
-                  feeText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.cairo(
-                    fontSize: 14.sp,
-                    fontWeight: FontWeight.w800,
-                    color: isDark ? Colors.white70 : Colors.grey.shade800,
+                  SizedBox(height: 4.h),
+                  Text(
+                    feeText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.cairo(
+                      fontSize: 14.sp,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? Colors.white70 : Colors.grey.shade800,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

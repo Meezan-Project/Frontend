@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:geolocator/geolocator.dart';
@@ -5,9 +6,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'dart:math'; // For atan2
 import 'package:mezaan/shared/localization/localization_controller.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/user/screens/sos_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart';
 
 class LawyerRequestScreen extends StatefulWidget {
   const LawyerRequestScreen({super.key});
@@ -16,18 +20,134 @@ class LawyerRequestScreen extends StatefulWidget {
   State<LawyerRequestScreen> createState() => _LawyerRequestScreenState();
 }
 
-class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
-  final TextEditingController _descriptionController = TextEditingController();
+class _LawyerRequestScreenState extends State<LawyerRequestScreen>
+    with SingleTickerProviderStateMixin {
+  // Helper to format numbers with commas (e.g., 10,000)
+  String formatFee(num fee) {
+    return fee.toString().replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    );
+  }
+
+  // 1. Core State Variables
+  String? selectedService;
+  int price = 0;
+  bool isSearching = false;
+  bool isLawyerAccepted = false; // New state variable
+  LawyerOffer? _acceptedOffer; // New state variable to store the accepted offer
+  final TextEditingController descriptionController = TextEditingController();
+  int _userRating = 0;
+  final TextEditingController feedbackController = TextEditingController();
+
+  // Animation Variables for Tracking Notification
+  late AnimationController _notificationController;
+  late Animation<Offset> _notificationOffsetAnimation;
+
+  // 2. Map & Location Variables
   final MapController _mapController = MapController();
   bool _isLocationLoading = true;
   String _locationName = 'Finding your location...';
-  String _locationCoordinates = '';
   bool _mapReady = false;
+  // For moving car animation
+  LatLng? _currentCarLocation;
+  double _carRotation = 0.0; // in radians
+  final List<LatLng> _routePoints = [];
+  Timer? _carMovementTimer; // Declare the timer
   double? _latitude;
   double? _longitude;
-  LatLng _userLocation = const LatLng(30.0444, 31.2357); // Default Cairo location
-  int _selectedServiceIndex = 0;
-  int _offerAmount = 150;
+  LatLng _userLocation = LatLng(30.0444, 31.2357);
+
+  // 3. Offers Variables
+  final List<LawyerOffer> _virtualLawyers = const [
+    LawyerOffer(
+      name: 'Ahmed Ali',
+      title: 'Senior Criminal Lawyer',
+      rating: 4.93,
+      price: 300,
+      travelTime: 5,
+      serviceType: 'Comfort',
+      cases: 120,
+      phoneNumber: '+201001234567',
+      location: LatLng(30.0460, 31.2370),
+      imageUrl:
+          'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', // Ahmed Ali
+    ),
+    LawyerOffer(
+      name: 'Fatima Hassan',
+      title: 'Family Law Expert',
+      rating: 4.88,
+      price: 320,
+      travelTime: 7, // Mock travel time
+      serviceType: 'Premium',
+      cases: 95,
+      phoneNumber: '+201001234568',
+      location: LatLng(30.0420, 31.2340),
+      imageUrl: 'https://i.pravatar.cc/150?u=FatimaHassan', // Placeholder
+    ),
+    LawyerOffer(
+      name: 'Mohamed Karim',
+      title: 'Corporate Legal Consultant',
+      rating: 5.00,
+      price: 360,
+      travelTime: 4, // Mock travel time
+      serviceType: 'Express',
+      cases: 150,
+      phoneNumber: '+201001234569',
+      location: LatLng(30.0480, 31.2390),
+      imageUrl: 'https://i.pravatar.cc/150?u=MohamedKarim', // Placeholder
+    ),
+    LawyerOffer(
+      name: 'Sara Omar',
+      title: 'Human Rights Specialist',
+      rating: 4.75,
+      price: 310,
+      travelTime: 6, // Mock travel time
+      serviceType: 'Standard',
+      cases: 80,
+      phoneNumber: '+201001234570',
+      location: LatLng(30.0410, 31.2320),
+      imageUrl:
+          'https://cdn-icons-png.flaticon.com/512/6997/6997662.png', // Sara Omar
+    ),
+    LawyerOffer(
+      name: 'Omar Saleh',
+      title: 'Civil Litigation Expert',
+      rating: 4.65,
+      price: 340,
+      travelTime: 8,
+      serviceType: 'Premium',
+      cases: 110,
+      phoneNumber: '+201001234571',
+      imageUrl: 'https://i.pravatar.cc/150?u=OmarSaleh', // Placeholder
+      location: LatLng(30.0475, 31.2385),
+    ),
+  ];
+  List<LawyerOffer> offers = [];
+  Timer? _offerTimer;
+  int _offerIndex = 0;
+
+  // Helper getter for language
+  bool get _isArabic =>
+      LocalizationController.instance.currentLanguage.value == 'ar';
+
+  // Helper getter for form validation
+  bool get _isFormValid =>
+      selectedService != null && descriptionController.text.trim().isNotEmpty;
+
+  // 3. Logic Functions
+  void selectService(String type, int minPrice) {
+    setState(() {
+      selectedService = type;
+      price = minPrice;
+    });
+  }
+
+  int getMinPrice() {
+    if (selectedService == 'urgent') return 300;
+    if (selectedService == 'legal') return 450;
+    return 500; // Document Review
+  }
 
   final List<_LegalServiceCard> _serviceCards = const [
     _LegalServiceCard(
@@ -47,12 +167,6 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
     ),
   ];
 
-  void _updateOffer(int delta) {
-    setState(() {
-      _offerAmount = (_offerAmount + delta).clamp(50, 1000);
-    });
-  }
-
   void _showLocationOptions() {
     showModalBottomSheet(
       context: context,
@@ -62,7 +176,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
         ),
-        padding: EdgeInsets.all(24.w),
+        padding: EdgeInsets.all(24.r),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -76,7 +190,10 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
             ),
             SizedBox(height: 20.h),
             ListTile(
-              leading: const Icon(Icons.my_location, color: AppColors.legalGold),
+              leading: const Icon(
+                Icons.my_location,
+                color: AppColors.legalGold,
+              ),
               title: Text(
                 _isArabic ? 'موقعي الحالي' : 'Current location',
                 style: GoogleFonts.cairo(fontWeight: FontWeight.w700),
@@ -88,7 +205,10 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
             ),
             Divider(color: Colors.grey.withValues(alpha: 0.2)),
             ListTile(
-              leading: const Icon(Icons.map_outlined, color: AppColors.legalGold),
+              leading: const Icon(
+                Icons.map_outlined,
+                color: AppColors.legalGold,
+              ),
               title: Text(
                 _isArabic ? 'موقع آخر' : 'Another location',
                 style: GoogleFonts.cairo(fontWeight: FontWeight.w700),
@@ -111,13 +231,15 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
           ),
-          padding: EdgeInsets.all(24.w),
+          padding: EdgeInsets.all(24.r),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -126,8 +248,13 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                 style: GoogleFonts.cairo(),
                 decoration: InputDecoration(
                   hintText: _isArabic ? 'ادخل العنوان...' : 'Enter address...',
-                  prefixIcon: const Icon(Icons.search, color: AppColors.legalGold),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r)),
+                  prefixIcon: const Icon(
+                    Icons.search,
+                    color: AppColors.legalGold,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12.r),
+                  ),
                 ),
                 onSubmitted: (value) async {
                   if (value.isEmpty) return;
@@ -147,7 +274,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        _isArabic ? 'اضغط على الخريطة لتحديد الموقع' : 'Tap on the map to select location',
+                        _isArabic
+                            ? 'اضغط على الخريطة لتحديد الموقع'
+                            : 'Tap on the map to select location',
                         style: GoogleFonts.cairo(),
                       ),
                     ),
@@ -173,28 +302,561 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_isArabic ? 'لم يتم العثور على الموقع' : 'Location not found')),
+          SnackBar(
+            content: Text(
+              _isArabic ? 'لم يتم العثور على الموقع' : 'Location not found',
+            ),
+          ),
         );
       }
     }
   }
 
   void _findLawyer() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Searching for a lawyer...')),
+    setState(() {
+      isSearching = true;
+      offers = [];
+      _offerIndex = 0;
+    });
+    _generateMockOffers();
+  }
+
+  void _generateMockOffers() {
+    _offerTimer?.cancel();
+    _offerTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      if (_offerIndex < _virtualLawyers.length) {
+        setState(() {
+          offers.add(_virtualLawyers[_offerIndex]);
+          _offerIndex++;
+        });
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
+  void _cancelSearch() {
+    _offerTimer?.cancel();
+    setState(() {
+      isSearching = false;
+      offers = [];
+      _offerIndex = 0;
+    });
+  }
+
+  void _acceptOffer(LawyerOffer offer) {
+    setState(() {
+      _acceptedOffer = offer;
+      isLawyerAccepted = true;
+      isSearching = false; // Exit searching mode
+      _offerTimer?.cancel(); // Stop generating offers
+    });
+
+    // Start notification animation with 2s delay after offer acceptance
+    Future.delayed(const Duration(seconds: 2), () async {
+      if (mounted &&
+          isLawyerAccepted &&
+          _notificationController.status != AnimationStatus.forward) {
+        await _notificationController.forward();
+      }
+    });
+
+    // Start car movement animation
+    if (offer.location != null && _mapReady) {
+      _currentCarLocation = offer.location!;
+      _generateRoutePoints(offer.location!, _userLocation);
+      _startCarAnimation();
+    }
+  }
+
+  // Generates interpolated points for the car's route
+  void _generateRoutePoints(LatLng start, LatLng end) {
+    _routePoints.clear();
+    const int numberOfSteps =
+        20; // Adjusted for smoother animation with 500ms interval
+    for (int i = 0; i <= numberOfSteps; i++) {
+      final double t = i / numberOfSteps;
+      final double lat = start.latitude + t * (end.latitude - start.latitude);
+      final double lng =
+          start.longitude + t * (end.longitude - start.longitude);
+      _routePoints.add(LatLng(lat, lng));
+    }
+  }
+
+  // Starts the car movement animation along the route points
+  void _startCarAnimation() {
+    _carMovementTimer?.cancel(); // Cancel any existing timer
+    int currentPointIndex = 0;
+    _carMovementTimer = Timer.periodic(const Duration(milliseconds: 500), (
+      timer,
+    ) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (currentPointIndex < _routePoints.length - 1) {
+        final LatLng prevPoint = _routePoints[currentPointIndex];
+        final LatLng nextPoint = _routePoints[currentPointIndex + 1];
+
+        // Calculate rotation angle based on direction of movement
+        final double dx = nextPoint.longitude - prevPoint.longitude;
+        final double dy = nextPoint.latitude - prevPoint.latitude;
+        _carRotation = atan2(dy, dx); // Angle in radians
+
+        setState(() {
+          _currentCarLocation = nextPoint;
+          _mapController.move(_currentCarLocation!, 15.0); // Keep car centered
+        });
+        currentPointIndex++;
+      } else {
+        timer.cancel(); // Animation complete
+        // Optionally, snap to final user location and reset rotation
+        setState(() {
+          _currentCarLocation = _userLocation;
+          _carRotation = 0.0; // Reset rotation or keep final direction
+        });
+      }
+    });
+  }
+
+  void _declineOffer(int index) {
+    setState(() {
+      offers.removeAt(index);
+    });
+  }
+
+  // Function to show the cancel confirmation dialog
+  void _showCancelConfirmationDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20.r),
+          ),
+          title: Text(
+            _isArabic ? 'إلغاء طلب المحامي؟' : 'Cancel your lawyer?',
+            style: GoogleFonts.cairo(
+              fontSize: 18.sp,
+              fontWeight: FontWeight.w800,
+              color: AppColors.navyBlue,
+            ),
+          ),
+          content: Text(
+            _isArabic
+                ? 'هل أنت متأكد أنك تريد الإلغاء؟ قد يؤثر هذا على تقييم خدمتك.'
+                : 'Are you sure you want to cancel? This might affect your service rating.',
+            style: GoogleFonts.cairo(
+              fontSize: 14.sp,
+              color: AppColors.textDark.withValues(alpha: 0.7),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(), // Dismiss dialog
+              child: Text(
+                _isArabic ? 'لا، احتفظ به' : 'No, keep it',
+                style: GoogleFonts.cairo(
+                  color: AppColors.navyBlue,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // Dismiss dialog
+                setState(() {
+                  isLawyerAccepted = false;
+                  _acceptedOffer = null;
+                  _notificationController.reset();
+                  isSearching = false;
+                  _currentCarLocation = null;
+                  _carMovementTimer?.cancel();
+                });
+              },
+              child: Text(
+                _isArabic ? 'نعم، إلغاء' : 'Yes, Cancel',
+                style: GoogleFonts.cairo(
+                  color: Colors.red,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
+  }
+
+  void _showChatBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Container(
+          height: MediaQuery.of(context).size.height * 0.70,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
+          ),
+          child: Column(
+            children: [
+              // 1. Header
+              Padding(
+                padding: EdgeInsets.fromLTRB(20.w, 10.h, 10.w, 10.h),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _isArabic
+                          ? 'المحادثة مع ${_acceptedOffer?.name ?? "المحامي"}'
+                          : 'Chat with ${_acceptedOffer?.name ?? "Lawyer"}',
+                      style: GoogleFonts.cairo(
+                        fontSize: 18.sp,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.black),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+
+              // 2. Chat Body
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 20.w,
+                    vertical: 15.h,
+                  ),
+                  children: [
+                    _buildChatBubble(
+                      message: _isArabic
+                          ? 'مرحباً! لقد قبلت طلبك وأنا في الطريق إليك.'
+                          : 'Hello! I have accepted your request and I\'m moving toward your location now.',
+                      isUser: false,
+                    ),
+                    _buildChatBubble(
+                      message: _isArabic
+                          ? 'شكراً لك، أنا في انتظارك عند المدخل الرئيسي.'
+                          : 'Thank you. I\'m waiting at the main entrance.',
+                      isUser: true,
+                    ),
+                    _buildChatBubble(
+                      message: _isArabic
+                          ? 'تمام، سأصل خلال 5 دقائق تقريباً.'
+                          : 'Perfect. I should be there in about 5 minutes.',
+                      isUser: false,
+                    ),
+                    _buildChatBubble(
+                      message: _isArabic
+                          ? 'عظيم، أراك قريباً.'
+                          : 'Sounds good, see you soon.',
+                      isUser: true,
+                    ),
+                  ],
+                ),
+              ),
+
+              // 3. Message Input (Footer)
+              Padding(
+                padding: EdgeInsets.all(20.w),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        style: GoogleFonts.cairo(fontSize: 14.sp),
+                        decoration: InputDecoration(
+                          hintText: _isArabic
+                              ? 'اكتب رسالة...'
+                              : 'Type a message...',
+                          hintStyle: GoogleFonts.cairo(color: Colors.grey),
+                          fillColor: Colors.grey[200],
+                          filled: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(30.r),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 20.w,
+                            vertical: 10.h,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 12.w),
+                    GestureDetector(
+                      onTap: () {
+                        // Send functionality placeholder
+                      },
+                      child: Container(
+                        padding: EdgeInsets.all(12.w),
+                        decoration: const BoxDecoration(
+                          color: AppColors.navyBlue,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.send,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChatBubble({required String message, required bool isUser}) {
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: EdgeInsets.only(bottom: 12.h),
+        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 10.h),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.7,
+        ),
+        decoration: BoxDecoration(
+          color: isUser ? AppColors.navyBlue : Colors.grey[200],
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(16.r),
+            topRight: Radius.circular(16.r),
+            bottomLeft: isUser ? Radius.circular(16.r) : Radius.zero,
+            bottomRight: isUser ? Radius.zero : Radius.circular(16.r),
+          ),
+        ),
+        child: Text(
+          message,
+          style: GoogleFonts.cairo(
+            fontSize: 14.sp,
+            color: isUser ? Colors.white : Colors.black,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _finishService() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.8,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(32.r)),
+              ),
+              padding: EdgeInsets.all(24.w),
+              child: Column(
+                children: [
+                  // 1. Skip Button (Subtle and accessible at the top)
+                  Align(
+                    alignment: _isArabic
+                        ? Alignment.centerLeft
+                        : Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        setState(() {
+                          isLawyerAccepted = false;
+                          _acceptedOffer = null;
+                          _notificationController.reset();
+                          isSearching = false;
+                          _currentCarLocation = null;
+                          _carMovementTimer?.cancel();
+                          _userRating = 0;
+                          feedbackController.clear();
+                        });
+                      },
+                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                      child: Text(
+                        _isArabic ? 'تخطي' : 'Skip',
+                        style: GoogleFonts.cairo(
+                          color: Colors.grey[600],
+                          fontSize: 14.sp,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  SizedBox(height: 20.h),
+                  const Icon(
+                    Icons.check_circle,
+                    color: Color(0xFF29CC68),
+                    size: 70,
+                  ),
+                  SizedBox(height: 20.h),
+                  Text(
+                    _isArabic ? 'شكراً لك!' : 'Thank you!',
+                    style: GoogleFonts.cairo(
+                      fontSize: 24.sp,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+                  Text(
+                    _isArabic
+                        ? 'اكتملت المهمة مع ${_acceptedOffer?.name ?? "أحمد علي"}.'
+                        : 'Task with ${_acceptedOffer?.name ?? "Ahmed Ali"} completed.',
+                    style: GoogleFonts.cairo(
+                      fontSize: 16.sp,
+                      color: Colors.grey[600],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 30.h),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (index) {
+                      return GestureDetector(
+                        onTap: () {
+                          setModalState(() => _userRating = index + 1);
+                        },
+                        child: Icon(
+                          index < _userRating ? Icons.star : Icons.star_border,
+                          color: Colors.amber,
+                          size: 40.sp,
+                        ),
+                      );
+                    }),
+                  ),
+                  SizedBox(height: 30.h),
+                  TextField(
+                    controller: feedbackController,
+                    maxLines: 4,
+                    style: GoogleFonts.cairo(color: Colors.black),
+                    decoration: InputDecoration(
+                      hintText: _isArabic
+                          ? 'اكتب ملاحظاتك...'
+                          : 'Write your feedback...',
+                      hintStyle: GoogleFonts.cairo(color: Colors.grey),
+                      fillColor: Colors.grey[100],
+                      filled: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16.r),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      setState(() {
+                        isLawyerAccepted = false;
+                        _acceptedOffer = null;
+                        _notificationController.reset();
+                        isSearching = false;
+                        _currentCarLocation = null;
+                        _carMovementTimer?.cancel();
+                        _userRating = 0;
+                        feedbackController.clear();
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.navyBlue,
+                      minimumSize: Size(double.infinity, 56.h),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16.r),
+                      ),
+                    ),
+                    child: Text(
+                      _isArabic ? 'إرسال والعودة للرئيسية' : 'Submit & Go Home',
+                      style: GoogleFonts.cairo(
+                        fontSize: 16.sp,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 12.h),
+                  // 2. "Not Now" button (Subtle secondary choice at the bottom)
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      setState(() {
+                        isLawyerAccepted = false;
+                        _acceptedOffer = null;
+                        _notificationController.reset();
+                        isSearching = false;
+                        _currentCarLocation = null;
+                        _carMovementTimer?.cancel();
+                        _userRating = 0;
+                        feedbackController.clear();
+                      });
+                    },
+                    child: Text(
+                      _isArabic ? 'تخطي / ليس الآن' : 'Not Now / Skip',
+                      style: GoogleFonts.cairo(
+                        fontSize: 14.sp,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _offerTimer?.cancel();
+    _notificationController.dispose();
+    _carMovementTimer?.cancel(); // Cancel car movement timer
+    descriptionController.dispose();
+    feedbackController.dispose();
+    super.dispose();
   }
 
   @override
   void initState() {
     super.initState();
     _loadCurrentLocation();
-  }
 
-  @override
-  void dispose() {
-    _descriptionController.dispose();
-    super.dispose();
+    // Initialize the slide-down animation logic for the notification banner
+    _notificationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+
+    _notificationOffsetAnimation =
+        Tween<Offset>(
+          begin: const Offset(0, -1.0), // Start high above the screen
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(
+            parent: _notificationController,
+            curve: Curves.easeOut,
+          ),
+        );
+
+    // No need to trigger animation here, it's triggered in _acceptOffer
   }
 
   Future<void> _loadCurrentLocation() async {
@@ -213,7 +875,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
         permission = await Geolocator.requestPermission();
       }
 
-      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
         setState(() {
           _locationName = 'Location permission denied';
           _isLocationLoading = false;
@@ -222,7 +885,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
       }
 
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
 
       _latitude = position.latitude;
@@ -259,108 +924,166 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
 
       if (placemarks.isNotEmpty) {
         final place = placemarks.first;
-        final locationName = '${place.name}, ${place.locality}, ${place.administrativeArea}';
+        final locationName =
+            '${place.name}, ${place.locality}, ${place.administrativeArea}';
         setState(() {
-          _locationName = locationName.isNotEmpty ? locationName : 'Selected location';
-          _locationCoordinates = '${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}';
+          _locationName = locationName.isNotEmpty
+              ? locationName
+              : 'Selected location';
           _isLocationLoading = false;
         });
       }
     } catch (e) {
       setState(() {
-        _locationName = '${point.latitude.toStringAsFixed(4)}, ${point.longitude.toStringAsFixed(4)}';
+        _locationName =
+            '${point.latitude.toStringAsFixed(4)}, ${point.longitude.toStringAsFixed(4)}';
         _isLocationLoading = false;
       });
     }
   }
 
-  bool get _isArabic =>
-      LocalizationController.instance.currentLanguage.value == 'ar';
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final textColor =
+        theme.textTheme.bodyLarge?.color ??
+        (isDark ? Colors.white : AppColors.navyBlue);
+    final cardColor = theme.cardColor;
+
+    // 1. SIMPLE IF/ELSE SWITCH FOR CORE UI MODES
+    if (isLawyerAccepted) {
+      return Scaffold(
+        body: Stack(
+          children: [
+            _buildMapBackground(isDark), // Pass isDark parameter
+            // Soft overlay to ensure white UI elements pop against the map
+            Container(color: Colors.black.withValues(alpha: 0.2)),
+            _buildTrackingModeUI(),
+          ],
+        ),
+      );
+    }
+
+    // 2. DEFAULT REQUEST / OFFERS MODE
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F7FB),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Stack(
         children: [
-          _buildMapBackground(),
-          Positioned(
-            left: 12.w,
-            bottom: 18.h,
-            child: IgnorePointer(
-              child: Container(
-                padding: EdgeInsets.symmetric( // This container is for the MapTiler attribution text
-                  horizontal: 10.w,
-                  vertical: 6.h,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(10.r),
-                  border: Border.all(
-                    color: const Color(0xFFD2DCE8),
-                    width: 1,
-                  ),
-                ),
-                child: Text(
-                  'MapTiler Streets v2',
-                  style: GoogleFonts.cairo(
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF23436A),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 72.h, // تم ترحيلها للأسفل قليلاً لتجنب التداخل مع زر الرجوع
-            left: 18.w,
-            right: 18.w,
-            child: _buildLocationCard(),
-          ),
-          // زر الرجوع العائم داخل دائرة
+          // 1. Full-screen map background
+          _buildMapBackground(isDark), // Pass isDark parameter
+          // Dark Overlay (Searching Mode)
+          if (isSearching) Container(color: Colors.black54),
+
+          // Header: Normal Mode Location Card vs Searching Mode Cancel Button
           Positioned(
             top: 16.h,
-            left: _isArabic ? null : 18.w,
-            right: _isArabic ? 18.w : null,
+            left: 18.w,
+            right: 18.w,
             child: SafeArea(
-              child: GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Container(
-                  width: 42.w,
-                  height: 42.w,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.12),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      width: 42.w,
+                      height: 42.w,
+                      decoration: BoxDecoration(
+                        color: cardColor,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.12),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
                       ),
-                    ],
+                      child: Icon(
+                        Icons.arrow_back,
+                        color: theme.iconTheme.color ?? AppColors.navyBlue,
+                        size: 22.sp,
+                      ),
+                    ),
                   ),
-                  child: Icon(
-                    Icons.arrow_back,
-                    color: AppColors.navyBlue,
-                    size: 22.sp,
+                  SizedBox(width: 12.w),
+                  Expanded(
+                    child: isSearching
+                        ? Center(
+                            child: GestureDetector(
+                              onTap: _cancelSearch,
+                              child: Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 26.w,
+                                  vertical: 12.h,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.navyBlue,
+                                  borderRadius: BorderRadius.circular(30.r),
+                                  border: Border.all(
+                                    color: AppColors.legalGold,
+                                    width: 1.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.navyBlue.withValues(
+                                        alpha: 0.25,
+                                      ),
+                                      blurRadius: 18,
+                                      offset: Offset(0, 6.h),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.close,
+                                      color: Colors.white,
+                                      size: 20.sp,
+                                    ),
+                                    SizedBox(width: 10.w),
+                                    Text(
+                                      'Cancel request',
+                                      style: GoogleFonts.cairo(
+                                        fontSize: 14.sp,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          )
+                        : _buildLocationCard(),
                   ),
-                ),
+                ],
               ),
             ),
           ),
-          _buildBottomSheet(context),
+
+          // Bottom Section: Floating Offers vs White Bottom Sheet
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: isSearching ? 25.h : 0,
+            child: isSearching
+                ? _buildOffersView(isDark)
+                : _buildBottomSheet(context), // Pass isDark parameter
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildMapBackground() {
+  Widget _buildMapBackground(bool isDark) {
+    // Add isDark parameter
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
         initialCenter: _userLocation,
-        initialZoom: 14.5,
+        initialZoom: 14.0,
         onMapReady: () {
           _mapReady = true;
           if (!_isLocationLoading) _mapController.move(_userLocation, 15.0);
@@ -371,93 +1094,132 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
       ),
       children: [
         TileLayer(
-          urlTemplate: 'https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=HNGIJUr6VGmHEr8rxntj',
-          userAgentPackageName: 'com.example.mezaan',
-          tileSize: 256,
+          urlTemplate: isDark
+              ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+              : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.mezaan.app',
         ),
         if (_latitude != null && _longitude != null)
           MarkerLayer(
             markers: [
-              Marker(
-                width: 80.w,
-                height: 80.h,
-                point: _userLocation,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 50.w,
-                      height: 50.h,
-                      decoration: BoxDecoration(
-                        color: AppColors.legalGold,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.legalGold.withOpacity(0.4),
-                            blurRadius: 12,
-                            offset: Offset(0, 4.h),
-                          ),
-                        ],
-                      ),
-                      child: Center(
-                        child: Icon(
-                          Icons.location_on,
-                          color: AppColors.navyBlue,
-                          size: 28.sp,
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: 4.h),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
-                      decoration: BoxDecoration(
-                        color: AppColors.legalGold,
-                        borderRadius: BorderRadius.circular(12.r),
-                      ),
-                      child: Text(
-                        'You',
-                        style: GoogleFonts.cairo(
-                          fontSize: 10.sp,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.navyBlue,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              _buildUserMarker(),
+              if (isLawyerAccepted &&
+                  _acceptedOffer != null &&
+                  _currentCarLocation != null)
+                _buildMovingCarMarker(_acceptedOffer!),
+            ],
+          ),
+        // 3. The Route Line (Polyline)
+        if (isLawyerAccepted &&
+            _acceptedOffer != null &&
+            _routePoints.isNotEmpty)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: _routePoints,
+                color: const Color(0xFF0D2137), // Navy Blue
+                strokeWidth: 4.0,
               ),
             ],
           ),
-        RichAttributionWidget(
-          attributions: [
-            TextSourceAttribution(
-              '© MapTiler',
-              onTap: () => launchUrl(
-                Uri.parse('https://www.maptiler.com/copyright/'),
-              ),
-            ),
-            TextSourceAttribution(
-              '© OpenStreetMap contributors',
-              onTap: () => launchUrl(
-                Uri.parse('https://www.openstreetmap.org/copyright'),
-              ),
-            ),
-          ],
-        ),
       ],
     );
   }
 
+  Marker _buildUserMarker() {
+    return Marker(
+      width: 80.w,
+      height: 95.h,
+      point: _userLocation,
+      child: Column(
+        children: [
+          Container(
+            width: 40.w,
+            height: 40.w,
+            decoration: BoxDecoration(
+              color: Colors.blue,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.blue.withValues(alpha: 0.3),
+                  blurRadius: 10,
+                  spreadRadius: 5,
+                ),
+              ],
+            ),
+            child: const Icon(Icons.person, color: Colors.white, size: 20),
+          ),
+          SizedBox(height: 4.h),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 2.h),
+            decoration: BoxDecoration(
+              color: Colors.blue,
+              borderRadius: BorderRadius.circular(10.r),
+            ),
+            child: Text(
+              'You',
+              style: GoogleFonts.cairo(
+                fontSize: 10.sp,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Marker _buildMovingCarMarker(LawyerOffer offer) {
+    return Marker(
+      width: 80.w,
+      height: 95.h,
+      point: _currentCarLocation!,
+      child: Column(
+        children: [
+          Transform.rotate(
+            angle: _carRotation,
+            child: Icon(
+              Icons.directions_car,
+              color: AppColors.navyBlue,
+              size: 30.sp,
+            ),
+          ),
+          SizedBox(height: 4.h),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 2.h),
+            decoration: BoxDecoration(
+              color: AppColors.navyBlue,
+              borderRadius: BorderRadius.circular(10.r),
+            ),
+            child: Text(
+              offer.name,
+              style: GoogleFonts.cairo(
+                fontSize: 10.sp,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLocationCard() {
+    final theme = Theme.of(context);
+    final textColor = theme.textTheme.bodyLarge?.color;
+
     return GestureDetector(
       onTap: _showLocationOptions,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: theme.cardColor,
           borderRadius: BorderRadius.circular(24.r),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF0D2345).withOpacity(0.12),
+              color: Colors.black.withValues(alpha: 0.12),
               blurRadius: 16,
               offset: Offset(0, 6.h),
             ),
@@ -470,10 +1232,10 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
               width: 52.w,
               height: 52.h,
               decoration: BoxDecoration(
-                color: const Color(0xFF0D2345).withOpacity(0.08),
+                color: const Color(0xFF0D2345).withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(14.r),
                 border: Border.all(
-                  color: const Color(0xFF0D2345).withOpacity(0.1),
+                  color: const Color(0xFF0D2345).withValues(alpha: 0.1),
                 ),
               ),
               child: Icon(
@@ -492,18 +1254,22 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                     style: GoogleFonts.cairo(
                       fontSize: 12.sp,
                       fontWeight: FontWeight.w700,
-                      color: const Color(0xFF0D2345).withOpacity(0.6),
+                      color: theme.textTheme.bodyMedium?.color?.withValues(
+                        alpha: 0.6,
+                      ),
                     ),
                   ),
                   SizedBox(height: 2.h),
                   Text(
-                    _isLocationLoading 
-                        ? (_isArabic ? 'جاري تحديد الموقع...' : 'Finding location...') 
+                    _isLocationLoading
+                        ? (_isArabic
+                              ? 'جاري تحديد الموقع...'
+                              : 'Finding location...')
                         : _locationName,
                     style: GoogleFonts.cairo(
                       fontSize: 14.sp,
                       fontWeight: FontWeight.w700,
-                      color: const Color(0xFF0D2345),
+                      color: textColor,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -532,34 +1298,329 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
     );
   }
 
-  Widget _buildBottomSheet(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.38,
-      minChildSize: 0.35,
-      maxChildSize: 0.75,
-      builder: (_, controller) {
-        return Container(
-          padding: EdgeInsets.symmetric(horizontal: 18.w, vertical: 16.h),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(32.r)),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.navyBlue.withOpacity(0.15),
-                blurRadius: 32,
-                offset: Offset(0, -12.h),
+  Widget _buildOffersView(bool isDark) {
+    final theme = Theme.of(context);
+    final textColor = theme.textTheme.bodyLarge?.color;
+
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.55,
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28.r)),
+        ),
+        padding: EdgeInsets.only(
+          top: 18.h,
+          left: 18.w,
+          right: 18.w,
+          bottom: 12.h,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 60.w,
+                height: 5.h,
+                decoration: BoxDecoration(
+                  color: theme.dividerColor,
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+              ),
+            ),
+            SizedBox(height: 16.h),
+            Text(
+              _isArabic ? 'عروض المحامين' : 'Lawyer Offers',
+              style: GoogleFonts.cairo(
+                fontSize: 18.sp,
+                fontWeight: FontWeight.w900,
+                color: textColor,
+              ),
+            ),
+            SizedBox(height: 8.h),
+            Expanded(
+              child: offers.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.hourglass_bottom,
+                            size: 48.sp,
+                            color: AppColors.legalGold,
+                          ),
+                          SizedBox(height: 12.h),
+                          Text(
+                            _isArabic
+                                ? 'في انتظار العروض...'
+                                : 'Waiting for offers...',
+                            style: GoogleFonts.cairo(
+                              fontSize: 14.sp,
+                              color: theme.textTheme.bodyMedium?.color
+                                  ?.withValues(alpha: 0.6),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: EdgeInsets.only(top: 12.h, bottom: 8.h),
+                      itemCount: offers.length,
+                      separatorBuilder: (_, _) => SizedBox(height: 12.h),
+                      itemBuilder: (context, index) {
+                        final offer = offers[index];
+                        return _buildOfferCard(offer, index, isDark);
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOfferCard(LawyerOffer offer, int index, bool isDark) {
+    final theme = Theme.of(context);
+    final textColor = theme.textTheme.bodyLarge?.color;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(24.r),
+        border: Border.all(
+          color: AppColors.legalGold.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.07),
+            blurRadius: 20,
+            offset: Offset(0, 8.h),
+          ),
+        ],
+      ),
+      padding: EdgeInsets.all(18.w),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 6,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'E£ ${formatFee(offer.price)}',
+                      style: GoogleFonts.cairo(
+                        fontSize: 26.sp,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.navyBlue,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    SizedBox(height: 8.h),
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 10.w,
+                        vertical: 6.h,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.legalGold.withValues(
+                          alpha: isDark ? 0.2 : 0.1,
+                        ),
+                        borderRadius: BorderRadius.circular(14.r),
+                      ),
+                      child: Text(
+                        '${offer.travelTime} min • ${offer.serviceType}',
+                        style: GoogleFonts.cairo(
+                          fontSize: 12.sp,
+                          fontWeight: FontWeight.w600,
+                          color: textColor?.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 16.h),
+                    Text(
+                      _isArabic ? 'عرض مميز للخدمة' : 'Premium service offer',
+                      style: GoogleFonts.cairo(
+                        fontSize: 13.sp,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: 16.w),
+              Expanded(
+                flex: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.legalGold,
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 12,
+                            offset: Offset(0, 6.h),
+                          ),
+                        ],
+                      ),
+                      child: CircleAvatar(
+                        radius: 37.w,
+                        backgroundColor: Colors.grey[200],
+                        foregroundImage: NetworkImage(offer.imageUrl),
+                        child: Icon(
+                          Icons.person,
+                          size: 40.sp,
+                          color: Colors.grey[400],
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 10.h),
+                    Text(
+                      offer.name,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.cairo(
+                        fontSize: 14.sp,
+                        fontWeight: FontWeight.w800,
+                        color: textColor,
+                      ),
+                    ),
+                    Text(
+                      offer.title,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.cairo(
+                        fontSize: 11.sp,
+                        color: AppColors.textDark.withValues(alpha: 0.6),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 6.h),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.star_rate_rounded,
+                          color: Colors.amber,
+                          size: 16.sp,
+                        ),
+                        SizedBox(width: 4.w),
+                        Text(
+                          '${offer.rating}',
+                          style: GoogleFonts.cairo(
+                            fontSize: 12.sp,
+                            color: textColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 6.h),
+                    Text(
+                      '${offer.cases} cases',
+                      style: GoogleFonts.cairo(
+                        fontSize: 11.sp,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          child: ListView(
-            controller: controller,
+          SizedBox(height: 18.h),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _declineOffer(index),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.grey.shade400, width: 1.2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16.r),
+                    ),
+                    padding: EdgeInsets.symmetric(vertical: 14.h),
+                  ),
+                  child: Text(
+                    _isArabic ? 'رفض' : 'Decline',
+                    style: GoogleFonts.cairo(
+                      fontSize: 15.sp,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => _acceptOffer(offer),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.navyBlue,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16.r),
+                    ),
+                    padding: EdgeInsets.symmetric(vertical: 14.h),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    _isArabic ? 'احجز الآن' : 'Book Now',
+                    style: GoogleFonts.cairo(
+                      fontSize: 15.sp,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomSheet(BuildContext context) {
+    final theme = Theme.of(context);
+    final textColor = theme.textTheme.bodyLarge?.color;
+    final isDark = theme.brightness == Brightness.dark;
+
+    final bottomHeight = MediaQuery.of(context).size.height * 0.55;
+    return Container(
+      height: bottomHeight,
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32.r)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 32,
+            offset: Offset(0, -12.h),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 18.w, vertical: 16.h),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Center(
                 child: Container(
                   width: 60.w,
                   height: 5.h,
                   decoration: BoxDecoration(
-                    color: AppColors.navyBlue.withOpacity(0.15),
+                    color: theme.dividerColor,
                     borderRadius: BorderRadius.circular(12.r),
                   ),
                 ),
@@ -570,7 +1631,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                 style: GoogleFonts.cairo(
                   fontSize: 20.sp,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.navyBlue,
+                  color: textColor,
                 ),
               ),
               SizedBox(height: 8.h),
@@ -578,29 +1639,33 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                 'Choose the service that best matches your legal issue.',
                 style: GoogleFonts.cairo(
                   fontSize: 13.sp,
-                  color: AppColors.textDark.withOpacity(0.7),
+                  color: theme.textTheme.bodyMedium?.color?.withValues(
+                    alpha: 0.7,
+                  ),
                 ),
               ),
               SizedBox(height: 18.h),
               Container(
-                padding: EdgeInsets.all(14.w),
+                // Description input field
+                padding: EdgeInsets.all(14.r),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: AppColors.legalGold.withOpacity(0.3), width: 1.5),
+                  color: theme.cardColor,
+                  border: Border.all(
+                    color: AppColors.legalGold.withValues(alpha: 0.3),
+                    width: 1.5,
+                  ),
                   borderRadius: BorderRadius.circular(14.r),
                 ),
                 child: TextField(
-                  controller: _descriptionController,
+                  controller: descriptionController,
                   maxLines: 3,
-                  style: GoogleFonts.cairo(
-                    fontSize: 14.sp,
-                    color: AppColors.navyBlue,
-                  ),
+                  onChanged: (_) => setState(() {}),
+                  style: GoogleFonts.cairo(fontSize: 14.sp, color: textColor),
                   decoration: InputDecoration(
                     hintText: 'Describe your legal issue',
                     hintStyle: GoogleFonts.cairo(
                       fontSize: 14.sp,
-                      color: AppColors.textDark.withOpacity(0.4),
+                      color: theme.hintColor,
                     ),
                     border: InputBorder.none,
                     isDense: true,
@@ -613,11 +1678,12 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                 style: GoogleFonts.cairo(
                   fontSize: 14.sp,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.navyBlue,
+                  color: textColor,
                 ),
               ),
               SizedBox(height: 12.h),
               SizedBox(
+                // Service selection cards
                 height: 140.h,
                 child: ListView.separated(
                   itemCount: _serviceCards.length,
@@ -625,17 +1691,34 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                   separatorBuilder: (_, _) => SizedBox(width: 12.w),
                   itemBuilder: (context, index) {
                     final card = _serviceCards[index];
-                    final selected = index == _selectedServiceIndex;
+                    final isSelected =
+                        (card.title == 'Urgent SOS' &&
+                            selectedService == 'urgent') ||
+                        (card.title == 'Legal Consultation' &&
+                            selectedService == 'legal') ||
+                        (card.title == 'Document Review' &&
+                            selectedService == 'document');
                     return GestureDetector(
-                      onTap: () => setState(() {
-                        _selectedServiceIndex = index;
-                      }),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        if (card.title == 'Urgent SOS') {
+                          selectService('urgent', 300);
+                        } else if (card.title == 'Legal Consultation') {
+                          selectService('legal', 450);
+                        } else if (card.title == 'Document Review') {
+                          selectService('document', 500);
+                        }
+                      },
                       child: Container(
                         width: 200.w,
                         decoration: BoxDecoration(
-                          color: selected ? AppColors.navyBlue : Colors.white,
+                          color: isSelected
+                              ? AppColors.navyBlue
+                              : theme.cardColor,
                           border: Border.all(
-                            color: selected ? AppColors.legalGold : AppColors.legalGold.withOpacity(0.3),
+                            color: isSelected
+                                ? AppColors.legalGold
+                                : AppColors.legalGold.withValues(alpha: 0.3),
                             width: 1.5,
                           ),
                           borderRadius: BorderRadius.circular(16.r),
@@ -649,12 +1732,18 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                               width: 42.w,
                               height: 42.h,
                               decoration: BoxDecoration(
-                                color: selected ? AppColors.legalGold : AppColors.legalGold.withOpacity(0.1),
+                                color: isSelected
+                                    ? AppColors.legalGold
+                                    : AppColors.legalGold.withValues(
+                                        alpha: 0.1,
+                                      ),
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
                                 card.icon,
-                                color: selected ? AppColors.navyBlue : AppColors.legalGold,
+                                color: isSelected
+                                    ? Colors.white
+                                    : AppColors.legalGold,
                                 size: 22.sp,
                               ),
                             ),
@@ -664,7 +1753,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                               style: GoogleFonts.cairo(
                                 fontSize: 14.sp,
                                 fontWeight: FontWeight.w700,
-                                color: selected ? Colors.white : AppColors.navyBlue,
+                                color: isSelected ? Colors.white : textColor,
                               ),
                             ),
                             SizedBox(height: 4.h),
@@ -672,7 +1761,10 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                               card.subtitle,
                               style: GoogleFonts.cairo(
                                 fontSize: 11.sp,
-                                color: selected ? Colors.white70 : AppColors.textDark.withOpacity(0.6),
+                                color: isSelected
+                                    ? Colors.white70
+                                    : theme.textTheme.bodySmall?.color
+                                          ?.withValues(alpha: 0.6),
                               ),
                             ),
                           ],
@@ -687,34 +1779,64 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Your offer',
+                    selectedService == null
+                        ? 'Select service'
+                        : selectedService == 'urgent'
+                        ? 'Minimum Salary: SOS 300'
+                        : selectedService == 'legal'
+                        ? 'Minimum Salary: Legal 450'
+                        : 'Minimum Salary: Document 500',
                     style: GoogleFonts.cairo(
                       fontSize: 15.sp,
                       fontWeight: FontWeight.w700,
-                      color: AppColors.navyBlue,
+                      color: selectedService != null
+                          ? textColor
+                          : theme.hintColor,
                     ),
                   ),
                   Container(
                     decoration: BoxDecoration(
-                      color: AppColors.backgroundGrey,
-                      border: Border.all(color: AppColors.legalGold.withOpacity(0.3), width: 1),
+                      color: isDark ? Colors.white10 : AppColors.backgroundGrey,
+                      border: Border.all(
+                        color: AppColors.legalGold.withValues(alpha: 0.3),
+                        width: 1,
+                      ),
                       borderRadius: BorderRadius.circular(14.r),
                     ),
-                    padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 12.w,
+                      vertical: 8.h,
+                    ),
                     child: Row(
                       children: [
-                        _buildCounterButton(Icons.remove, () => _updateOffer(-10)),
+                        _buildCounterButton(
+                          Icons.remove,
+                          () => setState(() {
+                            if (selectedService != null &&
+                                price > getMinPrice()) {
+                              price -= 10;
+                            }
+                          }),
+                          enabled:
+                              selectedService != null && price > getMinPrice(),
+                        ),
                         SizedBox(width: 14.w),
                         Text(
-                          '\$$_offerAmount',
+                          'E£ $price',
                           style: GoogleFonts.cairo(
                             fontSize: 16.sp,
                             fontWeight: FontWeight.w800,
-                            color: AppColors.navyBlue,
+                            color: selectedService != null
+                                ? textColor
+                                : theme.hintColor,
                           ),
                         ),
                         SizedBox(width: 14.w),
-                        _buildCounterButton(Icons.add, () => _updateOffer(10)),
+                        _buildCounterButton(Icons.add, () {
+                          if (selectedService != null) {
+                            setState(() => price += 10);
+                          }
+                        }, enabled: selectedService != null),
                       ],
                     ),
                   ),
@@ -722,10 +1844,22 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
               ),
               SizedBox(height: 22.h),
               ElevatedButton(
-                onPressed: _findLawyer,
+                onPressed: selectedService == 'urgent'
+                    ? () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SOSScreen(),
+                          ),
+                        );
+                      }
+                    : (_isFormValid ? _findLawyer : null),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.navyBlue,
+                  backgroundColor: selectedService == 'urgent'
+                      ? Colors.red
+                      : const Color(0xFF0D2137),
                   foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.grey[400],
                   padding: EdgeInsets.symmetric(vertical: 16.h),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14.r),
@@ -733,7 +1867,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                   elevation: 0,
                 ),
                 child: Text(
-                  'Find a Lawyer',
+                  selectedService == 'urgent'
+                      ? 'Open SOS Screen'
+                      : 'Find a Lawyer',
                   style: GoogleFonts.cairo(
                     fontSize: 16.sp,
                     fontWeight: FontWeight.w800,
@@ -741,47 +1877,567 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen> {
                 ),
               ),
               SizedBox(height: 12.h),
-              ElevatedButton(
+              OutlinedButton(
                 onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: AppColors.navyBlue,
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(
+                    color: AppColors.legalGold,
+                    width: 1.5,
+                  ),
                   padding: EdgeInsets.symmetric(vertical: 14.h),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14.r),
-                    side: BorderSide(color: AppColors.legalGold, width: 1.5),
                   ),
-                  elevation: 0,
                 ),
                 child: Text(
                   'Cancel',
                   style: GoogleFonts.cairo(
-                    fontSize: 14.sp,
+                    fontSize: 16.sp,
                     fontWeight: FontWeight.w700,
+                    color: AppColors.legalGold,
                   ),
                 ),
               ),
               SizedBox(height: 20.h),
             ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
-  Widget _buildCounterButton(IconData icon, VoidCallback onTap) {
+  Widget _buildCounterButton(
+    IconData icon,
+    VoidCallback onTap, {
+    required bool enabled,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return GestureDetector(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
+      behavior: HitTestBehavior.opaque,
       child: Container(
         width: 32.w,
         height: 32.h,
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: enabled
+              ? (isDark ? Colors.white10 : Colors.white)
+              : (isDark ? Colors.black12 : Colors.grey.withValues(alpha: 0.1)),
           shape: BoxShape.circle,
-          border: Border.all(color: AppColors.legalGold, width: 1.5),
+          border: Border.all(
+            color: enabled
+                ? AppColors.legalGold
+                : theme.disabledColor.withValues(alpha: 0.3),
+            width: 1.5,
+          ),
         ),
-        child: Icon(icon, color: AppColors.navyBlue, size: 16.sp),
+        child: Icon(
+          icon,
+          color: enabled
+              ? (isDark ? Colors.white : AppColors.navyBlue)
+              : theme.disabledColor,
+          size: 16.sp,
+        ),
       ),
+    );
+  }
+
+  // Upgraded Tracking Mode UI with White Theme and Image 13 Details
+  Widget _buildTrackingModeUI() {
+    if (_acceptedOffer == null) return const SizedBox.shrink();
+
+    return Stack(
+      children: [
+        // 1. Animated White Notification (Capsule Shape)
+        Positioned(
+          top: 60.h,
+          left: 20.w,
+          right: 20.w,
+          child: SlideTransition(
+            position: _notificationOffsetAnimation,
+            child: Center(
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30.r),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 15,
+                      spreadRadius: 2,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(4.w),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF29CC68), // Green 'iD' icon
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        'iD',
+                        style: GoogleFonts.cairo(
+                          color: Colors.white,
+                          fontSize: 10.sp,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 12.w),
+                    Flexible(
+                      child: Text(
+                        "Driver: I'm on my way. Is your pickup address correct?",
+                        style: GoogleFonts.cairo(
+                          color: Colors.black,
+                          fontSize: 12.sp,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ), // End of Animated White Notification
+        // 2. White Bottom Panel
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.75,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(32.r)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 25,
+                  offset: Offset(0, -10.h),
+                ),
+              ],
+            ),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                24.w,
+                24.h,
+                24.w,
+                MediaQuery.of(context).viewInsets.bottom + 24.h,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 1. Lawyer Info Section (Modern Driver Profile Layout)
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24.w),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Left: Profile Image
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: AppColors.legalGold,
+                              width: 2,
+                            ),
+                          ),
+                          child: CircleAvatar(
+                            radius: 32.w,
+                            backgroundColor: Colors.grey[200],
+                            foregroundImage: NetworkImage(
+                              _acceptedOffer?.imageUrl ?? '',
+                            ),
+                            child: Icon(
+                              Icons.person,
+                              size: 32.sp,
+                              color: Colors.grey[400],
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 16.w),
+
+                        // Center: Main Information
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _acceptedOffer?.name ?? 'Lawyer',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.cairo(
+                                  fontSize: 18.sp,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.black,
+                                ),
+                              ),
+                              Text(
+                                _acceptedOffer?.title ?? 'Counsel',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.cairo(
+                                  fontSize: 13.sp,
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                'Criminal & Family Law Expert',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.cairo(
+                                  fontSize: 11.sp,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              SizedBox(height: 8.h),
+                              // Stats Row: Rating + Cases
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.star_rate_rounded,
+                                    color: Colors.amber,
+                                    size: 18,
+                                  ),
+                                  SizedBox(width: 4.w),
+                                  Text(
+                                    '${_acceptedOffer?.rating ?? 0.0}',
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 14.sp,
+                                      color: Colors.black,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  SizedBox(width: 12.w),
+                                  Container(
+                                    width: 1,
+                                    height: 12.h,
+                                    color: Colors.grey[300],
+                                  ),
+                                  SizedBox(width: 12.w),
+                                  Text(
+                                    '${_acceptedOffer?.cases ?? 0} cases',
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 13.sp,
+                                      color: Colors.grey[700],
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(width: 12.w),
+
+                        // Right: Action Buttons
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            GestureDetector(
+                              onTap: _showChatBottomSheet,
+                              child: Container(
+                                padding: EdgeInsets.all(10.w),
+                                decoration: const BoxDecoration(
+                                  color: AppColors.navyBlue,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.chat_bubble_outline,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: 10.w),
+                            GestureDetector(
+                              onTap: () {
+                                final phone = _acceptedOffer?.phoneNumber ?? '';
+                                if (phone.isNotEmpty) {
+                                  launchUrl(Uri.parse('tel:$phone'));
+                                }
+                              },
+                              child: Container(
+                                padding: EdgeInsets.all(10.w),
+                                decoration: const BoxDecoration(
+                                  color: AppColors.legalGold,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.call,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  SizedBox(height: 20.h),
+
+                  // 2. White Pickup Note (Interactive TextField)
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24.w),
+                    child: TextField(
+                      style: GoogleFonts.cairo(
+                        fontSize: 14.sp,
+                        color: Colors.black,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
+                        hintText: 'Add a note...',
+                        hintStyle: GoogleFonts.cairo(
+                          color: Colors.grey[400],
+                          fontSize: 13.sp,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.chat_bubble_outline,
+                          color: Colors.black,
+                          size: 20,
+                        ),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 16.w,
+                          vertical: 14.h,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16.r),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16.r),
+                          borderSide: const BorderSide(
+                            color: AppColors.legalGold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  SizedBox(height: 20.h),
+
+                  // 3. Payment Row
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24.w),
+                    child: Row(
+                      children: [
+                        Text(
+                          'E£ $price',
+                          style: GoogleFonts.cairo(
+                            fontSize: 18.sp,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black,
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 10.w,
+                            vertical: 4.h,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(8.r),
+                            border: Border.all(color: Colors.grey[300]!),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.money,
+                                color: Colors.green,
+                                size: 16,
+                              ),
+                              SizedBox(width: 6.w),
+                              Text(
+                                'Cash',
+                                style: GoogleFonts.cairo(
+                                  fontSize: 12.sp,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  SizedBox(height: 16.h),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24.w),
+                    child: Divider(color: Colors.grey.withValues(alpha: 0.2)),
+                  ),
+                  SizedBox(height: 16.h),
+
+                  // 4. Current Trip Details (Pickup -> Destination)
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24.w),
+                    child: _buildTripTimeline(),
+                  ),
+
+                  SizedBox(height: 24.h),
+
+                  // 4.5 Service Completed Button
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24.w),
+                    child: ElevatedButton(
+                      onPressed: _finishService,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF29CC68),
+                        foregroundColor: Colors.white,
+                        minimumSize: Size(double.infinity, 50.h),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16.r),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: Text(
+                        _isArabic ? 'اكتملت الخدمة' : 'Service Completed',
+                        style: GoogleFonts.cairo(
+                          fontSize: 16.sp,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  SizedBox(height: 24.h),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 24.w),
+                    child: Divider(color: Colors.grey.withValues(alpha: 0.2)),
+                  ),
+
+                  // 5. Bottom Actions
+                  ListTile(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 24.w),
+                    onTap: () {
+                      final lawyerName = _acceptedOffer?.name ?? 'Lawyer';
+                      Share.share(
+                        'I am on my way with lawyer $lawyerName. Track me here: https://mezaan.app/track/123',
+                        subject: 'Track my legal trip',
+                      );
+                    },
+                    leading: const Icon(
+                      Icons.share_outlined,
+                      color: Colors.black,
+                    ),
+                    title: Text(
+                      'Share my ride',
+                      style: GoogleFonts.cairo(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 24.w),
+                    onTap: () => launchUrl(
+                      Uri.parse('tel:122'),
+                    ), // Launch dialer with 122
+                    leading: const Icon(
+                      Icons.security_outlined,
+                      color: Colors.black,
+                    ),
+                    title: Text(
+                      'Call 122',
+                      style: GoogleFonts.cairo(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 24.w),
+                    onTap:
+                        _showCancelConfirmationDialog, // Show confirmation dialog
+                    leading: const Icon(Icons.close, color: Colors.red),
+                    title: Text(
+                      'Cancel Request',
+                      style: GoogleFonts.cairo(
+                        fontWeight: FontWeight.w800,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 10.h),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTripTimeline() {
+    return Column(
+      children: [
+        _buildLocationRow(
+          icon: Icons.circle,
+          iconColor: Colors.blue,
+          address: _locationName,
+          isFirst: true,
+        ),
+        Padding(
+          padding: EdgeInsets.only(left: 8.5.w),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              width: 1.5,
+              height: 25.h,
+              color: Colors.grey.withValues(alpha: 0.3),
+            ),
+          ),
+        ),
+        _buildLocationRow(
+          icon: Icons.location_on,
+          iconColor: Colors.red,
+          address: 'Lawyers Syndicate HQ',
+          isFirst: false,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLocationRow({
+    required IconData icon,
+    required Color iconColor,
+    required String address,
+    required bool isFirst,
+  }) {
+    final addressColor = isFirst ? Colors.grey[700]! : Colors.black;
+    return Row(
+      children: [
+        Icon(icon, color: iconColor, size: 18.sp),
+        SizedBox(width: 14.w),
+        Expanded(
+          child: Text(
+            address,
+            style: GoogleFonts.cairo(
+              fontSize: 14.sp,
+              fontWeight: isFirst ? FontWeight.w500 : FontWeight.w700,
+              color: addressColor,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -795,5 +2451,31 @@ class _LegalServiceCard {
     required this.title,
     required this.subtitle,
     required this.icon,
+  });
+}
+
+class LawyerOffer {
+  final String name;
+  final String title;
+  final double rating;
+  final int price;
+  final int travelTime;
+  final String serviceType;
+  final int cases;
+  final String phoneNumber;
+  final LatLng? location;
+  final String imageUrl;
+
+  const LawyerOffer({
+    required this.name,
+    required this.title,
+    required this.rating,
+    required this.price,
+    required this.travelTime,
+    required this.serviceType,
+    required this.cases,
+    required this.phoneNumber,
+    this.location,
+    required this.imageUrl,
   });
 }

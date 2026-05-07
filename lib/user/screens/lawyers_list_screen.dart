@@ -15,6 +15,14 @@ class LawyersListScreen extends StatefulWidget {
 }
 
 class _LawyersListScreenState extends State<LawyersListScreen> {
+  // Helper to format numbers with commas (e.g., 10,000)
+  String formatFee(num fee) {
+    return fee.toString().replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    );
+  }
+
   int _selectedSortIndex = 0;
   String? _selectedGov;
   String? _selectedCity;
@@ -72,12 +80,14 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
             final workStatus = _extractWorkStatus(data);
             final govsAndCities = _extractGovsAndCities(data, workStatus);
 
-            final baseFee = _readDouble(data, [
-              'consultation_fees',
-              'fee',
-              'consultationFee',
-              'price',
-            ]) ?? 0.0;
+            final baseFee =
+                _readDouble(data, [
+                  'consultation_fees',
+                  'fee',
+                  'consultationFee',
+                  'price',
+                ]) ??
+                0.0;
 
             return LawyerModel(
               id: doc.id,
@@ -95,10 +105,25 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
               availability: _extractAvailability(data),
               imageUrl: _extractImageUrl(data),
               about: _readString(data, ['professional_bio', 'about', 'bio']),
-              experience: _readInt(data, ['years_of_experience', 'experience']) ?? 0,
-              schedule: data['schedule'] is Map ? Map<String, dynamic>.from(data['schedule']) : null,
-              onlineFee: _readDouble(data, ['online_consultation_fee', 'onlineFee', 'online_fee']) ?? baseFee,
-              inOfficeFee: _readDouble(data, ['in_office_consultation_fee', 'inOfficeFee', 'in_office_fee']) ?? baseFee,
+              experience:
+                  _readInt(data, ['years_of_experience', 'experience']) ?? 0,
+              schedule: data['schedule'] is Map
+                  ? Map<String, dynamic>.from(data['schedule'])
+                  : null,
+              onlineFee:
+                  _readDouble(data, [
+                    'online_consultation_fee',
+                    'onlineFee',
+                    'online_fee',
+                  ]) ??
+                  baseFee,
+              inOfficeFee:
+                  _readDouble(data, [
+                    'in_office_consultation_fee',
+                    'inOfficeFee',
+                    'in_office_fee',
+                  ]) ??
+                  baseFee,
             );
           })
           .whereType<LawyerModel>()
@@ -826,166 +851,243 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                     itemBuilder: (context, index) {
                       final lawyer = _displayedLawyers[index];
                       return Container(
-                        margin: EdgeInsets.only(bottom: 16.h),
+                        margin: EdgeInsets.only(bottom: 18.h),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(16.r),
+                          borderRadius: BorderRadius.circular(20.r),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
+                              color: Colors.black.withOpacity(0.07),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
                             ),
                           ],
                         ),
-                        child: Column(
-                          children: [
-                            Container(
-                              height: 4.h,
-                              decoration: BoxDecoration(
-                                color: AppColors.navyBlue,
-                                borderRadius: BorderRadius.vertical(
-                                  top: Radius.circular(16.r),
-                                ),
-                              ),
-                            ),
-                            Padding(
-                              padding: EdgeInsets.all(16.r),
-                              child: Column(
+                        child: Padding(
+                          padding: EdgeInsets.all(16.r),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              lawyer.name,
+                                  // Lawyer Image
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(16.r),
+                                    child: Image.network(
+                                      lawyer.imageUrl,
+                                      width: 64.w,
+                                      height: 64.w,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  SizedBox(width: 12.w),
+                                  // Info
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        // Lawyer Name (full, no ellipsis)
+                                        Text(
+                                          lawyer.name,
+                                          style: GoogleFonts.cairo(
+                                            fontSize: 17.sp,
+                                            fontWeight: FontWeight.bold,
+                                            color: AppColors.navyBlue,
+                                          ),
+                                        ),
+                                        SizedBox(height: 2.h),
+                                        // Work Status
+                                        Text(
+                                          lawyer.workStatus == 'Freelancer'
+                                              ? 'Freelancer'
+                                              : (lawyer.workStatus ==
+                                                        'Owns an Office'
+                                                    ? 'Owns an Office'
+                                                    : (lawyer.workStatus ==
+                                                              'Working in an Office'
+                                                          ? 'Works in an Office'
+                                                          : lawyer.workStatus)),
+                                          style: GoogleFonts.cairo(
+                                            fontSize: 13.sp,
+                                            color: Colors.grey.shade700,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        if (lawyer.workStatus ==
+                                                'Owns an Office' ||
+                                            lawyer.workStatus ==
+                                                'Working in an Office')
+                                          Padding(
+                                            padding: EdgeInsets.only(top: 2.h),
+                                            child: Text(
+                                              lawyer.officeName,
                                               style: GoogleFonts.cairo(
-                                                fontSize: 16.sp,
-                                                fontWeight: FontWeight.w800,
-                                                color: AppColors.navyBlue,
-                                              ),
-                                            ),
-                                            SizedBox(height: 4.h),
-                                            Text(
-                                              lawyer.workStatus,
-                                              style: GoogleFonts.cairo(
-                                                fontSize: 13.sp,
+                                                fontSize: 12.sp,
                                                 color: Colors.grey.shade600,
-                                                fontWeight: FontWeight.w600,
                                               ),
                                             ),
-                                            if (lawyer
-                                                .officeName
-                                                .isNotEmpty) ...[
-                                              SizedBox(height: 2.h),
+                                          ),
+                                        SizedBox(height: 4.h),
+                                        // Specialization
+                                        Text(
+                                          lawyer.specialization,
+                                          style: GoogleFonts.cairo(
+                                            fontSize: 13.sp,
+                                            color: Colors.grey.shade700,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        SizedBox(height: 6.h),
+                                        // Rating
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding: EdgeInsets.symmetric(
+                                                horizontal: 8.w,
+                                                vertical: 4.h,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.legalGold
+                                                    .withOpacity(0.12),
+                                                borderRadius:
+                                                    BorderRadius.circular(8.r),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.star,
+                                                    color: Colors.amber,
+                                                    size: 15.sp,
+                                                  ),
+                                                  SizedBox(width: 2.w),
+                                                  Text(
+                                                    lawyer.rating
+                                                        .toStringAsFixed(1),
+                                                    style: GoogleFonts.cairo(
+                                                      fontSize: 13.sp,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color: AppColors.navyBlue,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    ' (${lawyer.reviewsCount})',
+                                                    style: GoogleFonts.cairo(
+                                                      fontSize: 12.sp,
+                                                      color:
+                                                          Colors.grey.shade600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            SizedBox(width: 8.w),
+                                            if (lawyer.experience > 0)
                                               Text(
-                                                lawyer.officeName,
+                                                '${lawyer.experience} yrs exp.',
                                                 style: GoogleFonts.cairo(
                                                   fontSize: 12.sp,
-                                                  color: Colors.grey.shade700,
-                                                  fontWeight: FontWeight.w500,
+                                                  color: Colors.grey.shade600,
                                                 ),
-                                                maxLines: 2,
+                                              ),
+                                          ],
+                                        ),
+                                        SizedBox(height: 6.h),
+                                        // Location
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.location_on_outlined,
+                                              size: 15.sp,
+                                              color: AppColors.legalGold,
+                                            ),
+                                            SizedBox(width: 4.w),
+                                            Flexible(
+                                              child: Text(
+                                                lawyer.location,
+                                                style: GoogleFonts.cairo(
+                                                  fontSize: 12.sp,
+                                                  color: Colors.grey.shade800,
+                                                ),
+                                                maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                               ),
-                                            ],
-                                            SizedBox(height: 6.h),
-                                            Text(
-                                              lawyer.specialization,
-                                              style: GoogleFonts.cairo(
-                                                fontSize: 13.sp,
-                                                color: Colors.grey.shade600,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            SizedBox(height: 6.h),
-                                            Row(
-                                              children: [
-                                                const Icon(
-                                                  Icons.star_rounded,
-                                                  color: Colors.amber,
-                                                  size: 18,
-                                                ),
-                                                SizedBox(width: 4.w),
-                                                Text(
-                                                  '${lawyer.rating.toStringAsFixed(1)} (${lawyer.reviewsCount} reviews)',
-                                                  style: GoogleFonts.cairo(
-                                                    fontSize: 12.sp,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: Colors.grey.shade800,
-                                                  ),
-                                                ),
-                                              ],
                                             ),
                                           ],
                                         ),
-                                      ),
-                                      SizedBox(width: 12.w),
-                                      CircleAvatar(
-                                        radius: 30.r,
-                                        backgroundColor: Colors.grey.shade200,
-                                        backgroundImage: NetworkImage(
-                                          lawyer.imageUrl,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  SizedBox(height: 16.h),
-                                  _buildInfoRow(
-                                    Icons.location_on_outlined,
-                                    lawyer.location,
-                                  ),
-                                  _buildInfoRow(
-                                    Icons.account_balance_wallet_outlined,
-                                    lawyer.fee > 0
-                                        ? 'Fees start from: ${lawyer.fee % 1 == 0 ? lawyer.fee.toInt() : lawyer.fee} EGP'
-                                        : 'Fees: Not available',
-                                  ),
-                                  SizedBox(height: 16.h),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 44.h,
-                                    child: ElevatedButton(
-                                      onPressed: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) =>
-                                                LawyerProfileScreen(
-                                                  lawyer: lawyer,
-                                                ),
+                                        SizedBox(height: 8.h),
+                                        // Fee
+                                        Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 10.w,
+                                            vertical: 4.h,
                                           ),
-                                        );
-                                      },
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppColors.legalGold,
-                                        elevation: 0,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            10.r,
+                                          decoration: BoxDecoration(
+                                            color: AppColors.navyBlue
+                                                .withOpacity(0.08),
+                                            borderRadius: BorderRadius.circular(
+                                              8.r,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            lawyer.fee > 0
+                                                ? 'EGP ${formatFee(lawyer.fee % 1 == 0 ? lawyer.fee.toInt() : lawyer.fee)}'
+                                                : 'Fees: N/A',
+                                            style: GoogleFonts.cairo(
+                                              fontSize: 13.sp,
+                                              fontWeight: FontWeight.bold,
+                                              color: AppColors.navyBlue,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
-                                      ),
-                                      child: Text(
-                                        'Book Now',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 15.sp,
-                                        ),
-                                      ),
+                                      ],
                                     ),
                                   ),
                                 ],
                               ),
-                            ),
-                          ],
+                              SizedBox(height: 12.h),
+                              // Book Now Button at the bottom
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            LawyerProfileScreen(lawyer: lawyer),
+                                      ),
+                                    );
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.legalGold,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14.r),
+                                    ),
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: 12.h,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'Book Now',
+                                    style: GoogleFonts.cairo(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15.sp,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },
