@@ -510,9 +510,37 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
             .toList(growable: false);
       }
 
-      await lawyersRef
-          .set(updateData, SetOptions(merge: true))
-          .timeout(const Duration(seconds: 20));
+      // Use a batch to update both 'lawyers' and 'offices' collections atomically
+      final batch = FirebaseFirestore.instance.batch();
+      batch.set(lawyersRef, updateData, SetOptions(merge: true));
+
+      if (_workStatus == 'Owns an Office') {
+        final officeRef = FirebaseFirestore.instance.collection('offices').doc(uid);
+        batch.set(officeRef, {
+          'office_id': uid,
+          'owner_id': uid,
+          'office_name': _officeNameController.text.trim(),
+          'governorate': _officeGovernorateController.text.trim(),
+          'city': _officeCityController.text.trim(),
+          'address': _officeAddressController.text.trim(),
+          'phones': updateData['office_details']['phones'],
+          'location': updateData['office_details']['location'],
+          'schedule': firestoreSchedule,
+          'lawyers_in_office': FieldValue.arrayUnion([uid]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } else if (_workStatus == 'Works in an Office') {
+        final employerId = _selectedEmployer!['id'];
+        if (employerId != null) {
+          final officeRef = FirebaseFirestore.instance.collection('offices').doc(employerId);
+          batch.set(officeRef, {
+            'lawyers_in_office': FieldValue.arrayUnion([uid]),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      }
+
+      await batch.commit().timeout(const Duration(seconds: 20));
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

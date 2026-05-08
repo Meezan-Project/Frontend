@@ -21,7 +21,10 @@ import 'package:mezaan/user/screens/user_edit_profile_screen.dart';
 import 'package:mezaan/user/screens/user_emergency_contacts_screen.dart';
 import 'package:mezaan/user/screens/transaction_history_screen.dart';
 import 'package:mezaan/user/screens/sos_screen.dart';
+import 'package:mezaan/user/screens/sos_requests_screen.dart';
 import 'package:mezaan/user/screens/appointments_screen.dart';
+import 'package:mezaan/user/screens/search_screen.dart';
+// import 'package:mezaan/user/screens/user_evidence_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
 import 'package:mezaan/user/widgets/user_profile_side_panel.dart';
 import 'package:mezaan/user/widgets/user_top_header.dart';
@@ -129,7 +132,8 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                     onTransactionHistory: () => _runPanelAction(() async {
                       await Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                          builder: (context) => const TransactionHistoryScreen(),
+                          builder: (context) =>
+                              const TransactionHistoryScreen(),
                         ),
                       );
                     }),
@@ -137,6 +141,13 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                       await Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           builder: (context) => const AppointmentsScreen(),
+                        ),
+                      );
+                    }),
+                    onMyEvidence: () => _runPanelAction(() async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) => const SosRequestsScreen(),
                         ),
                       );
                     }),
@@ -449,7 +460,10 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                   }
 
                   if (index == 0) {
-                    LoadingNavigator.pushNamed(context, AppRoutes.lawyerRequest);
+                    LoadingNavigator.pushNamed(
+                      context,
+                      AppRoutes.lawyerRequest,
+                    );
                   } else if (index == 1) {
                     if (_selectedIndex != 1) {
                       setState(() => _selectedIndex = 1);
@@ -555,26 +569,41 @@ class _HeroCard extends StatelessWidget {
             ),
           ),
           SizedBox(height: 16.h),
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 14.h),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(18.r),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.search_rounded, color: Colors.white),
-                SizedBox(width: 10.w),
-                Expanded(
-                  child: Text(
-                    'Search lawyers, categories, cases...'.translate(),
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.88),
-                    ),
+          GestureDetector(
+            onTap: () {
+              debugPrint('Search bar tapped');
+              Navigator.of(context).push(SearchScreen.createRoute());
+            },
+            child: Hero(
+              tag: 'searchBar',
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 14.w,
+                    vertical: 14.h,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(18.r),
+                    border: Border.all(color: Colors.white.withOpacity(0.15)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.search_rounded, color: Colors.white),
+                      SizedBox(width: 10.w),
+                      Expanded(
+                        child: Text(
+                          'Search lawyers, categories, cases...'.translate(),
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.88),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ],

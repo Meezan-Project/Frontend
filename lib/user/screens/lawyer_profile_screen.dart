@@ -56,6 +56,13 @@ class LawyerModel {
   factory LawyerModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
 
+    String safeParseString(dynamic field) {
+      if (field is List) {
+        return field.join(', ');
+      }
+      return field?.toString() ?? '';
+    }
+
     double parseFee(List<String> keys, double fallback) {
       for (final key in keys) {
         final val = data[key];
@@ -70,25 +77,44 @@ class LawyerModel {
 
     final baseFee = parseFee(['consultation_fees', 'fee', 'price'], 0.0);
 
+    String parsedLocation = 'Location not provided';
+    if (data['office_details'] is Map) {
+      final od = data['office_details'] as Map;
+      if (od['location'] is Map && od['location']['displayName'] != null && od['location']['displayName'].toString().trim().isNotEmpty) {
+        parsedLocation = od['location']['displayName'].toString();
+      } else {
+        parsedLocation = '${od['address'] ?? ''}, ${od['city'] ?? ''}, ${od['governorate'] ?? ''}'.replaceAll(RegExp(r'^[\s,]+|[\s,]+$'), '').trim();
+      }
+    } else if (data['freelancer_locations'] is List && (data['freelancer_locations'] as List).isNotEmpty) {
+      final firstLoc = (data['freelancer_locations'] as List).first;
+      if (firstLoc is Map) {
+        parsedLocation = '${firstLoc['city'] ?? ''}, ${firstLoc['governorate'] ?? ''}'.replaceAll(RegExp(r'^[\s,]+|[\s,]+$'), '').trim();
+      }
+    } else if (data['location'] is Map) {
+      parsedLocation = data['location']['displayName'] ?? data['location']['address'] ?? 'Location not provided';
+    } else if (data['address'] is Map) {
+      parsedLocation = data['address']['displayName'] ?? data['address']['address'] ?? 'Location not provided';
+    } else {
+      parsedLocation = safeParseString(data['location'] ?? data['address']);
+    }
+    if (parsedLocation.isEmpty) parsedLocation = 'Location not provided';
+
     return LawyerModel(
       id: doc.id,
-      name: data['name'] ?? data['firstName'] ?? 'Unknown Name',
-      specialization: data['specialization'] ?? 'Lawyer',
-      workStatus: data['workStatus'] ?? 'Available',
-      officeName: data['officeName'] ?? '',
+      name: safeParseString(data['name'] ?? data['firstName'] ?? 'Unknown Name'),
+      specialization: safeParseString(data['specialization'] ?? 'Lawyer'),
+      workStatus: safeParseString(data['work_status'] ?? data['workStatus'] ?? 'Freelancer'),
+      officeName: safeParseString(data['employer_office_name'] ?? (data['office_details'] is Map ? data['office_details']['office_name'] : data['officeName']) ?? ''),
       rating: (data['rating'] ?? 0.0).toDouble(),
       reviewsCount: data['reviewsCount'] ?? 0,
-      location: data['location'] ?? data['address'] ?? 'Location not provided',
-      fullAddress: data['fullAddress'],
+      location: parsedLocation,
+      fullAddress: safeParseString(data['fullAddress']),
       governorates: List<String>.from(data['governorates'] ?? []),
       cities: List<String>.from(data['cities'] ?? []),
       fee: baseFee,
-      availability: data['availability'] ?? 'Available now',
-      imageUrl:
-          data['imageUrl'] ??
-          data['profilePhoto'] ??
-          'https://i.pravatar.cc/300',
-      about: data['professional_bio'] ?? data['about'] ?? data['bio'] ?? '',
+      availability: safeParseString(data['availability'] ?? 'Available now'),
+      imageUrl: safeParseString(data['imageUrl'] ?? data['profilePhotoUrl'] ?? data['profile_photo'] ?? data['photoUrl'] ?? 'https://i.pravatar.cc/300'),
+      about: safeParseString(data['professional_bio'] ?? data['about'] ?? data['bio'] ?? ''),
       experience: data['years_of_experience'] ?? data['experience'] ?? 0,
       schedule: data['schedule'] is Map
           ? Map<String, dynamic>.from(data['schedule'])

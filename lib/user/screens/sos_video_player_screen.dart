@@ -15,6 +15,7 @@ class SosVideoPlayerScreen extends StatefulWidget {
 class _SosVideoPlayerScreenState extends State<SosVideoPlayerScreen> {
   late VideoPlayerController _controller;
   bool _isError = false;
+  String _errorMessage = '';
 
   @override
   void initState() {
@@ -28,6 +29,7 @@ class _SosVideoPlayerScreenState extends State<SosVideoPlayerScreen> {
           .catchError((error) {
             setState(() {
               _isError = true;
+              _errorMessage = error.toString();
             });
             debugPrint("Video Player Error: $error");
           });
@@ -54,8 +56,9 @@ class _SosVideoPlayerScreenState extends State<SosVideoPlayerScreen> {
       body: Center(
         child: _isError
             ? Text(
-                'Error loading video',
-                style: TextStyle(color: Colors.red, fontSize: 16.sp),
+                'Error loading video\n$_errorMessage',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.red, fontSize: 14.sp),
               )
             : _controller.value.isInitialized
             ? AspectRatio(

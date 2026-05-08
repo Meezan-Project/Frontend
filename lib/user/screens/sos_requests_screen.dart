@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:mezaan/shared/widgets/responsive_base_layout.dart';
 import 'package:mezaan/user/screens/sos_video_player_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SosRequestsScreen extends StatelessWidget {
   const SosRequestsScreen({super.key});
@@ -45,7 +46,7 @@ class SosRequestsScreen extends StatelessWidget {
                 return ListView.separated(
                   padding: EdgeInsets.symmetric(vertical: 16.h),
                   itemCount: snapshot.data!.docs.length,
-                  separatorBuilder: (_, __) => SizedBox(height: 12.h),
+                  separatorBuilder: (_, _) => SizedBox(height: 12.h),
                   itemBuilder: (context, index) {
                     final doc = snapshot.data!.docs[index];
                     final data = doc.data() as Map<String, dynamic>;
@@ -95,6 +96,29 @@ class SosRequestsScreen extends StatelessWidget {
                               ],
                             ),
                           ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(
+                              Icons.download_rounded,
+                              color: Colors.green,
+                            ),
+                            onPressed: () async {
+                              final videoUrl = data['videoUrl'] as String;
+                              // Adding ?download= helps trigger a file download instead of browser playback
+                              final url = Uri.parse(videoUrl.contains('?') ? '$videoUrl&download=' : '$videoUrl?download=');
+                              if (await canLaunchUrl(url)) {
+                                await launchUrl(url, mode: LaunchMode.externalApplication);
+                              } else {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Could not download video')),
+                                  );
+                                }
+                              }
+                            },
+                          ),
                           IconButton(
                             icon: const Icon(
                               Icons.play_circle_fill_rounded,
@@ -109,6 +133,8 @@ class SosRequestsScreen extends StatelessWidget {
                               );
                             },
                           ),
+                        ],
+                      ),
                         ],
                       ),
                     );
