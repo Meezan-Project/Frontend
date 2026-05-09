@@ -327,9 +327,7 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                               label: Text(item.translate()),
                               selected: selected,
                               showCheckmark: false,
-                              selectedColor: AppColors.legalGold.withValues(
-                                alpha: 0.22, // Corrected withValues to withOpacity
-                              ),
+                              selectedColor: AppColors.legalGold.withOpacity(0.22),
                               side: BorderSide(
                                 color: selected
                                     ? AppColors.legalGold

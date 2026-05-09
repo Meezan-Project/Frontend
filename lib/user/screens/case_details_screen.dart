@@ -63,7 +63,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
   late TextEditingController _notesController;
   final List<String> _notesList = [];
   double _totalFees = 0.0;
-  double _withdrawnAmount = 0.0;
+  final double _withdrawnAmount = 0.0;
   double _remainingAmount = 0.0;
   final List<Map<String, dynamic>> _feeTransactions = [];
 
@@ -443,7 +443,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
     if (uid == null) return 0.0;
 
     final snapshot = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    final data = snapshot.data() as Map<String, dynamic>?;
+    final data = snapshot.data();
     if (data == null) return 0.0;
 
     final balanceValue = data['balance'] ?? data['walletBalance'] ?? data['wallet_balance'] ?? 0;
@@ -767,7 +767,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                 try {
                                   await FirebaseFirestore.instance.runTransaction((transaction) async {
                                     final snapshot = await transaction.get(userDocRef);
-                                    final data = snapshot.data() as Map<String, dynamic>?;
+                                    final data = snapshot.data();
                                     final balanceValue = data == null
                                         ? 0
                                         : data['balance'] ?? data['walletBalance'] ?? data['wallet_balance'] ?? 0;
@@ -800,7 +800,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                 }
 
                                 bottomSheetNavigator.pop();
-                                this.setState(() {
+                                setState(() {
                                   _isPaymentPending = false;
                                 });
                                 showPaymentResultDialog(

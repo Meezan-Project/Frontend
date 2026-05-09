@@ -45,7 +45,7 @@ class SosRequestsScreen extends StatelessWidget {
                 return ListView.separated(
                   padding: EdgeInsets.symmetric(vertical: 16.h),
                   itemCount: snapshot.data!.docs.length,
-                  separatorBuilder: (_, __) => SizedBox(height: 12.h),
+                  separatorBuilder: (_, _) => SizedBox(height: 12.h),
                   itemBuilder: (context, index) {
                     final doc = snapshot.data!.docs[index];
                     final data = doc.data() as Map<String, dynamic>;
