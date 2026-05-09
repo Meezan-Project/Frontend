@@ -1326,7 +1326,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
     return Align(
       alignment: Alignment.bottomCenter,
       child: Container(
-        height: MediaQuery.of(context).size.height * 0.55,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
         decoration: BoxDecoration(
           color: theme.cardColor,
           borderRadius: BorderRadius.vertical(top: Radius.circular(28.r)),
@@ -1614,9 +1616,10 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
     final textColor = theme.textTheme.bodyLarge?.color;
     final isDark = theme.brightness == Brightness.dark;
 
-    final bottomHeight = MediaQuery.of(context).size.height * 0.55;
     return Container(
-      height: bottomHeight,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.8,
+      ),
       decoration: BoxDecoration(
         color: theme.cardColor,
         borderRadius: BorderRadius.vertical(top: Radius.circular(32.r)),
@@ -1702,7 +1705,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               SizedBox(height: 12.h),
               SizedBox(
                 // Service selection cards
-                height: 140.h,
+                height: 160.h,
                 child: ListView.separated(
                   itemCount: _serviceCards.length,
                   scrollDirection: Axis.horizontal,
@@ -1763,25 +1766,36 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                                 size: 22.sp,
                               ),
                             ),
-                            SizedBox(height: 12.h),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
                             Text(
                               card.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.cairo(
                                 fontSize: 14.sp,
                                 fontWeight: FontWeight.w700,
                                 color: isSelected ? Colors.white : textColor,
                               ),
                             ),
-                            SizedBox(height: 4.h),
+                            SizedBox(height: 2.h),
                             Text(
                               card.subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.cairo(
                                 fontSize: 11.sp,
-                                color: isSelected // Fixed: withValues to withOpacity
+                                color: isSelected
                                     ? Colors.white70
                                     : theme.textTheme.bodySmall?.color?.withOpacity(0.6),
                               ),
                             ),
+                          ],
+                        ),
+                      )
                           ],
                         ),
                       ),
@@ -1793,24 +1807,27 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
+                  Expanded(
+                    child: Text(
                     selectedService == null
                         ? 'Select service'
                         : selectedService == 'urgent'
-                        ? 'Minimum Salary: SOS 300'
-                        : selectedService == 'legal'
-                        ? 'Minimum Salary: Legal 450'
-                        : 'Minimum Salary: Document 500',
+                            ? 'Min Salary: SOS 300'
+                            : selectedService == 'legal'
+                                ? 'Min Salary: Legal 450'
+                                : 'Min Salary: Doc 500',
                     style: GoogleFonts.cairo(
-                      fontSize: 15.sp,
+                      fontSize: 14.sp,
                       fontWeight: FontWeight.w700,
                       color: selectedService != null
                           ? textColor
                           : theme.hintColor,
                     ),
                   ),
-                  Flexible(
-                child: Container(
+                  ),
+                  SizedBox(
+                    width: 125.w,
+                    child: Container(
                   decoration: BoxDecoration(
                     color: isDark ? Colors.white10 : AppColors.backgroundGrey,
                     border: Border.all(
@@ -1837,20 +1854,17 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                         enabled:
                             selectedService != null && price > getMinPrice(),
                       ),
-                      SizedBox(width: 10.w),
                       Expanded(
                         child: Text(
-                          'E£ $price',
+                          '$price',
                           textAlign: TextAlign.center,
-                          overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.cairo(
                             fontSize: 16.sp,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.black,
+                            fontWeight: FontWeight.w900,
+                            color: textColor,
                           ),
                         ),
                       ),
-                      SizedBox(width: 10.w),
                       _buildCounterButton(Icons.add, () {
                         if (selectedService != null) {
                           setState(() => price += 10);
@@ -1864,20 +1878,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               ),
               SizedBox(height: 22.h),
               ElevatedButton(
-                onPressed: selectedService == 'urgent'
-                    ? () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const SOSScreen(),
-                          ),
-                        );
-                      }
-                    : (_isFormValid ? _findLawyer : null),
+                onPressed: _isFormValid ? _findLawyer : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: selectedService == 'urgent'
-                      ? Colors.red
-                      : const Color(0xFF0D2137),
+                  backgroundColor: const Color(0xFF002147),
                   foregroundColor: Colors.white,
                   disabledBackgroundColor: Colors.grey[400],
                   padding: EdgeInsets.symmetric(vertical: 16.h),
@@ -1887,12 +1890,10 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                   elevation: 0,
                 ),
                 child: Text(
-                  selectedService == 'urgent'
-                      ? 'Open SOS Screen'
-                      : 'Find a Lawyer',
+                  'Find a Lawyer',
                   style: GoogleFonts.cairo(
                     fontSize: 16.sp,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
@@ -2479,6 +2480,7 @@ class LawyerOffer {
   final String title;
   final double rating;
   final int price;
+
   final int travelTime;
   final String serviceType;
   final int cases;
