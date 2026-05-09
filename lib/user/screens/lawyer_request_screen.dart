@@ -447,7 +447,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                 ? 'هل أنت متأكد أنك تريد الإلغاء؟ قد يؤثر هذا على تقييم خدمتك.'
                 : 'Are you sure you want to cancel? This might affect your service rating.',
             style: GoogleFonts.cairo(
-              fontSize: 14.sp,
+              fontSize: 14.sp, // Fixed: withValues to withOpacity
               color: AppColors.textDark.withOpacity(0.7),
             ),
           ),
@@ -1636,7 +1636,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               Text(
                 'Choose the service that best matches your legal issue.',
                 style: GoogleFonts.cairo(
-                  fontSize: 13.sp,
+                  fontSize: 13.sp, // Fixed: withValues to withOpacity
                   color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
                 ),
               ),
@@ -1730,7 +1730,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                               decoration: BoxDecoration(
                                 color: isSelected // This was causing an error
                                     ? AppColors.legalGold // This was causing an error
-                                    : AppColors.legalGold.withOpacity(0.1),
+                                    : AppColors.legalGold.withOpacity(0.1), // Fixed: withValues to withOpacity
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -1755,7 +1755,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                               card.subtitle,
                               style: GoogleFonts.cairo(
                                 fontSize: 11.sp,
-                                color: isSelected
+                                color: isSelected // Fixed: withValues to withOpacity
                                     ? Colors.white70
                                     : theme.textTheme.bodySmall?.color?.withOpacity(0.6),
                               ),
@@ -2272,7 +2272,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
 
                   SizedBox(height: 16.h),
                   Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 24.w),
+                    padding: EdgeInsets.symmetric(horizontal: 24.w), // Fixed: withValues to withOpacity
                     child: Divider(color: Colors.grey.withOpacity(0.2)),
                   ),
                   SizedBox(height: 16.h),
@@ -2311,7 +2311,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
 
                   SizedBox(height: 24.h),
                   Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 24.w),
+                    padding: EdgeInsets.symmetric(horizontal: 24.w), // Fixed: withValues to withOpacity
                     child: Divider(color: Colors.grey.withOpacity(0.2)),
                   ),
 
