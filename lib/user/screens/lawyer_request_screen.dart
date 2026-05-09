@@ -144,9 +144,16 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
   }
 
   int getMinPrice() {
-    if (selectedService == 'urgent') return 300;
-    if (selectedService == 'legal') return 450;
-    return 500; // Document Review
+    switch (selectedService) {
+      case 'urgent':
+        return 300;
+      case 'legal':
+        return 450;
+      case 'document':
+        return 500;
+      default:
+        return 0;
+    }
   }
 
   final List<_LegalServiceCard> _serviceCards = const [
@@ -325,8 +332,24 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
     _offerTimer?.cancel();
     _offerTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
       if (_offerIndex < _virtualLawyers.length) {
+        final baseOffer = _virtualLawyers[_offerIndex];
+        final dynamicOfferPrice = price + (_offerIndex * 50);
+
         setState(() {
-          offers.add(_virtualLawyers[_offerIndex]);
+          offers.add(
+            LawyerOffer(
+              name: baseOffer.name,
+              title: baseOffer.title,
+              rating: baseOffer.rating,
+              price: dynamicOfferPrice,
+              travelTime: baseOffer.travelTime,
+              serviceType: baseOffer.serviceType,
+              cases: baseOffer.cases,
+              phoneNumber: baseOffer.phoneNumber,
+              location: baseOffer.location,
+              imageUrl: baseOffer.imageUrl,
+            ),
+          );
           _offerIndex++;
         });
       } else {
@@ -1355,8 +1378,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                                 : 'Waiting for offers...',
                             style: GoogleFonts.cairo(
                               fontSize: 14.sp,
-                              color: theme.textTheme.bodyMedium?.color
-                                  ?.withValues(alpha: 0.6),
+                              color: theme.textTheme.bodyMedium?.color?.withOpacity(0.6),
                             ),
                           ),
                         ],
@@ -1787,52 +1809,57 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                           : theme.hintColor,
                     ),
                   ),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.white10 : AppColors.backgroundGrey,
-                      border: Border.all( // This was causing an error
-                        color: AppColors.legalGold.withOpacity(0.3),
-                        width: 1,
+                  Flexible(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white10 : AppColors.backgroundGrey,
+                    border: Border.all(
+                      color: AppColors.legalGold.withOpacity(0.3),
+                      width: 1,
+                    ),
+                    borderRadius: BorderRadius.circular(14.r),
+                  ),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 10.w,
+                    vertical: 8.h,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildCounterButton(
+                        Icons.remove,
+                        () => setState(() {
+                          if (selectedService != null &&
+                              price > getMinPrice()) {
+                            price -= 10;
+                          }
+                        }),
+                        enabled:
+                            selectedService != null && price > getMinPrice(),
                       ),
-                      borderRadius: BorderRadius.circular(14.r),
-                    ),
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 12.w,
-                      vertical: 8.h,
-                    ),
-                    child: Row(
-                      children: [
-                        _buildCounterButton(
-                          Icons.remove,
-                          () => setState(() {
-                            if (selectedService != null &&
-                                price > getMinPrice()) {
-                              price -= 10;
-                            }
-                          }),
-                          enabled:
-                              selectedService != null && price > getMinPrice(),
-                        ),
-                        SizedBox(width: 14.w),
-                        Text(
+                      SizedBox(width: 10.w),
+                      Expanded(
+                        child: Text(
                           'E£ $price',
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.cairo(
                             fontSize: 16.sp,
                             fontWeight: FontWeight.w800,
-                            color: selectedService != null
-                                ? textColor
-                                : theme.hintColor,
+                            color: Colors.black,
                           ),
                         ),
-                        SizedBox(width: 14.w),
-                        _buildCounterButton(Icons.add, () {
-                          if (selectedService != null) {
-                            setState(() => price += 10);
-                          }
-                        }, enabled: selectedService != null),
-                      ],
-                    ),
+                      ),
+                      SizedBox(width: 10.w),
+                      _buildCounterButton(Icons.add, () {
+                        if (selectedService != null) {
+                          setState(() => price += 10);
+                        }
+                      }, enabled: selectedService != null),
+                    ],
                   ),
+                ),
+              ),
                 ],
               ),
               SizedBox(height: 22.h),
@@ -1985,7 +2012,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                     SizedBox(width: 12.w),
                     Flexible(
                       child: Text(
-                        "Driver: I'm on my way. Is your pickup address correct?",
+                        "Lawyer: I'm on my way. Is your consultation address correct?",
                         style: GoogleFonts.cairo(
                           color: Colors.black,
                           fontSize: 12.sp,
@@ -2326,11 +2353,11 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                       );
                     },
                     leading: const Icon(
-                      Icons.share_outlined,
+                      Icons.share,
                       color: Colors.black,
                     ),
                     title: Text(
-                      'Share my ride',
+                      'Share location',
                       style: GoogleFonts.cairo(
                         fontWeight: FontWeight.w600,
                         color: Colors.black,

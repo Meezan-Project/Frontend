@@ -651,7 +651,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                             padding: EdgeInsets.only(bottom: 12.h),
                             child: InkWell(
                               onTap: () {
-                                setState(() {
+                                setModalState(() {
                                   selectedOption = index;
                                 });
                               },
@@ -708,7 +708,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                       groupValue: selectedOption,
                                       activeColor: borderColor,
                                       onChanged: (value) {
-                                        setState(() {
+                                        setModalState(() {
                                           selectedOption = value ?? 0;
                                         });
                                       },
