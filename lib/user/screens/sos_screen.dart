@@ -7,6 +7,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const int _kMaxRecordingSeconds = 15 * 60; // 15 minutes
@@ -47,6 +48,18 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
 
   Future<void> _initializeCamera() async {
     try {
+      // Explicitly request Camera and Microphone permissions
+      final camStatus = await Permission.camera.request();
+      final micStatus = await Permission.microphone.request();
+      
+      if (!camStatus.isGranted || !micStatus.isGranted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Camera & Microphone permissions are required for SOS.'), backgroundColor: Colors.red),
+          );
+        }
+      }
+
       final cameras = await availableCameras();
       if (cameras.isNotEmpty) {
         // Prioritize the back camera for SOS situations, fallback to any camera
@@ -111,6 +124,8 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
   Future<void> _startCameraRecording() async {
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       try {
+        // Prepare encoders to ensure audio is captured correctly and synced
+        await _cameraController!.prepareForVideoRecording();
         await _cameraController!.startVideoRecording();
       } catch (e) {
         debugPrint('Error starting recording: $e');
@@ -224,10 +239,14 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
       final storagePath = '$userId/$fileName'; // Creates a folder for the user
       final file = File(filePath);
 
+      if (!await file.exists()) {
+        throw Exception('Video file not found before upload: $filePath');
+      }
+
       // Upload to Supabase Bucket 'sos_videos'
       await Supabase.instance.client.storage
           .from('sos_videos')
-          .upload(storagePath, file);
+          .upload(storagePath, file, fileOptions: const FileOptions(contentType: 'video/mp4'));
 
       // CRITICAL FIX: Use createSignedUrl instead of getPublicUrl.
       // If the Supabase bucket is private, getPublicUrl gives a broken link.
@@ -263,6 +282,17 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
           const SnackBar(
             content: Text('Evidence uploaded and saved successfully!'),
             backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } on StorageException catch (e) {
+      debugPrint('Supabase Storage Error: ${e.message}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Storage Access Error: ${e.message} (Check Supabase Policies)'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 8),
           ),
         );
       }
