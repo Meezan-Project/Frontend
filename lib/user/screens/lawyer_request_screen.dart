@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -59,70 +60,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
   LatLng _userLocation = LatLng(30.0444, 31.2357);
 
   // 3. Offers Variables
-  final List<LawyerOffer> _virtualLawyers = const [
-    LawyerOffer(
-      name: 'Ahmed Ali',
-      title: 'Senior Criminal Lawyer',
-      rating: 4.93,
-      price: 300,
-      travelTime: 5,
-      serviceType: 'Comfort',
-      cases: 120,
-      phoneNumber: '+201001234567',
-      location: LatLng(30.0460, 31.2370),
-      imageUrl:
-          'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', // Ahmed Ali
-    ),
-    LawyerOffer(
-      name: 'Fatima Hassan',
-      title: 'Family Law Expert',
-      rating: 4.88,
-      price: 320,
-      travelTime: 7, // Mock travel time
-      serviceType: 'Premium',
-      cases: 95,
-      phoneNumber: '+201001234568',
-      location: LatLng(30.0420, 31.2340),
-      imageUrl: 'https://i.pravatar.cc/150?u=FatimaHassan', // Placeholder
-    ),
-    LawyerOffer(
-      name: 'Mohamed Karim',
-      title: 'Corporate Legal Consultant',
-      rating: 5.00,
-      price: 360,
-      travelTime: 4, // Mock travel time
-      serviceType: 'Express',
-      cases: 150,
-      phoneNumber: '+201001234569',
-      location: LatLng(30.0480, 31.2390),
-      imageUrl: 'https://i.pravatar.cc/150?u=MohamedKarim', // Placeholder
-    ),
-    LawyerOffer(
-      name: 'Sara Omar',
-      title: 'Human Rights Specialist',
-      rating: 4.75,
-      price: 310,
-      travelTime: 6, // Mock travel time
-      serviceType: 'Standard',
-      cases: 80,
-      phoneNumber: '+201001234570',
-      location: LatLng(30.0410, 31.2320),
-      imageUrl:
-          'https://cdn-icons-png.flaticon.com/512/6997/6997662.png', // Sara Omar
-    ),
-    LawyerOffer(
-      name: 'Omar Saleh',
-      title: 'Civil Litigation Expert',
-      rating: 4.65,
-      price: 340,
-      travelTime: 8,
-      serviceType: 'Premium',
-      cases: 110,
-      phoneNumber: '+201001234571',
-      imageUrl: 'https://i.pravatar.cc/150?u=OmarSaleh', // Placeholder
-      location: LatLng(30.0475, 31.2385),
-    ),
-  ];
+  List<LawyerOffer> _virtualLawyers = [];
   List<LawyerOffer> offers = [];
   Timer? _offerTimer;
   int _offerIndex = 0;
@@ -319,13 +257,116 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
     }
   }
 
-  void _findLawyer() {
+  Future<void> _findLawyer() async {
     setState(() {
       isSearching = true;
       offers = [];
       _offerIndex = 0;
+      _virtualLawyers = [];
     });
-    _generateMockOffers();
+
+    try {
+      // Fetch random lawyers from Firestore 'lawyers' collection
+      final snapshot = await FirebaseFirestore.instance
+          .collection('lawyers')
+          .limit(10)
+          .get();
+      if (snapshot.docs.isNotEmpty) {
+        final random = Random();
+        final fetchedLawyers = snapshot.docs.map((doc) {
+          final data = doc.data();
+          // Generate a mock location slightly offset from the user's location
+          final latOffset = (random.nextDouble() - 0.5) * 0.01;
+          final lngOffset = (random.nextDouble() - 0.5) * 0.01;
+          final mockLocation = LatLng(
+            _userLocation.latitude + latOffset,
+            _userLocation.longitude + lngOffset,
+          );
+
+          // Parse rating safely
+          double parsedRating = 4.5;
+          if (data['rating'] != null) {
+            parsedRating = (data['rating'] is num)
+                ? (data['rating'] as num).toDouble()
+                : double.tryParse(data['rating'].toString()) ?? 4.5;
+          } else {
+            parsedRating =
+                4.0 + random.nextDouble(); // Random rating between 4.0 and 5.0
+          }
+
+          // Parse title safely (specialization is often a List of strings in Firestore)
+          String parsedTitle = 'Legal Consultant';
+          if (data['title'] != null && data['title'] is String) {
+            parsedTitle = data['title'];
+          } else if (data['specialization'] != null) {
+            parsedTitle = (data['specialization'] is List)
+                ? (data['specialization'] as List).join(', ')
+                : data['specialization'].toString();
+          }
+
+          String fetchedImg =
+              (data['profile_photo'] ??
+                      data['profilePic'] ??
+                      data['imageUrl'] ??
+                      '')
+                  .toString();
+          if (fetchedImg.trim().isEmpty)
+            fetchedImg = 'https://i.pravatar.cc/150?u=${doc.id}';
+
+          return LawyerOffer(
+            name: (data['name'] ?? data['fullName'] ?? 'Lawyer').toString(),
+            title: parsedTitle,
+            rating: double.parse(parsedRating.toStringAsFixed(2)),
+            price: 0, // Dynamically set later by _generateMockOffers()
+            travelTime: 5 + random.nextInt(10), // Random 5-14 mins
+            serviceType: [
+              'Comfort',
+              'Premium',
+              'Express',
+              'Standard',
+            ][random.nextInt(4)],
+            cases: data['cases'] ?? (50 + random.nextInt(150)),
+            phoneNumber: (data['phone'] ?? data['phoneNumber'] ?? '')
+                .toString(),
+            location: mockLocation,
+            imageUrl: fetchedImg,
+          );
+        }).toList();
+
+        fetchedLawyers.shuffle();
+        setState(() {
+          _virtualLawyers = fetchedLawyers;
+        });
+        _generateMockOffers();
+      } else {
+        setState(() => isSearching = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                _isArabic
+                    ? 'لا يوجد محامين متاحين حالياً'
+                    : 'No lawyers available right now',
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching lawyers from Firestore: $e');
+      setState(() => isSearching = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _isArabic
+                  ? 'حدث خطأ في جلب بيانات المحامين'
+                  : 'Error fetching lawyers data',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   void _generateMockOffers() {
@@ -1015,7 +1056,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                         color: cardColor,
                         shape: BoxShape.circle,
                         boxShadow: [
-                          BoxShadow( // This was causing an error
+                          BoxShadow(
+                            // This was causing an error
                             color: Colors.black.withOpacity(0.12),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
@@ -1048,7 +1090,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                                     width: 1.5,
                                   ),
                                   boxShadow: [
-                                    BoxShadow( // This was causing an error
+                                    BoxShadow(
+                                      // This was causing an error
                                       color: AppColors.navyBlue.withOpacity(
                                         0.25,
                                       ),
@@ -1091,7 +1134,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
             left: 0,
             right: 0,
             bottom: isSearching ? 25.h : 0,
-            child: isSearching // This was causing an error
+            child:
+                isSearching // This was causing an error
                 ? _buildOffersView(isDark)
                 : _buildBottomSheet(context), // Pass isDark parameter
           ),
@@ -1102,7 +1146,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
 
   Widget _buildMapBackground(bool isDark) {
     // Add isDark parameter
-    return FlutterMap( // This was causing an error
+    return FlutterMap(
+      // This was causing an error
       mapController: _mapController,
       options: MapOptions(
         initialCenter: _userLocation,
@@ -1163,7 +1208,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               color: Colors.blue,
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [ // This was causing an error
+              boxShadow: [
+                // This was causing an error
                 BoxShadow(
                   color: Colors.blue.withOpacity(0.3),
                   blurRadius: 10,
@@ -1241,7 +1287,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
           color: theme.cardColor,
           borderRadius: BorderRadius.circular(24.r),
           boxShadow: [
-            BoxShadow( // This was causing an error
+            BoxShadow(
+              // This was causing an error
               color: Colors.black.withOpacity(0.12),
               blurRadius: 16,
               offset: Offset(0, 6.h),
@@ -1275,9 +1322,10 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                   Text(
                     _isArabic ? 'موقعك الحالي' : 'Your location',
                     style: GoogleFonts.cairo(
-                        fontSize: 12.sp, // This was causing an error
+                      fontSize: 12.sp,
                       fontWeight: FontWeight.w700,
-                        color: theme.textTheme.bodyMedium?.color?.withOpacity(0.6),
+                      color: (theme.textTheme.bodyMedium?.color ?? Colors.black)
+                          .withOpacity(0.6),
                     ),
                   ),
                   SizedBox(height: 2.h),
@@ -1380,7 +1428,10 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                                 : 'Waiting for offers...',
                             style: GoogleFonts.cairo(
                               fontSize: 14.sp,
-                              color: theme.textTheme.bodyMedium?.color?.withOpacity(0.6),
+                              color:
+                                  (theme.textTheme.bodyMedium?.color ??
+                                          Colors.black)
+                                      .withOpacity(0.6),
                             ),
                           ),
                         ],
@@ -1460,7 +1511,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                         style: GoogleFonts.cairo(
                           fontSize: 12.sp,
                           fontWeight: FontWeight.w600,
-                          color: textColor?.withOpacity(0.7),
+                          color: (textColor ?? Colors.black).withOpacity(0.7),
                         ),
                       ),
                     ),
@@ -1489,7 +1540,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                           width: 2,
                         ),
                         boxShadow: [
-                          BoxShadow( // This was causing an error
+                          BoxShadow(
+                            // This was causing an error
                             color: Colors.black.withOpacity(0.25),
                             blurRadius: 12,
                             offset: Offset(0, 6.h),
@@ -1624,7 +1676,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
         color: theme.cardColor,
         borderRadius: BorderRadius.vertical(top: Radius.circular(32.r)),
         boxShadow: [
-          BoxShadow( // This was causing an error
+          BoxShadow(
+            // This was causing an error
             color: Colors.black.withOpacity(0.15),
             blurRadius: 32,
             offset: Offset(0, -12.h),
@@ -1661,8 +1714,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               Text(
                 'Choose the service that best matches your legal issue.',
                 style: GoogleFonts.cairo(
-                  fontSize: 13.sp, // Fixed: withValues to withOpacity
-                  color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
+                  fontSize: 13.sp,
+                  color: (theme.textTheme.bodyMedium?.color ?? Colors.black)
+                      .withOpacity(0.7),
                 ),
               ),
               SizedBox(height: 18.h),
@@ -1671,7 +1725,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                 padding: EdgeInsets.all(14.r),
                 decoration: BoxDecoration(
                   color: theme.cardColor,
-                  border: Border.all( // This was causing an error
+                  border: Border.all(
+                    // This was causing an error
                     color: AppColors.legalGold.withOpacity(0.3),
                     width: 1.5,
                   ),
@@ -1738,7 +1793,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                               : theme.cardColor,
                           border: Border.all(
                             color: isSelected
-                                ? AppColors.legalGold // This was causing an error
+                                ? AppColors
+                                      .legalGold // This was causing an error
                                 : AppColors.legalGold.withOpacity(0.3),
                             width: 1.5,
                           ),
@@ -1753,9 +1809,13 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                               width: 42.w,
                               height: 42.h,
                               decoration: BoxDecoration(
-                                color: isSelected // This was causing an error
-                                    ? AppColors.legalGold // This was causing an error
-                                    : AppColors.legalGold.withOpacity(0.1), // Fixed: withValues to withOpacity
+                                color:
+                                    isSelected // This was causing an error
+                                    ? AppColors
+                                          .legalGold // This was causing an error
+                                    : AppColors.legalGold.withOpacity(
+                                        0.1,
+                                      ), // Fixed: withValues to withOpacity
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -1766,36 +1826,40 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                                 size: 22.sp,
                               ),
                             ),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Text(
-                              card.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.cairo(
-                                fontSize: 14.sp,
-                                fontWeight: FontWeight.w700,
-                                color: isSelected ? Colors.white : textColor,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    card.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 14.sp,
+                                      fontWeight: FontWeight.w700,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : textColor,
+                                    ),
+                                  ),
+                                  SizedBox(height: 2.h),
+                                  Text(
+                                    card.subtitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 11.sp,
+                                      color: isSelected
+                                          ? Colors.white70
+                                          : (theme.textTheme.bodySmall?.color ??
+                                                    Colors.black)
+                                                .withOpacity(0.6),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            SizedBox(height: 2.h),
-                            Text(
-                              card.subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.cairo(
-                                fontSize: 11.sp,
-                                color: isSelected
-                                    ? Colors.white70
-                                    : theme.textTheme.bodySmall?.color?.withOpacity(0.6),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
                           ],
                         ),
                       ),
@@ -1809,71 +1873,74 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                 children: [
                   Expanded(
                     child: Text(
-                    selectedService == null
-                        ? 'Select service'
-                        : selectedService == 'urgent'
-                            ? 'Min Salary: SOS 300'
-                            : selectedService == 'legal'
-                                ? 'Min Salary: Legal 450'
-                                : 'Min Salary: Doc 500',
-                    style: GoogleFonts.cairo(
-                      fontSize: 14.sp,
-                      fontWeight: FontWeight.w700,
-                      color: selectedService != null
-                          ? textColor
-                          : theme.hintColor,
+                      selectedService == null
+                          ? 'Select service'
+                          : selectedService == 'urgent'
+                          ? 'Min Salary: SOS 300'
+                          : selectedService == 'legal'
+                          ? 'Min Salary: Legal 450'
+                          : 'Min Salary: Doc 500',
+                      style: GoogleFonts.cairo(
+                        fontSize: 14.sp,
+                        fontWeight: FontWeight.w700,
+                        color: selectedService != null
+                            ? textColor
+                            : theme.hintColor,
+                      ),
                     ),
-                  ),
                   ),
                   SizedBox(
                     width: 125.w,
                     child: Container(
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.white10 : AppColors.backgroundGrey,
-                    border: Border.all(
-                      color: AppColors.legalGold.withOpacity(0.3),
-                      width: 1,
-                    ),
-                    borderRadius: BorderRadius.circular(14.r),
-                  ),
-                  padding: EdgeInsets.symmetric(
-                    horizontal: 10.w,
-                    vertical: 8.h,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildCounterButton(
-                        Icons.remove,
-                        () => setState(() {
-                          if (selectedService != null &&
-                              price > getMinPrice()) {
-                            price -= 10;
-                          }
-                        }),
-                        enabled:
-                            selectedService != null && price > getMinPrice(),
-                      ),
-                      Expanded(
-                        child: Text(
-                          '$price',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.cairo(
-                            fontSize: 16.sp,
-                            fontWeight: FontWeight.w900,
-                            color: textColor,
-                          ),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white10
+                            : AppColors.backgroundGrey,
+                        border: Border.all(
+                          color: AppColors.legalGold.withOpacity(0.3),
+                          width: 1,
                         ),
+                        borderRadius: BorderRadius.circular(14.r),
                       ),
-                      _buildCounterButton(Icons.add, () {
-                        if (selectedService != null) {
-                          setState(() => price += 10);
-                        }
-                      }, enabled: selectedService != null),
-                    ],
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 10.w,
+                        vertical: 8.h,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildCounterButton(
+                            Icons.remove,
+                            () => setState(() {
+                              if (selectedService != null &&
+                                  price > getMinPrice()) {
+                                price -= 10;
+                              }
+                            }),
+                            enabled:
+                                selectedService != null &&
+                                price > getMinPrice(),
+                          ),
+                          Expanded(
+                            child: Text(
+                              '$price',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.cairo(
+                                fontSize: 16.sp,
+                                fontWeight: FontWeight.w900,
+                                color: textColor,
+                              ),
+                            ),
+                          ),
+                          _buildCounterButton(Icons.add, () {
+                            if (selectedService != null) {
+                              setState(() => price += 10);
+                            }
+                          }, enabled: selectedService != null),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-              ),
                 ],
               ),
               SizedBox(height: 22.h),
@@ -1943,12 +2010,15 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
         height: 32.h,
         decoration: BoxDecoration(
           color: enabled
-              ? (isDark ? Colors.white10 : Colors.white) // This was causing an error
+              ? (isDark
+                    ? Colors.white10
+                    : Colors.white) // This was causing an error
               : (isDark ? Colors.black12 : Colors.grey.withOpacity(0.1)),
           shape: BoxShape.circle,
           border: Border.all(
             color: enabled
-                ? AppColors.legalGold // This was causing an error
+                ? AppColors
+                      .legalGold // This was causing an error
                 : theme.disabledColor.withOpacity(0.3),
             width: 1.5,
           ),
@@ -1984,7 +2054,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(30.r),
                   boxShadow: [
-                    BoxShadow( // This was causing an error
+                    BoxShadow(
+                      // This was causing an error
                       color: Colors.black.withOpacity(0.1),
                       blurRadius: 15,
                       spreadRadius: 2,
@@ -2040,7 +2111,8 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               color: Colors.white,
               borderRadius: BorderRadius.vertical(top: Radius.circular(32.r)),
               boxShadow: [
-                BoxShadow( // This was causing an error
+                BoxShadow(
+                  // This was causing an error
                   color: Colors.black.withOpacity(0.1),
                   blurRadius: 25,
                   offset: Offset(0, -10.h),
@@ -2300,7 +2372,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
 
                   SizedBox(height: 16.h),
                   Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 24.w), // Fixed: withValues to withOpacity
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 24.w,
+                    ), // Fixed: withValues to withOpacity
                     child: Divider(color: Colors.grey.withOpacity(0.2)),
                   ),
                   SizedBox(height: 16.h),
@@ -2339,7 +2413,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
 
                   SizedBox(height: 24.h),
                   Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 24.w), // Fixed: withValues to withOpacity
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 24.w,
+                    ), // Fixed: withValues to withOpacity
                     child: Divider(color: Colors.grey.withOpacity(0.2)),
                   ),
 
@@ -2353,10 +2429,7 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                         subject: 'Track my legal trip',
                       );
                     },
-                    leading: const Icon(
-                      Icons.share,
-                      color: Colors.black,
-                    ),
+                    leading: const Icon(Icons.share, color: Colors.black),
                     title: Text(
                       'Share location',
                       style: GoogleFonts.cairo(
