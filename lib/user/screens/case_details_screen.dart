@@ -63,7 +63,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
   late TextEditingController _notesController;
   final List<String> _notesList = [];
   double _totalFees = 0.0;
-  double _withdrawnAmount = 0.0;
+  final double _withdrawnAmount = 0.0;
   double _remainingAmount = 0.0;
   final List<Map<String, dynamic>> _feeTransactions = [];
 

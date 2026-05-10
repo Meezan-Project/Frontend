@@ -18,6 +18,8 @@ import 'package:mezaan/lawyer/widgets/lawyer_side_drawer.dart';
 import 'package:mezaan/lawyer/screens/lawyer_templates_screen.dart';
 import 'package:mezaan/lawyer/screens/lawyer_legal_library_screen.dart';
 import 'package:mezaan/lawyer/screens/lawyer_conflict_checker_screen.dart';
+import 'package:mezaan/lawyer/screens/lawyer_case_management_screen.dart';
+import 'package:mezaan/user/models/case_model.dart';
 import 'dart:async';
 
 class LawyerDashboardScreen extends StatefulWidget {
@@ -152,7 +154,7 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
             const _DataEmptyHint(message: 'No active cases.')
           else
             ...payload.activeCases.map((caseData) {
-              return _CaseCard(caseTitle: caseData);
+              return _CaseCard(case_: caseData);
             }),
           SizedBox(height: 16.h),
           _SectionHeader(
@@ -394,7 +396,7 @@ class _LawyerDashboardPayload {
   final int pendingCases;
   final String profilePhotoUrl;
   final List<String> scheduledAppointments;
-  final List<String> activeCases;
+  final List<UserCase> activeCases;
   final bool onboardingCompleted;
 
   _LawyerDashboardPayload({
@@ -416,7 +418,7 @@ class _LawyerDashboardPayload {
       pendingCases: 0,
       profilePhotoUrl: '',
       scheduledAppointments: const [],
-      activeCases: const [],
+      activeCases: const <UserCase>[],
       onboardingCompleted: false,
     );
   }
@@ -468,7 +470,7 @@ class _UpcomingScheduleSection extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.1 : 0.04),
+                color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
                 blurRadius: 8,
                 offset: Offset(0, 2.h),
               ),
@@ -476,7 +478,7 @@ class _UpcomingScheduleSection extends StatelessWidget {
           ),
           child: Column(
             children: [
-              for (int i = 0; i < appointments.length; i++) ...[ // Corrected withValues to withOpacity
+              for (int i = 0; i < appointments.length; i++) ...[
                 Builder(
                   builder: (context) {
                     final doc = appointments[i];
@@ -566,21 +568,57 @@ class _LawyerDashboardRepository {
 
       final data = lawyerDoc.data() ?? {};
       final derivedSchedule = _extractScheduledAppointments(data['schedule']);
-      final embeddedCases = _extractCaseTitles(data['activeCases']);
 
-      final fetchedCasesResult = await _loadActiveCasesFromFirestore(
-        lawyerUid: user.uid,
-      );
-final mergedCases = <String>{}
-        ..addAll(embeddedCases)
-        ..addAll(fetchedCasesResult.caseTitles);
+      // Hardcoded professional dummy data to showcase the UI as requested
+      final List<UserCase> dummyCases = [
+        UserCase(
+          id: 'CASE-2024-001', // Unique ID for the case
+          lawyerId: 'lawyer_admin_01', // Dummy lawyer ID
+          caseNumber: 'CASE-2024-001',
+          title: 'Real Estate Dispute',
+          description: 'Conflict regarding commercial property ownership in New Cairo.',
+          category: 'Civil',
+          status: 'active',
+          createdDate: DateTime(2024, 2, 12),
+          lawyerName: 'Client: Ahmed Aly',
+          requiredDocuments: List.generate(4, (i) => RequiredDocument(id: '$i', name: 'Deed', description: '', isSubmitted: false)),
+          sessions: List.generate(2, (i) => CaseSession(id: '$i', scheduledDate: DateTime.now(), status: 'scheduled')),
+          updates: [],
+        ),
+        UserCase(
+          id: 'CASE-2024-005', // Unique ID for the case
+          lawyerId: 'lawyer_admin_01', // Dummy lawyer ID
+          caseNumber: 'CASE-2024-005',
+          title: 'IP Rights Review',
+          description: 'Copyright infringement investigation for a tech startup mobile app.',
+          category: 'Corporate',
+          status: 'pending',
+          createdDate: DateTime(2024, 3, 05),
+          lawyerName: 'Client: Tech Nile Inc.',
+          requiredDocuments: List.generate(2, (i) => RequiredDocument(id: '$i', name: 'License', description: '', isSubmitted: false)),
+          sessions: List.generate(1, (i) => CaseSession(id: '$i', scheduledDate: DateTime.now(), status: 'scheduled')),
+          updates: [],
+        ),
+        UserCase(
+          id: 'CASE-2024-012', // Unique ID for the case
+          lawyerId: 'lawyer_admin_01', // Dummy lawyer ID
+          caseNumber: 'CASE-2024-012',
+          title: 'Labor Contract Breach',
+          description: 'Investigation into employee non-compete clause violations.',
+          category: 'Labor',
+          status: 'active',
+          createdDate: DateTime(2024, 4, 18),
+          lawyerName: 'Client: Modern Cairo Co.',
+          requiredDocuments: List.generate(6, (i) => RequiredDocument(id: '$i', name: 'Contract', description: '', isSubmitted: true)),
+          sessions: List.generate(3, (i) => CaseSession(id: '$i', scheduledDate: DateTime.now(), status: 'scheduled')),
+          updates: [],
+        ),
+      ];
 
       final pendingFromDoc = _asInt(data['pendingCases']);
       final pendingCount =
           pendingFromDoc ??
-          (fetchedCasesResult.pendingCaseCount > 0
-              ? fetchedCasesResult.pendingCaseCount
-              : mergedCases.length);
+          dummyCases.where((c) => c.status != 'active').length;
 
       return _LawyerDashboardPayload(
         lawyerName: _extractLawyerName(data, fallback: user.displayName),
@@ -592,7 +630,7 @@ final mergedCases = <String>{}
           data['scheduledAppointments'],
           fallback: derivedSchedule,
         ),
-        activeCases: mergedCases.toList(growable: false),
+        activeCases: dummyCases,
         onboardingCompleted: _isLawyerOnboardingComplete(data),
       );
     } catch (e) {
@@ -914,7 +952,7 @@ class _LawyerHeroCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.04),
+            color: Colors.black.withOpacity(isDark ? 0.22 : 0.04),
             blurRadius: 14, // Corrected withValues to withOpacity
             offset: Offset(0, 6.h),
           ),
@@ -1043,7 +1081,7 @@ class _ScheduleCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.1 : 0.04),
+            color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
             blurRadius: 8,
             offset: Offset(0, 2.h), // Corrected withValues to withOpacity
           ),
@@ -1057,7 +1095,7 @@ class _ScheduleCard extends StatelessWidget {
                 Container(
                   padding: EdgeInsets.all(8.r),
                   decoration: BoxDecoration(
-                    color: AppColors.navyBlue.withValues(alpha: 0.1),
+                    color: AppColors.navyBlue.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8.r),
                   ),
                   child: Icon(
@@ -1110,7 +1148,7 @@ class _AIAssistantCard extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              AppColors.navyBlue.withValues(alpha: 0.95),
+              AppColors.navyBlue.withOpacity(0.95),
               const Color(0xFF1E40AF).withOpacity(0.95), // Corrected withValues to withOpacity
             ],
             begin: Alignment.topLeft,
@@ -1194,7 +1232,7 @@ class _ServiceMapCard extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.1 : 0.04),
+              color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
               blurRadius: 8, // Corrected withValues to withOpacity
               offset: Offset(0, 2.h),
             ),
@@ -1254,57 +1292,120 @@ class _ServiceMapCard extends StatelessWidget {
 }
 
 class _CaseCard extends StatelessWidget {
-  final String caseTitle;
+  final UserCase case_;
 
-  const _CaseCard({required this.caseTitle});
+  const _CaseCard({required this.case_});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? const Color(0xFF162235) : Colors.white;
+    final cardColor = isDark ? const Color(0xFF1A2940) : Colors.white;
 
-    return Container(
-      margin: EdgeInsets.only(bottom: 12.h),
-      padding: EdgeInsets.all(14.r),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(14.r),
-        border: Border.all(
-          color: isDark ? const Color(0xFF334766) : const Color(0xFFE5E7EB),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: EdgeInsets.all(8.r),
-            decoration: BoxDecoration(
-              color: const Color(0xFF7C3AED).withOpacity(0.1), // Corrected withValues to withOpacity
-              borderRadius: BorderRadius.circular(8.r),
-            ),
-            child: Icon(
-              Icons.folder_open_rounded,
-              color: const Color(0xFF7C3AED),
-              size: 18.sp,
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => LawyerCaseDetailsScreen(
+              case_: case_,
+              isLawyer: true,
             ),
           ),
-          SizedBox(width: 12.w),
-          Expanded(
-            child: Text(
-              caseTitle,
+        );
+      },
+      child: Container(
+        margin: EdgeInsets.only(bottom: 16.h),
+        padding: EdgeInsets.all(16.r),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(16.r),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+          border: Border.all(
+            color: isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  case_.caseNumber,
+                  style: GoogleFonts.cairo(
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.legalGold,
+                  ),
+                ),
+                _buildStatusBadge(case_.status),
+              ],
+            ),
+            SizedBox(height: 8.h),
+            Text(
+              case_.title,
               style: GoogleFonts.cairo(
-                fontSize: 13.sp,
-                fontWeight: FontWeight.w600,
+                fontSize: 16.sp,
+                fontWeight: FontWeight.w800,
                 color: isDark ? Colors.white : AppColors.navyBlue,
               ),
             ),
-          ),
-          Icon(
-            Icons.arrow_forward_ios_rounded,
-            size: 14.sp,
-            color: isDark ? Colors.white54 : Colors.grey,
-          ),
-        ],
+            SizedBox(height: 12.h),
+            Row(
+              children: [
+                _buildStatIcon(Icons.description_outlined, '${case_.requiredDocuments.length} Documents'),
+                SizedBox(width: 16.w),
+                _buildStatIcon(Icons.gavel_outlined, '${case_.sessions.length} Sessions'),
+              ],
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildStatusBadge(String status) {
+    final bool isActive = status.toLowerCase() == 'active';
+    final Color badgeColor = isActive ? Colors.green : Colors.orange;
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+      decoration: BoxDecoration(
+        color: badgeColor.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8.r),
+      ),
+      child: Text(
+        status.toUpperCase(),
+        style: GoogleFonts.cairo(
+          fontSize: 10.sp,
+          fontWeight: FontWeight.w900,
+          color: badgeColor,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatIcon(IconData icon, String label) {
+    return Row(
+      children: [
+        Icon(icon, size: 14.sp, color: Colors.grey[500]),
+        SizedBox(width: 4.w),
+        Text(
+          label,
+          style: GoogleFonts.cairo(
+            fontSize: 12.sp,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1329,7 +1430,7 @@ class _StatsCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.1 : 0.04),
+            color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
             blurRadius: 8, // Corrected withValues to withOpacity
             offset: Offset(0, 2.h),
           ),
@@ -1477,7 +1578,7 @@ class _ScheduleItemWidget extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.1 : 0.04),
+            color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
             blurRadius: 8,
             offset: Offset(0, 2.h),
           ),
@@ -1488,7 +1589,7 @@ class _ScheduleItemWidget extends StatelessWidget {
           Container(
             padding: EdgeInsets.all(8.r),
             decoration: BoxDecoration(
-              color: AppColors.navyBlue.withValues(alpha: 0.1),
+              color: AppColors.navyBlue.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8.r),
             ),
             child: Icon(
@@ -1528,7 +1629,7 @@ class _ScheduleItemWidget extends StatelessWidget {
 }
 
 class _CasesView extends StatelessWidget {
-  final List<String> cases;
+  final List<UserCase> cases;
 
   const _CasesView({required this.cases});
 
@@ -1538,7 +1639,7 @@ class _CasesView extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
       children: cases.isEmpty
           ? [const Center(child: _DataEmptyHint(message: 'No active cases.'))]
-          : cases.map((caseData) => _CaseCard(caseTitle: caseData)).toList(),
+          : cases.map((caseData) => _CaseCard(case_: caseData)).toList(),
     );
   }
 }
