@@ -170,15 +170,32 @@ class _UserTopHeaderState extends State<UserTopHeader> {
                   color: bellContainerColor,
                   borderRadius: BorderRadius.circular(12.r),
                 ),
-                child: IconButton(
-                  onPressed: widget.onNotificationTap,
-                  icon: Icon(
-                    Icons.notifications_none_rounded,
-                    color: const Color(0xFFEF6A6A),
-                    size: 22.sp,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  IconButton(
+                    onPressed: widget.onNotificationTap,
+                    icon: Icon(
+                      Icons.notifications_none_rounded,
+                      color: const Color(0xFFEF6A6A),
+                      size: 22.sp,
+                    ),
+                    splashRadius: 20.r,
+                    tooltip: 'Notifications'.translate(),
                   ),
-                  splashRadius: 20.r,
-                  tooltip: 'Notifications'.translate(),
+                  Positioned(
+                    top: 10.h,
+                    right: 10.w,
+                    child: Container(
+                      width: 8.w,
+                      height: 8.w,
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ],
                 ),
               ),
             ],

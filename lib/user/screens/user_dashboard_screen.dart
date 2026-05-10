@@ -395,10 +395,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                               child: UserTopHeader(
                                 balance: payload.balance,
                                 onNotificationTap: () {
-                                  _openProfilePanel(
-                                    userName: payload.userName,
-                                    profileImageUrl: payload.profilePhotoUrl,
-                                  );
+                                  _showNotificationsSheet();
                                 },
                               ),
                             ),
@@ -487,6 +484,170 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
           },
         );
       },
+    );
+  }
+
+  void _showNotificationsSheet() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.6,
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
+        ),
+        padding: EdgeInsets.symmetric(vertical: 20.h),
+        child: Column(
+          children: [
+            Container(
+              width: 40.w,
+              height: 5.h,
+              decoration: BoxDecoration(
+                color: Colors.grey.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+            ),
+            SizedBox(height: 16.h),
+            Text(
+              'Notifications'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 18.sp,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : AppColors.navyBlue,
+              ),
+            ),
+            SizedBox(height: 16.h),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.symmetric(horizontal: 16.w),
+                children: [
+                  _buildNotificationItem(
+                    title: 'Welcome to Mezaan!'.translate(),
+                    body: 'Your account has been created successfully.'
+                        .translate(),
+                    time: 'Just now'.translate(),
+                    isUnread: true,
+                    icon: Icons.celebration_rounded,
+                    isDark: isDark,
+                  ),
+                  _buildNotificationItem(
+                    title: 'Complete your profile'.translate(),
+                    body:
+                        'Add your details to get better legal recommendations.'
+                            .translate(),
+                    time: '2 hours ago'.translate(),
+                    isUnread: false,
+                    icon: Icons.person_outline_rounded,
+                    isDark: isDark,
+                  ),
+                  _buildNotificationItem(
+                    title: 'New Feature Available'.translate(),
+                    body: 'You can now book online consultations easily.'
+                        .translate(),
+                    time: 'Yesterday'.translate(),
+                    isUnread: false,
+                    icon: Icons.new_releases_outlined,
+                    isDark: isDark,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotificationItem({
+    required String title,
+    required String body,
+    required String time,
+    required bool isUnread,
+    required IconData icon,
+    required bool isDark,
+  }) {
+    return Container(
+      margin: EdgeInsets.only(bottom: 12.h),
+      padding: EdgeInsets.all(12.w),
+      decoration: BoxDecoration(
+        color: isUnread
+            ? AppColors.legalGold.withValues(alpha: isDark ? 0.2 : 0.08)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(12.r),
+        border: Border.all(
+          color: isUnread
+              ? AppColors.legalGold.withValues(alpha: 0.3)
+              : Colors.grey.withValues(alpha: 0.15),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 20.r,
+            backgroundColor: AppColors.navyBlue.withValues(
+              alpha: isDark ? 0.3 : 0.05,
+            ),
+            child: Icon(
+              icon,
+              color: isDark ? AppColors.legalGold : AppColors.navyBlue,
+              size: 20.sp,
+            ),
+          ),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: GoogleFonts.cairo(
+                          fontSize: 14.sp,
+                          fontWeight: isUnread
+                              ? FontWeight.bold
+                              : FontWeight.w600,
+                          color: isDark ? Colors.white : AppColors.navyBlue,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    SizedBox(width: 8.w),
+                    Text(
+                      time,
+                      style: GoogleFonts.cairo(
+                        fontSize: 10.sp,
+                        color: Colors.grey,
+                        fontWeight: isUnread
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 4.h),
+                Text(
+                  body,
+                  style: GoogleFonts.cairo(
+                    fontSize: 12.sp,
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

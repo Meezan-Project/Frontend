@@ -106,7 +106,7 @@ class _CaseDocumentUploadExampleState extends State<CaseDocumentUploadExample> {
               'Please upload all required documents for your case',
               style: GoogleFonts.cairo(
                 fontSize: 13.sp,
-                color: AppColors.textDark.withValues(alpha: 0.7),
+                color: AppColors.textDark.withOpacity(0.7),
               ),
             ),
             SizedBox(height: 20.h),
@@ -125,10 +125,10 @@ class _CaseDocumentUploadExampleState extends State<CaseDocumentUploadExample> {
             Container(
               padding: EdgeInsets.all(14.w),
               decoration: BoxDecoration(
-                color: AppColors.legalGold.withValues(alpha: 0.1),
+                color: AppColors.legalGold.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12.r),
                 border: Border.all(
-                  color: AppColors.legalGold.withValues(alpha: 0.3),
+                  color: AppColors.legalGold.withOpacity(0.3),
                   width: 1,
                 ),
               ),
@@ -163,7 +163,7 @@ class _CaseDocumentUploadExampleState extends State<CaseDocumentUploadExample> {
                       value: selectedDocuments.values.where((f) => f != null).length /
                           documentRequirements.length,
                       minHeight: 6.h,
-                      backgroundColor: AppColors.legalGold.withValues(alpha: 0.2),
+                      backgroundColor: AppColors.legalGold.withOpacity(0.2),
                       valueColor: AlwaysStoppedAnimation<Color>(AppColors.legalGold),
                     ),
                   ),

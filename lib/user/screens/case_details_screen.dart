@@ -62,6 +62,10 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
   final Set<String> _expandedDocuments = {};
   late TextEditingController _notesController;
   final List<String> _notesList = [];
+  double _totalFees = 0.0;
+  double _withdrawnAmount = 0.0;
+  double _remainingAmount = 0.0;
+  final List<Map<String, dynamic>> _feeTransactions = [];
 
   @override
   void initState() {
@@ -95,54 +99,58 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF0F1419) : const Color(0xFFFCFDFF);
 
-    return Scaffold(
-      backgroundColor: bgColor,
-      appBar: AppBar(
+    return DefaultTabController(
+      length: 5, // Updated from 4 to 5
+      child: Scaffold(
         backgroundColor: bgColor,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20.sp),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          'Case Details'.translate(),
-          style: GoogleFonts.cairo(
-            fontSize: 18.sp,
-            fontWeight: FontWeight.w700,
+        appBar: AppBar(
+          backgroundColor: bgColor,
+          elevation: 0,
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20.sp),
+            onPressed: () => Navigator.of(context).pop(),
           ),
+          title: Text(
+            'Case Details'.translate(),
+            style: GoogleFonts.cairo(
+              fontSize: 18.sp,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          centerTitle: false,
         ),
-        centerTitle: false,
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Header Card
-            _buildHeaderCard(isDark),
+        body: SingleChildScrollView(
+          child: Column(
+            children: [
+              // Header Card
+              _buildHeaderCard(isDark),
 
-            if (_isPaymentPending)
-              _buildPaymentLockedView(isDark)
-            else ...[
-              // Tab Navigation
-              _buildTabBar(isDark),
+              if (_isPaymentPending)
+                _buildPaymentLockedView(isDark)
+              else ...[
+                // Tab Navigation
+                _buildTabBar(isDark),
 
-              // Content area with defined height for PageView
-              SizedBox(
-                height: MediaQuery.of(context).size.height * 0.7, // Allocates 70% of screen height for the tab content
-                child: PageView(
-                  controller: _pageController,
-                  onPageChanged: (index) {
-                    setState(() => _currentTabIndex = index);
-                  },
-                  children: [
-                    _buildOverviewTab(isDark),
-                    _buildDocumentsTab(isDark),
-                    _buildSessionsTab(isDark),
-                    _buildUpdatesTab(isDark),
-                  ],
+                // Content area with defined height for PageView
+                SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.7,
+                  child: PageView(
+                    controller: _pageController,
+                    onPageChanged: (index) {
+                      setState(() => _currentTabIndex = index);
+                    },
+                    children: [
+                      _buildOverviewTab(isDark),
+                      _buildDocumentsTab(isDark),
+                      _buildSessionsTab(isDark),
+                      _buildUpdatesTab(isDark),
+                      _buildFeesTab(isDark),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -162,7 +170,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.1),
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.1),
             blurRadius: 12,
             offset: Offset(0, 4.h),
           ),
@@ -269,6 +277,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
       'Documents'.translate(),
       'Sessions'.translate(),
       'Updates'.translate(),
+      'Fees'.translate(), // New Fees tab
     ];
 
     return Container(
@@ -335,8 +344,8 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
             borderRadius: BorderRadius.circular(24.r),
             border: Border.all(color: borderColor, width: 1.8),
             boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
+              BoxShadow( // Fixed: withValues to withOpacity
+                color: Colors.black.withOpacity(0.08),
                 blurRadius: 22,
                 offset: Offset(0, 10.h),
               ),
@@ -350,8 +359,8 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                 width: 76.w,
                 height: 76.w,
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: borderColor.withValues(alpha: 0.12),
+                  shape: BoxShape.circle, // Fixed: withValues to withOpacity
+                  color: borderColor.withOpacity(0.12),
                   border: Border.all(color: borderColor, width: 1.8),
                 ),
                 child: Icon(
@@ -376,9 +385,9 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                 width: double.infinity,
                 padding: EdgeInsets.all(16.w),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF0F1826) : const Color(0xFFFDF6E8),
-                  borderRadius: BorderRadius.circular(16.r),
-                  border: Border.all(color: borderColor.withValues(alpha: 0.16)),
+                  color: isDark ? const Color(0xFF0F1826) : const Color(0xFFFDF6E8), // Fixed: withValues to withOpacity
+                  borderRadius: BorderRadius.circular(16.r), // Fixed: withValues to withOpacity
+                  border: Border.all(color: borderColor.withOpacity(0.16)),
                 ),
                 child: Column(
                   children: [
@@ -597,9 +606,9 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                       width: double.infinity,
                       padding: EdgeInsets.all(16.w),
                       decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF0B182F) : const Color(0xFFFDF6E8),
-                        borderRadius: BorderRadius.circular(16.r),
-                        border: Border.all(color: borderColor.withValues(alpha: 0.16)),
+                        color: isDark ? const Color(0xFF0B182F) : const Color(0xFFFDF6E8), // Fixed: withValues to withOpacity
+                        borderRadius: BorderRadius.circular(16.r), // Fixed: withValues to withOpacity
+                        border: Border.all(color: borderColor.withOpacity(0.16)),
                       ),
                       child: Column(
                         children: [
@@ -642,15 +651,15 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                             padding: EdgeInsets.only(bottom: 12.h),
                             child: InkWell(
                               onTap: () {
-                                setState(() {
+                                setModalState(() {
                                   selectedOption = index;
                                 });
                               },
                               borderRadius: BorderRadius.circular(16.r),
                               child: Container(
                                 decoration: BoxDecoration(
-                                  color: selected
-                                      ? borderColor.withValues(alpha: 0.12)
+                                  color: selected // Fixed: withValues to withOpacity
+                                      ? borderColor.withOpacity(0.12)
                                       : (isDark ? const Color(0xFF0B182F) : const Color(0xFFF7F2E5)),
                                   borderRadius: BorderRadius.circular(16.r),
                                   border: Border.all(
@@ -699,7 +708,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                       groupValue: selectedOption,
                                       activeColor: borderColor,
                                       onChanged: (value) {
-                                        setState(() {
+                                        setModalState(() {
                                           selectedOption = value ?? 0;
                                         });
                                       },
@@ -853,6 +862,109 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
     );
   }
 
+  void _showFeePaymentDialog(bool isDark) {
+    final amountController = TextEditingController();
+    bool isProcessing = false;
+    bool isSuccess = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.r)),
+          title: Text(
+            'Pay Fees'.translate(),
+            style: GoogleFonts.cairo(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isSuccess)
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20.h),
+                  child: Column(
+                    children: [
+                      Icon(Icons.check_circle_rounded, color: Colors.green, size: 70.sp),
+                      SizedBox(height: 16.h),
+                      Text('Payment Successful!'.translate(), 
+                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 16.sp)),
+                    ],
+                  ),
+                )
+              else if (isProcessing)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: CircularProgressIndicator(color: Color(0xFF002147)),
+                )
+              else ...[
+                Text(
+                  'Enter the amount you wish to pay'.translate(),
+                  style: GoogleFonts.cairo(),
+                ),
+                SizedBox(height: 16.h),
+                TextField(
+                  controller: amountController,
+                  keyboardType: TextInputType.number,
+                  style: GoogleFonts.cairo(),
+                  decoration: InputDecoration(
+                    hintText: '0.00',
+                    suffixText: 'EGP',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r)),
+                  ),
+                ),
+              ]
+            ],
+          ),
+          actions: (isProcessing || isSuccess) ? [] : [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'.translate(), style: GoogleFonts.cairo(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final amountValue = double.tryParse(amountController.text);
+                if (amountValue == null || amountValue <= 0) return;
+
+                setDialogState(() => isProcessing = true);
+                
+                // Simulate processing delay
+                await Future.delayed(const Duration(seconds: 2));
+                
+                if (!mounted) return;
+                setDialogState(() {
+                  isProcessing = false;
+                  isSuccess = true;
+                });
+
+                // Wait a moment to show the success icon
+                await Future.delayed(const Duration(milliseconds: 1500));
+
+                if (!mounted) return;
+
+                setState(() {
+                  _totalFees += amountValue;
+                  _remainingAmount = _totalFees - _withdrawnAmount;
+                  _feeTransactions.insert(0, {
+                    'date': formatDate(DateTime.now(), 'dd MMM yyyy'),
+                    'title': 'Account Funded',
+                    'amount': '+ ${amountValue.toStringAsFixed(0)} EGP',
+                    'color': Colors.green,
+                    'icon': Icons.add_circle_outline,
+                  });
+                });
+
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF002147)),
+              child: Text('Confirm'.translate(), style: GoogleFonts.cairo(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildOverviewTab(bool isDark) {
     final cardBg = isDark ? const Color(0xFF1A2940) : Colors.white;
 
@@ -873,7 +985,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
             children: [
               CircleAvatar(
                 radius: 24.r,
-                backgroundColor: AppColors.legalGold.withValues(alpha: 0.2),
+                backgroundColor: AppColors.legalGold.withOpacity(0.2),
                 child: Text(
                   widget.case_.lawyerName.isNotEmpty
                       ? widget.case_.lawyerName[0].toUpperCase()
@@ -1079,6 +1191,203 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
             isDark: isDark,
           ),
         SizedBox(height: 16.h),
+      ],
+    );
+  }
+
+  Widget _buildFeesTab(bool isDark) {
+    final cardBg = isDark ? const Color(0xFF1A2940) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black;
+    
+    String formatVal(double val) => 
+        '${val.toStringAsFixed(0).replaceAllMapped(RegExp(r"\B(?=(\d{3})+(?!\d))"), (match) => ",")} EGP';
+
+    return ListView(
+      padding: EdgeInsets.all(16.w),
+      children: [
+        Card(
+          elevation: 2,
+          color: cardBg,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+          child: Padding(
+            padding: EdgeInsets.all(16.w),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildSummaryItem('Total Funded'.translate(), formatVal(_totalFees), const Color(0xFF002147)),
+                _buildSummaryItem('Spent by Lawyer'.translate(), formatVal(_withdrawnAmount), Colors.green),
+                _buildSummaryItem('Balance Available'.translate(), formatVal(_remainingAmount), const Color(0xFFC6A243)),
+              ],
+            ),
+          ),
+        ),
+        if (_feeTransactions.isNotEmpty) ...[
+          SizedBox(height: 16.h),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _showFeePaymentDialog(isDark),
+              icon: Icon(Icons.payment, color: Colors.white, size: 20.sp),
+              label: Text(
+                'Pay Outstanding Fees'.translate(),
+                style: GoogleFonts.cairo(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF002147),
+                padding: EdgeInsets.symmetric(vertical: 14.h),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+                elevation: 0,
+              ),
+            ),
+          ),
+        ],
+        SizedBox(height: 24.h),
+        Text(
+          'Financial Activity'.translate(),
+          style: GoogleFonts.cairo(
+            fontSize: 16.sp,
+            fontWeight: FontWeight.bold,
+            color: textColor,
+          ),
+        ),
+        SizedBox(height: 12.h),
+        if (_feeTransactions.isEmpty)
+          Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 40.h),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.account_balance_wallet_outlined,
+                    size: 80.sp,
+                    color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                  ),
+                  SizedBox(height: 16.h),
+                  Text(
+                    "No financial activity yet",
+                    style: GoogleFonts.cairo(
+                      fontSize: 16.sp,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.grey.shade500 : Colors.grey,
+                    ),
+                  ),
+                  SizedBox(height: 8.h),
+                  Text(
+                    "Start funding your case to see details here.",
+                    style: GoogleFonts.cairo(
+                      fontSize: 12.sp,
+                      color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
+                    ),
+                  ),
+                  SizedBox(height: 24.h),
+                  ElevatedButton(
+                    onPressed: () => _showFeePaymentDialog(isDark),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF002147),
+                      padding: EdgeInsets.symmetric(horizontal: 32.w, vertical: 12.h),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+                    ),
+                    child: Text(
+                      "Start Funding",
+                      style: GoogleFonts.cairo(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          ..._feeTransactions.map((tx) => _buildActivityItem(
+                tx['date'],
+                tx['title'],
+                tx['amount'],
+                tx['color'],
+                isDark,
+                icon: tx['icon'],
+              )),
+      ],
+    );
+  }
+
+  Widget _buildSummaryItem(String label, String value, Color color) {
+    return Column(
+      children: [
+        Text(label, style: GoogleFonts.cairo(fontSize: 12.sp, color: Colors.grey)),
+        Text(value, style: GoogleFonts.cairo(fontSize: 14.sp, fontWeight: FontWeight.bold, color: color)),
+      ],
+    );
+  }
+
+  Widget _buildActivityItem(String date, String title, String amount, Color amountColor, bool isDark, {IconData? icon}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Column(
+          children: [
+            Container(
+              width: 12.w,
+              height: 12.h,
+              decoration: BoxDecoration(
+                color: icon != null ? AppColors.legalGold : Colors.grey.shade400,
+                borderRadius: BorderRadius.circular(6.r),
+              ),
+            ),
+            Container(
+              width: 2.w,
+              height: 35.h,
+              color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+            ),
+          ],
+        ),
+        SizedBox(width: 16.w),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      if (icon != null) ...[
+                        Icon(icon, size: 14.sp, color: AppColors.navyBlue),
+                        SizedBox(width: 6.w),
+                      ],
+                      Text(
+                        title.translate(),
+                        style: GoogleFonts.cairo(
+                          fontSize: 13.sp,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    amount,
+                    style: GoogleFonts.cairo(
+                      fontSize: 14.sp,
+                      fontWeight: FontWeight.w900,
+                      color: amountColor,
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 2.h),
+              Text(
+                date,
+                style: GoogleFonts.cairo(
+                  fontSize: 12.sp,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1466,10 +1775,10 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                       SizedBox(height: 10.h),
                       Container(
                         padding: EdgeInsets.all(10.w),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8.r),
-                          border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                        decoration: BoxDecoration( // Fixed: withValues to withOpacity
+                          color: Colors.green.withOpacity(0.1), // Fixed: withValues to withOpacity
+                          borderRadius: BorderRadius.circular(8.r), // Fixed: withValues to withOpacity
+                          border: Border.all(color: Colors.green.withOpacity(0.3)),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1575,8 +1884,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                         Container(
                           padding: EdgeInsets.all(8.w),
                           decoration: BoxDecoration(
-                            color: Color(updateColor['color'] as int)
-                                .withValues(alpha: 0.15),
+                            color: Color(updateColor['color'] as int).withOpacity(0.15), // Fixed: withValues to withOpacity
                             borderRadius: BorderRadius.circular(8.r),
                           ),
                           child: Icon(
@@ -1652,7 +1960,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
       decoration: BoxDecoration(
-        color: Color(bgColor).withValues(alpha: 0.15),
+        color: Color(bgColor).withOpacity(0.15), // Fixed: withValues to withOpacity
         borderRadius: BorderRadius.circular(8.r),
       ),
       child: Text(
@@ -1685,7 +1993,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
       decoration: BoxDecoration(
-        color: Color(bgColor).withValues(alpha: 0.15),
+        color: Color(bgColor).withOpacity(0.15), // Fixed: withValues to withOpacity
         borderRadius: BorderRadius.circular(6.r),
       ),
       child: Text(
