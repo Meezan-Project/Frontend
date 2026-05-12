@@ -18,6 +18,7 @@ class UserProfileSidePanel extends StatelessWidget {
   final VoidCallback onSavedCards;
   final VoidCallback onTransactionHistory;
   final VoidCallback onMyAppointments;
+  final VoidCallback onMyEvidence;
   final VoidCallback onSettings;
   final VoidCallback onEmergencyContacts;
   final VoidCallback onPrivacy;
@@ -37,6 +38,7 @@ class UserProfileSidePanel extends StatelessWidget {
     required this.onSavedCards,
     required this.onTransactionHistory,
     required this.onMyAppointments,
+    required this.onMyEvidence,
     required this.onSettings,
     required this.onEmergencyContacts,
     required this.onPrivacy,
@@ -194,6 +196,12 @@ class UserProfileSidePanel extends StatelessWidget {
                       icon: Icons.calendar_month_rounded,
                       title: 'My Appointments'.translate(),
                       onTap: onMyAppointments,
+                      isDanger: false,
+                    ),
+                    _PanelTile(
+                      icon: Icons.video_collection_rounded,
+                      title: 'My Evidence'.translate(),
+                      onTap: onMyEvidence,
                       isDanger: false,
                     ),
                     _PanelTile(

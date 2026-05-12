@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -6,6 +5,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/user/screens/booking_confirmation_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -56,6 +56,13 @@ class LawyerModel {
   factory LawyerModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
 
+    String safeParseString(dynamic field) {
+      if (field is List) {
+        return field.join(', ');
+      }
+      return field?.toString() ?? '';
+    }
+
     double parseFee(List<String> keys, double fallback) {
       for (final key in keys) {
         final val = data[key];
@@ -70,25 +77,77 @@ class LawyerModel {
 
     final baseFee = parseFee(['consultation_fees', 'fee', 'price'], 0.0);
 
+    String parsedLocation = 'Location not provided';
+    if (data['office_details'] is Map) {
+      final od = data['office_details'] as Map;
+      if (od['location'] is Map &&
+          od['location']['displayName'] != null &&
+          od['location']['displayName'].toString().trim().isNotEmpty) {
+        parsedLocation = od['location']['displayName'].toString();
+      } else {
+        parsedLocation =
+            '${od['address'] ?? ''}, ${od['city'] ?? ''}, ${od['governorate'] ?? ''}'
+                .replaceAll(RegExp(r'^[\s,]+|[\s,]+$'), '')
+                .trim();
+      }
+    } else if (data['freelancer_locations'] is List &&
+        (data['freelancer_locations'] as List).isNotEmpty) {
+      final firstLoc = (data['freelancer_locations'] as List).first;
+      if (firstLoc is Map) {
+        parsedLocation =
+            '${firstLoc['city'] ?? ''}, ${firstLoc['governorate'] ?? ''}'
+                .replaceAll(RegExp(r'^[\s,]+|[\s,]+$'), '')
+                .trim();
+      }
+    } else if (data['location'] is Map) {
+      parsedLocation =
+          data['location']['displayName'] ??
+          data['location']['address'] ??
+          'Location not provided';
+    } else if (data['address'] is Map) {
+      parsedLocation =
+          data['address']['displayName'] ??
+          data['address']['address'] ??
+          'Location not provided';
+    } else {
+      parsedLocation = safeParseString(data['location'] ?? data['address']);
+    }
+    if (parsedLocation.isEmpty) parsedLocation = 'Location not provided';
+
     return LawyerModel(
       id: doc.id,
-      name: data['name'] ?? data['firstName'] ?? 'Unknown Name',
-      specialization: data['specialization'] ?? 'Lawyer',
-      workStatus: data['workStatus'] ?? 'Available',
-      officeName: data['officeName'] ?? '',
+      name: safeParseString(
+        data['name'] ?? data['firstName'] ?? 'Unknown Name',
+      ),
+      specialization: safeParseString(data['specialization'] ?? 'Lawyer'),
+      workStatus: safeParseString(
+        data['work_status'] ?? data['workStatus'] ?? 'Freelancer',
+      ),
+      officeName: safeParseString(
+        data['employer_office_name'] ??
+            (data['office_details'] is Map
+                ? data['office_details']['office_name']
+                : data['officeName']) ??
+            '',
+      ),
       rating: (data['rating'] ?? 0.0).toDouble(),
       reviewsCount: data['reviewsCount'] ?? 0,
-      location: data['location'] ?? data['address'] ?? 'Location not provided',
-      fullAddress: data['fullAddress'],
+      location: parsedLocation,
+      fullAddress: safeParseString(data['fullAddress']),
       governorates: List<String>.from(data['governorates'] ?? []),
       cities: List<String>.from(data['cities'] ?? []),
       fee: baseFee,
-      availability: data['availability'] ?? 'Available now',
-      imageUrl:
-          data['imageUrl'] ??
-          data['profilePhoto'] ??
-          'https://i.pravatar.cc/300',
-      about: data['professional_bio'] ?? data['about'] ?? data['bio'] ?? '',
+      availability: safeParseString(data['availability'] ?? 'Available now'),
+      imageUrl: safeParseString(
+        data['imageUrl'] ??
+            data['profilePhotoUrl'] ??
+            data['profile_photo'] ??
+            data['photoUrl'] ??
+            'https://i.pravatar.cc/300',
+      ),
+      about: safeParseString(
+        data['professional_bio'] ?? data['about'] ?? data['bio'] ?? '',
+      ),
       experience: data['years_of_experience'] ?? data['experience'] ?? 0,
       schedule: data['schedule'] is Map
           ? Map<String, dynamic>.from(data['schedule'])
@@ -526,7 +585,8 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
           // ...existing code for office, location, etc.
 
           // Working Days & Times Section
-          if (_currentLawyer?.schedule != null && _currentLawyer!.schedule!.isNotEmpty) ...[
+          if (_currentLawyer?.schedule != null &&
+              _currentLawyer!.schedule!.isNotEmpty) ...[
             SizedBox(height: 16.h),
             Text(
               'Working Days & Times',
@@ -542,8 +602,10 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
               final val = entry.value;
               String timeStr = '';
               if (val is Map) {
-                final from = val['from']?.toString() ?? val['start']?.toString() ?? '';
-                final to = val['to']?.toString() ?? val['end']?.toString() ?? '';
+                final from =
+                    val['from']?.toString() ?? val['start']?.toString() ?? '';
+                final to =
+                    val['to']?.toString() ?? val['end']?.toString() ?? '';
                 if (from.isNotEmpty && to.isNotEmpty) {
                   timeStr = '$from - $to';
                 }
@@ -568,7 +630,9 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                             timeStr,
                             style: GoogleFonts.cairo(
                               fontSize: 14.sp,
-                              color: isDark ? Colors.white70 : Colors.grey.shade700,
+                              color: isDark
+                                  ? Colors.white70
+                                  : Colors.grey.shade700,
                             ),
                           ),
                         ],
@@ -589,8 +653,8 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
         children: [
           Expanded(
             child: _statCard(
-              'Experience',
-              '${_currentLawyer!.experience} Years',
+              'Experience'.translate(),
+              '${_currentLawyer!.experience} ${'years'.translate()}',
               Icons.work_outline_rounded,
               isDark,
             ),
@@ -598,7 +662,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
           SizedBox(width: 10.w),
           Expanded(
             child: _statCard(
-              'Rating',
+              'Rating'.translate(),
               '${_currentLawyer!.rating.toStringAsFixed(1)} ⭐',
               Icons.star_outline_rounded,
               isDark,
@@ -607,7 +671,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
           SizedBox(width: 10.w),
           Expanded(
             child: _statCard(
-              'Reviews',
+              'Reviews'.translate(),
               '${_currentLawyer!.reviewsCount}',
               Icons.people_outline_rounded,
               isDark,
@@ -876,7 +940,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
             )
           else
             SizedBox(
-              height: 85.h,
+              height: 98.h,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: _availableDates.length,
@@ -924,7 +988,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                           Text(
                             dayName,
                             style: GoogleFonts.cairo(
-                              fontSize: 13.sp,
+                              fontSize: 12.sp,
                               fontWeight: FontWeight.w600,
                               color: isSelected
                                   ? Colors.white70
@@ -936,7 +1000,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                           Text(
                             dayNum,
                             style: GoogleFonts.cairo(
-                              fontSize: 20.sp,
+                              fontSize: 18.sp,
                               fontWeight: FontWeight.w800,
                               color: isSelected
                                   ? Colors.white
@@ -948,7 +1012,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                           Text(
                             monthName,
                             style: GoogleFonts.cairo(
-                              fontSize: 12.sp,
+                              fontSize: 11.sp,
                               fontWeight: FontWeight.w600,
                               color: isSelected
                                   ? Colors.white70
@@ -997,78 +1061,96 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                       style: GoogleFonts.cairo(color: Colors.grey),
                     );
                   }
-                  return Wrap(
-                    spacing: 12.w,
-                    runSpacing: 12.h,
-                    children: slots.map((slot) {
-                      final isSelected = _selectedTimeSlot == slot;
-                      return GestureDetector(
-                        onTap: () => setState(
-                          () => _selectedTimeSlot = isSelected ? null : slot,
-                        ),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 16.w,
-                            vertical: 10.h,
+                  return SizedBox(
+                    height: 60.h,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: slots.length,
+                      itemBuilder: (context, index) {
+                        final slot = slots[index];
+                        final isSelected = _selectedTimeSlot == slot;
+                        final parts = slot.split(' - ');
+                        final start = parts.length > 1 ? parts[0] : slot;
+                        final end = parts.length > 1 ? parts[1] : '';
+                        
+                        return GestureDetector(
+                          onTap: () => setState(
+                            () => _selectedTimeSlot = isSelected ? null : slot,
                           ),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? AppColors.navyBlue
-                                : (isDark
-                                      ? const Color(0xFF1C2A40)
-                                      : Colors.white),
-                            borderRadius: BorderRadius.circular(12.r),
-                            border: Border.all(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            width: 100.w,
+                            margin: EdgeInsets.only(right: 12.w),
+                            decoration: BoxDecoration(
                               color: isSelected
                                   ? AppColors.navyBlue
                                   : (isDark
-                                        ? const Color(0xFF334866)
-                                        : Colors.grey.shade300),
-                              width: isSelected ? 1.5 : 1,
-                            ),
-                            boxShadow: isSelected
-                                ? [
-                                    BoxShadow(
-                                      color: AppColors.navyBlue.withOpacity(
-                                        0.2,
+                                        ? const Color(0xFF1C2A40)
+                                        : Colors.white),
+                              borderRadius: BorderRadius.circular(12.r),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.navyBlue
+                                    : (isDark
+                                          ? const Color(0xFF334866)
+                                          : Colors.grey.shade300),
+                                width: isSelected ? 1.5 : 1,
+                              ),
+                              boxShadow: isSelected
+                                  ? [
+                                      BoxShadow(
+                                        color: AppColors.navyBlue.withOpacity(0.08),
+                                        blurRadius: 10,
+                                        offset: Offset(0, 4.h),
                                       ),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 4),
+                                    ]
+                                  : [],
+                            ),
+                            alignment: Alignment.center,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  start,
+                                  style: GoogleFonts.cairo(
+                                    color: isSelected
+                                        ? Colors.white
+                                        : (isDark
+                                              ? Colors.white70
+                                              : AppColors.navyBlue),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16.sp,
+                                  ),
+                                ),
+                                if (end.isNotEmpty)
+                                  Text(
+                                    end,
+                                    style: GoogleFonts.cairo(
+                                      color: isSelected
+                                          ? Colors.white70
+                                          : (isDark
+                                                ? Colors.white54
+                                                : Colors.grey.shade600),
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13.sp,
                                     ),
-                                  ]
-                                : [],
-                          ),
-                          child: Text(
-                            slot,
-                            style: GoogleFonts.cairo(
-                              color: isSelected
-                                  ? Colors.white
-                                  : (isDark
-                                        ? Colors.white70
-                                        : AppColors.navyBlue),
-                              fontWeight: isSelected
-                                  ? FontWeight.w800
-                                  : FontWeight.w600,
-                              fontSize: 13.sp,
+                                  ),
+                              ],
                             ),
                           ),
-                        ),
-                      );
-                    }).toList(),
+                        );
+                      },
+                    ),
                   );
                 } else {
                   return Container(
-                    width: double.infinity,
                     padding: EdgeInsets.all(16.r),
                     decoration: BoxDecoration(
                       color: AppColors.legalGold.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12.r),
-                      border: Border.all(
-                        color: AppColors.legalGold.withOpacity(0.3),
-                      ),
                     ),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Icon(
                           Icons.access_time_filled_rounded,
@@ -1084,12 +1166,17 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        Text(
-                          '${_formatMinsTo12h(_parseTimeToMinutes(hours['start']!))} to ${_formatMinsTo12h(_parseTimeToMinutes(hours['end']!))}',
-                          style: GoogleFonts.cairo(
-                            fontSize: 16.sp,
-                            color: isDark ? Colors.white : AppColors.navyBlue,
-                            fontWeight: FontWeight.w800,
+                        SizedBox(height: 4.h),
+                        Center(
+                          child: Text(
+                            '${_formatMinsTo12h(_parseTimeToMinutes(hours['start']!))}  —  ${_formatMinsTo12h(_parseTimeToMinutes(hours['end']!))}',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.cairo(
+                              fontSize: 18.sp,
+                              color: isDark ? Colors.white : AppColors.navyBlue,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.2,
+                            ),
                           ),
                         ),
                       ],
@@ -1099,6 +1186,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
               },
             ),
           ],
+          // End of Dynamic Time Section
         ],
       ),
     );
@@ -1120,8 +1208,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
         onTap: isAvailable
             ? () => setState(() {
                 _selectedConsultationType = type;
-                _selectedTimeSlot =
-                    null; // Reset time slot when switching modes
+                _selectedTimeSlot = null; // Reset time slot when switching modes
               })
             : null,
         child: Opacity(
@@ -1141,39 +1228,35 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                 width: isSelected ? 2.0 : 1.0,
               ),
             ),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.center,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(icon, color: AppColors.legalGold, size: 24.sp),
-                  SizedBox(height: 8.h),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.cairo(
-                      fontSize: 13.sp,
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? Colors.white : AppColors.navyBlue,
-                    ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: AppColors.legalGold, size: 24.sp),
+                SizedBox(height: 8.h),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.cairo(
+                    fontSize: 13.sp,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : AppColors.navyBlue,
                   ),
-                  SizedBox(height: 4.h),
-                  Text(
-                    feeText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.cairo(
-                      fontSize: 14.sp,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? Colors.white70 : Colors.grey.shade800,
-                    ),
+                ),
+                SizedBox(height: 4.h),
+                Text(
+                  feeText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.cairo(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : AppColors.navyBlue,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
@@ -1187,213 +1270,149 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
       isDark: isDark,
       child: Column(
         children: [
-          _reviewItem(
-            'Ahmed Mahmoud',
-            '10 October 2025',
-            5,
-            'Very respectful lawyer with a great conscience. Listened to my case details with care and reassured me. Highly recommended.',
-            isDark,
+          Row(
+            children: [
+              Text(
+                '${_currentLawyer!.rating.toStringAsFixed(1)} ⭐',
+                style: GoogleFonts.cairo(
+                  fontSize: 24.sp,
+                  fontWeight: FontWeight.w900,
+                  color: isDark ? Colors.white : AppColors.navyBlue,
+                ),
+              ),
+              SizedBox(width: 12.w),
+              Text(
+                'Based on ${_currentLawyer!.reviewsCount} reviews',
+                style: GoogleFonts.cairo(
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white70 : Colors.grey.shade600,
+                ),
+              ),
+            ],
           ),
-          Padding(
-            padding: EdgeInsets.symmetric(vertical: 12.h),
-            child: Divider(
-              color: isDark ? const Color(0xFF334866) : Colors.grey.shade200,
+          SizedBox(height: 16.h),
+          Center(
+            child: Text(
+              'No reviews available yet.',
+              style: GoogleFonts.cairo(
+                color: isDark ? Colors.white54 : Colors.grey.shade500,
+              ),
             ),
-          ),
-          _reviewItem(
-            'Sarah Medhat',
-            '25 September 2025',
-            4,
-            'Respectable office and appointments are exactly on time, but the consultation fee was a bit high.',
-            isDark,
           ),
         ],
       ),
     );
   }
 
-  Widget _reviewItem(
-    String name,
-    String date,
-    int rating,
-    String comment,
-    bool isDark,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              name,
-              style: GoogleFonts.cairo(
-                fontSize: 15.sp,
-                fontWeight: FontWeight.w800,
-                color: isDark ? Colors.white : AppColors.navyBlue,
-              ),
-            ),
-            Row(
-              children: List.generate(5, (index) {
-                return Icon(
-                  index < rating
-                      ? Icons.star_rounded
-                      : Icons.star_border_rounded,
-                  color: AppColors.legalGold,
-                  size: 16.sp,
-                );
-              }),
-            ),
-          ],
-        ),
-        SizedBox(height: 4.h),
-        Text(
-          date,
-          style: GoogleFonts.cairo(
-            fontSize: 12.sp,
-            color: Colors.grey.shade500,
-          ),
-        ),
-        SizedBox(height: 8.h),
-        Text(
-          comment,
-          style: GoogleFonts.cairo(
-            fontSize: 14.sp,
-            fontWeight: FontWeight.w600,
-            color: isDark ? Colors.white70 : Colors.black87,
-            height: 1.4,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildStickyBottomBar(bool isDark) {
-    final bool canBook =
-        _selectedDate != null &&
-        (_selectedConsultationType == 'office' ||
-            (_selectedConsultationType == 'online' &&
-                _selectedTimeSlot != null));
+    final currentFee = _selectedConsultationType == 'online'
+        ? _currentLawyer!.onlineFee
+        : _currentLawyer!.inOfficeFee;
+    final feeDisplay = currentFee != null && currentFee > 0
+        ? '${_formatFee(currentFee)} EGP'
+        : 'Not Available';
 
-    String feeDisplay = '--- EGP';
-    double currentFee = _currentLawyer!.fee;
-    if (_selectedConsultationType == 'online') {
-      currentFee = _currentLawyer!.onlineFee ?? _currentLawyer!.fee;
-    } else if (_selectedConsultationType == 'office') {
-      currentFee = _currentLawyer!.inOfficeFee ?? _currentLawyer!.fee;
-    }
+    final bool canBook = _selectedDate != null &&
+        (_selectedConsultationType == 'office' || _selectedTimeSlot != null);
 
-    if (_selectedConsultationType == 'online') {
-      final val = _currentLawyer!.onlineFee ?? _currentLawyer!.fee;
-      feeDisplay = '${_formatFee(val)} EGP';
-    } else if (_selectedConsultationType == 'office') {
-      final val = _currentLawyer!.inOfficeFee ?? _currentLawyer!.fee;
-      feeDisplay = '${_formatFee(val)} EGP';
-    }
-
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-        child: Container(
-          padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 24.h),
-          decoration: BoxDecoration(
-            color: isDark
-                ? const Color(0xDD0F1726)
-                : Colors.white.withOpacity(0.85),
-            border: Border(
-              top: BorderSide(
-                color: isDark
-                    ? const Color(0xFF2A3850)
-                    : const Color(0xFFE6ECF5),
-              ),
-            ),
+    return Container(
+      padding: EdgeInsets.only(
+        left: 20.w,
+        right: 20.w,
+        top: 16.h,
+        bottom: MediaQuery.of(context).padding.bottom + 16.h,
+      ),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1C2A40) : Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
           ),
-          child: Row(
-            children: [
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Booking Fee',
-                    style: GoogleFonts.cairo(
-                      fontSize: 12.sp,
-                      color: isDark ? Colors.white70 : Colors.grey.shade600,
-                    ),
+        ],
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
+      ),
+      child: SafeArea(
+        child: Row(
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Booking Fee',
+                  style: GoogleFonts.cairo(
+                    fontSize: 12.sp,
+                    color: isDark ? Colors.white70 : Colors.grey.shade600,
                   ),
-                  Text(
-                    feeDisplay,
-                    style: GoogleFonts.cairo(
-                      fontSize: 18.sp,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? Colors.white : AppColors.navyBlue,
-                    ),
+                ),
+                Text(
+                  feeDisplay,
+                  style: GoogleFonts.cairo(
+                    fontSize: 18.sp,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : AppColors.navyBlue,
                   ),
-                ],
-              ),
-              SizedBox(width: 24.w),
-              Expanded(
-                child: SizedBox(
-                  height: 48.h,
-                  child: ElevatedButton(
-                    onPressed: canBook
-                        ? () {
-                            String timeRangeToPass = '';
-                            if (_selectedConsultationType == 'online') {
-                              timeRangeToPass = _selectedTimeSlot!;
-                            } else {
-                              final hours = _getStartEndTimeForDate(
-                                _selectedDate!,
-                              );
-                              timeRangeToPass =
-                                  '${_formatMinsTo12h(_parseTimeToMinutes(hours!['start']!))} to ${_formatMinsTo12h(_parseTimeToMinutes(hours['end']!))}';
-                            }
-                            final dayLabel = DateFormat(
-                              'EEEE, d MMM yyyy',
-                            ).format(_selectedDate!);
+                ),
+              ],
+            ),
+            SizedBox(width: 24.w),
+            Expanded(
+              child: SizedBox(
+                height: 52.h,
+                child: ElevatedButton(
+                  onPressed: canBook
+                      ? () {
+                          final dayLabel =
+                              DateFormat('EEEE, d MMM yyyy').format(_selectedDate!);
+                          final timeRangeToPass =
+                              _selectedConsultationType == 'office'
+                                  ? 'Office Hours'
+                                  : _selectedTimeSlot!;
 
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => BookingConfirmationScreen(
-                                  lawyerId: _currentLawyer!.id,
-                                  lawyerName: _currentLawyer!.name,
-                                  lawyerImage: _currentLawyer!.imageUrl,
-                                  lawyerSpecialization:
-                                      _currentLawyer!.specialization,
-                                  dateLabel: dayLabel,
-                                  timeRange: timeRangeToPass,
-                                  officeAddress:
-                                      _currentLawyer!.fullAddress ??
-                                      _currentLawyer!.location,
-                                  consultationType: _selectedConsultationType,
-                                  fee: currentFee,
-                                ),
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => BookingConfirmationScreen(
+                                lawyerId: _currentLawyer!.id,
+                                lawyerName: _currentLawyer!.name,
+                                lawyerImage: _currentLawyer!.imageUrl,
+                                lawyerSpecialization:
+                                    _currentLawyer!.specialization,
+                                dateLabel: dayLabel,
+                                timeRange: timeRangeToPass,
+                                officeAddress:
+                                    _currentLawyer!.fullAddress ??
+                                    _currentLawyer!.location,
+                                consultationType: _selectedConsultationType,
+                                fee: currentFee ?? 0.0,
                               ),
-                            );
-                          }
-                        : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.legalGold,
-                      disabledBackgroundColor: Colors.grey.shade300,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16.r),
-                      ),
-                      elevation: 0,
+                            ),
+                          );
+                        }
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.legalGold,
+                    disabledBackgroundColor: Colors.grey.shade300,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16.r),
                     ),
-                    child: Text(
-                      'Book Now',
-                      style: GoogleFonts.cairo(
-                        fontSize: 16.sp,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    'Book Now',
+                    style: GoogleFonts.cairo(
+                      fontSize: 16.sp,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

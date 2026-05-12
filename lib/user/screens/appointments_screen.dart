@@ -84,17 +84,20 @@ class AppointmentsScreen extends StatelessWidget {
 
         final apptRef = firestore.collection('appointments').doc(docId);
 
-        final String type = data['consultationType']?.toString() ?? data['type']?.toString() ?? 'online';
+        final String type =
+            data['consultationType']?.toString() ??
+            data['type']?.toString() ??
+            'online';
         final Map<String, dynamic> updates = {
           'status': 'cancelled',
           'bookingStatus': 'cancelled',
         };
-        
+
         if (isPaid) {
           updates['paymentStatus'] = 'refunded';
           updates['refundedAmount'] = refundAmount;
         }
-        
+
         if (type == 'online') {
           updates['meetingLink'] = FieldValue.delete();
         } else if (type == 'office') {
@@ -102,7 +105,7 @@ class AppointmentsScreen extends StatelessWidget {
           updates['address'] = FieldValue.delete();
           updates['location'] = FieldValue.delete();
         }
-        
+
         batch.update(apptRef, updates);
 
         if (isPaid && refundAmount > 0) {
@@ -114,11 +117,17 @@ class AppointmentsScreen extends StatelessWidget {
             });
 
             final transRef = firestore.collection('transactions').doc();
-            batch.set(transRef, {
+            final userTransRef = firestore
+                .collection('users')
+                .doc(currentUser.uid)
+                .collection('transactions')
+                .doc();
+            batch.set(userTransRef, {
               'userId': currentUser.uid,
               'amount': refundAmount,
               'type': 'refund',
-              'description': 'Refund to Wallet (${paymentMethod.toUpperCase()} payment cancellation) - 200 EGP Fee',
+              'description':
+                  'Refund to Wallet (${paymentMethod.toUpperCase()} payment cancellation) - 200 EGP Fee',
               'isWalletTransaction': true,
               'createdAt': FieldValue.serverTimestamp(),
             });
@@ -142,7 +151,9 @@ class AppointmentsScreen extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF1A2235) : const Color(0xFFF4F7FB),
+      backgroundColor: isDark
+          ? const Color(0xFF1A2235)
+          : const Color(0xFFF4F7FB),
       // الحل السحري: خليت الشاشة كلها تعمل سكرول مش الليستة بس
       body: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
@@ -164,7 +175,10 @@ class AppointmentsScreen extends StatelessWidget {
               child: SafeArea(
                 bottom: false,
                 child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 16.h),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 20.w,
+                    vertical: 16.h,
+                  ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -211,7 +225,9 @@ class AppointmentsScreen extends StatelessWidget {
             // ==========================================
             Container(
               width: double.infinity,
-              margin: EdgeInsets.only(top: 140.h), // هنا بنعمل التداخل مع الهيدر
+              margin: EdgeInsets.only(
+                top: 140.h,
+              ), // هنا بنعمل التداخل مع الهيدر
               child: currentUser == null
                   ? _buildUnauthenticatedView(isDark)
                   : _buildStreamBuilder(currentUser.uid, isDark),
@@ -268,9 +284,7 @@ class AppointmentsScreen extends StatelessWidget {
                 color: isDark ? const Color(0xFF24344C) : Colors.white,
                 shape: BoxShape.circle,
               ),
-              child: const CircularProgressIndicator(
-                color: AppColors.navyBlue,
-              ),
+              child: const CircularProgressIndicator(color: AppColors.navyBlue),
             ),
           );
         }
@@ -282,7 +296,9 @@ class AppointmentsScreen extends StatelessWidget {
             child: Text(
               'Error loading appointments:\n${snapshot.error}'.translate(),
               textAlign: TextAlign.center,
-              style: AppTypography.bodyMedium(context).copyWith(color: Colors.red),
+              style: AppTypography.bodyMedium(
+                context,
+              ).copyWith(color: Colors.red),
             ),
           );
         }
@@ -297,7 +313,7 @@ class AppointmentsScreen extends StatelessWidget {
           if (aTime == null && bTime == null) return 0;
           if (aTime == null) return 1;
           if (bTime == null) return -1;
-          return bTime.compareTo(aTime); 
+          return bTime.compareTo(aTime);
         });
 
         if (docs.isEmpty) {
@@ -306,7 +322,8 @@ class AppointmentsScreen extends StatelessWidget {
 
         return ListView.separated(
           shrinkWrap: true, // مهم جداً عشان تشتغل جوه الـ SingleChildScrollView
-          physics: const NeverScrollableScrollPhysics(), // بنقفل السكرول الداخلي عشان الشاشة كلها تسكرول
+          physics:
+              const NeverScrollableScrollPhysics(), // بنقفل السكرول الداخلي عشان الشاشة كلها تسكرول
           padding: EdgeInsets.fromLTRB(20.w, 0, 20.w, 40.h),
           itemCount: docs.length,
           separatorBuilder: (context, index) => SizedBox(height: 16.h),
@@ -314,28 +331,35 @@ class AppointmentsScreen extends StatelessWidget {
             final doc = docs[index];
             final data = doc.data() as Map<String, dynamic>;
 
-            final lawyerName = data['lawyerName'] ?? data['lawyer'] ?? 'Unknown Lawyer';
+            final lawyerName =
+                data['lawyerName'] ?? data['lawyer'] ?? 'Unknown Lawyer';
             final type = data['consultationType'] ?? data['type'] ?? 'online';
             final status = data['status'] ?? 'pending';
             final isCancelled = status == 'cancelled';
 
-            final address = data['officeAddress'] ??
+            final address =
+                data['officeAddress'] ??
                 data['address'] ??
                 data['location'] ??
-                (isCancelled ? 'Not available'.translate() : 'Location not specified'.translate());
+                (isCancelled
+                    ? 'Not available'.translate()
+                    : 'Location not specified'.translate());
             final lawyerImage = data['lawyerImage']?.toString().trim() ?? '';
-            final meetingLink = data['meetingLink']?.toString().trim() ??
+            final meetingLink =
+                data['meetingLink']?.toString().trim() ??
                 (isCancelled ? '' : 'https://meet.mezaan.com/room/${doc.id}');
 
             final dayStr = data['day']?.toString() ?? '';
             final dateStr = data['dateLabel'] ?? data['date'] ?? 'Pending Date';
-            final dateDisplay = dayStr.isNotEmpty && !dateStr.toString().contains(dayStr)
+            final dateDisplay =
+                dayStr.isNotEmpty && !dateStr.toString().contains(dayStr)
                 ? '$dayStr, $dateStr'
                 : dateStr.toString();
             final timeStr = data['timeRange'] ?? data['time'] ?? 'Pending Time';
             final paymentMethod = data['paymentMethod'] ?? 'Cash/Wallet';
 
-            final hasImage = lawyerImage.isNotEmpty &&
+            final hasImage =
+                lawyerImage.isNotEmpty &&
                 Uri.tryParse(lawyerImage)?.hasAbsolutePath == true;
 
             return Container(
@@ -344,7 +368,9 @@ class AppointmentsScreen extends StatelessWidget {
                 color: isDark ? const Color(0xFF24344C) : Colors.white,
                 borderRadius: BorderRadius.circular(24.r),
                 border: Border.all(
-                  color: isDark ? const Color(0xFF2A3550) : const Color(0xFFE6ECF5),
+                  color: isDark
+                      ? const Color(0xFF2A3550)
+                      : const Color(0xFFE6ECF5),
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -363,7 +389,9 @@ class AppointmentsScreen extends StatelessWidget {
                       CircleAvatar(
                         radius: 30.r,
                         backgroundColor: AppColors.navyBlue.withOpacity(0.08),
-                        backgroundImage: hasImage ? NetworkImage(lawyerImage) : null,
+                        backgroundImage: hasImage
+                            ? NetworkImage(lawyerImage)
+                            : null,
                         child: !hasImage
                             ? Icon(
                                 Icons.gavel_rounded,
@@ -380,7 +408,9 @@ class AppointmentsScreen extends StatelessWidget {
                             Text(
                               lawyerName,
                               style: GoogleFonts.cairo(
-                                color: isDark ? Colors.white : AppColors.navyBlue,
+                                color: isDark
+                                    ? Colors.white
+                                    : AppColors.navyBlue,
                                 fontSize: 18.sp,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -410,7 +440,9 @@ class AppointmentsScreen extends StatelessWidget {
                   Padding(
                     padding: EdgeInsets.symmetric(vertical: 20.h),
                     child: Divider(
-                      color: isDark ? const Color(0xFF334866) : Colors.grey.shade200,
+                      color: isDark
+                          ? const Color(0xFF334866)
+                          : Colors.grey.shade200,
                       height: 1,
                       thickness: 1,
                     ),
@@ -437,7 +469,8 @@ class AppointmentsScreen extends StatelessWidget {
                       Icons.location_on_rounded,
                       'Location'.translate(),
                       address,
-                      isActionable: address.isNotEmpty &&
+                      isActionable:
+                          address.isNotEmpty &&
                           address != 'Location not specified'.translate() &&
                           address != 'Not available'.translate(),
                       actionText: 'Open in Map'.translate(),
@@ -451,7 +484,9 @@ class AppointmentsScreen extends StatelessWidget {
                       context,
                       Icons.video_camera_front_rounded,
                       'Meeting Link'.translate(),
-                      meetingLink.isEmpty ? 'Not available'.translate() : meetingLink,
+                      meetingLink.isEmpty
+                          ? 'Not available'.translate()
+                          : meetingLink,
                       isActionable: meetingLink.isNotEmpty,
                       actionText: 'Join Meeting'.translate(),
                       onActionTap: () => _launchUrl(context, meetingLink),
@@ -463,9 +498,13 @@ class AppointmentsScreen extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: () => _cancelAppointment(context, doc.id, data),
+                        onPressed: () =>
+                            _cancelAppointment(context, doc.id, data),
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFFC63F3F), width: 1.2),
+                          side: const BorderSide(
+                            color: Color(0xFFC63F3F),
+                            width: 1.2,
+                          ),
                           foregroundColor: const Color(0xFFC63F3F),
                           backgroundColor: isDark
                               ? const Color(0xFF3A2830)
@@ -531,17 +570,15 @@ class AppointmentsScreen extends StatelessWidget {
             style: GoogleFonts.cairo(
               fontSize: 22.sp,
               fontWeight: FontWeight.w700,
-            ).copyWith(
-              color: isDark ? Colors.white : AppColors.navyBlue,
-            ),
+            ).copyWith(color: isDark ? Colors.white : AppColors.navyBlue),
           ),
           SizedBox(height: 8.h),
           Text(
             'Book a consultation to see it here.'.translate(),
             textAlign: TextAlign.center,
-            style: AppTypography.bodyMedium(context).copyWith(
-              color: Colors.grey.shade600,
-            ),
+            style: AppTypography.bodyMedium(
+              context,
+            ).copyWith(color: Colors.grey.shade600),
           ),
         ],
       ),
@@ -579,7 +616,8 @@ class AppointmentsScreen extends StatelessWidget {
                 style: GoogleFonts.cairo(
                   fontSize: 12.sp,
                   fontWeight: FontWeight.w600,
-                  color: (isDark ? Colors.white : AppColors.navyBlue).withOpacity(0.6),
+                  color: (isDark ? Colors.white : AppColors.navyBlue)
+                      .withOpacity(0.6),
                 ),
               ),
               SizedBox(height: 4.h),

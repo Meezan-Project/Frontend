@@ -1603,7 +1603,7 @@ class _CustomDropdownField extends StatelessWidget {
         ),
         SizedBox(height: 6.h),
         DropdownButtonFormField<String>(
-          value: normalizedValue,
+          initialValue: normalizedValue,
           isExpanded: true,
           items: items
               .map(

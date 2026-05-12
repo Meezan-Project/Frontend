@@ -19,8 +19,10 @@ class TransactionHistoryScreen extends StatelessWidget {
       customPadding: AppSpacing.screenPadding(context),
       child: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
+            .collection('users')
+            .doc(FirebaseAuth.instance.currentUser?.uid)
             .collection('transactions')
-            .where('userId', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+            .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {

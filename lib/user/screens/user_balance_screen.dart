@@ -199,12 +199,11 @@ class UserBalanceScreen extends StatelessWidget {
                     Expanded(
                       child: StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(FirebaseAuth.instance.currentUser?.uid)
                             .collection('transactions')
-                            .where(
-                              'userId',
-                              isEqualTo: FirebaseAuth.instance.currentUser?.uid,
-                            )
                             .where('isWalletTransaction', isEqualTo: true)
+                            .orderBy('createdAt', descending: true)
                             .snapshots(),
                         builder: (context, snapshot) {
                           if (snapshot.connectionState ==

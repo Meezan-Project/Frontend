@@ -326,6 +326,7 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
         'userEmail': _userEmail,
         'lawyerId': widget.lawyerId,
         'lawyerName': widget.lawyerName,
+        'lawyerImage': widget.lawyerImage,
         'day': widget.dateLabel,
         'time': widget.timeRange,
         'officeAddress': widget.officeAddress,
@@ -344,15 +345,41 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
         final userRef = firestore.collection('users').doc(user.uid);
         batch.update(userRef, {'balance': FieldValue.increment(-widget.fee)});
 
-        final transRef = firestore.collection('transactions').doc();
-        batch.set(transRef, {
+        // Add transaction to user's sub-collection
+        final userTransRef = firestore
+            .collection('users')
+            .doc(user.uid)
+            .collection('transactions')
+            .doc();
+        batch.set(userTransRef, {
           'userId': user.uid,
+          'lawyerId': widget.lawyerId,
           'amount': -widget.fee,
           'type': 'booking_payment',
           'description': 'Consultation Booking - ${widget.lawyerName}',
           'isWalletTransaction': true,
           'createdAt': FieldValue.serverTimestamp(),
         });
+
+        // Add transaction to lawyer's sub-collection
+        final lawyerTransRef = firestore
+            .collection('lawyers')
+            .doc(widget.lawyerId)
+            .collection('transactions')
+            .doc();
+        batch.set(lawyerTransRef, {
+          'userId': user.uid,
+          'lawyerId': widget.lawyerId,
+          'amount': widget.fee,
+          'type': 'booking_payment',
+          'description': 'Consultation Booking from $_userName',
+          'isWalletTransaction': true,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        // Update lawyer's balance
+        final lawyerRef = firestore.collection('lawyers').doc(widget.lawyerId);
+        batch.update(lawyerRef, {'balance': FieldValue.increment(widget.fee)});
       }
 
       await batch.commit();

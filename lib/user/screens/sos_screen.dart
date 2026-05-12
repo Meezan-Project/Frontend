@@ -7,7 +7,10 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+const int _kMaxRecordingSeconds = 15 * 60; // 15 minutes
 
 class SOSScreen extends StatefulWidget {
   const SOSScreen({super.key});
@@ -22,8 +25,9 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
   bool _isRecording = false;
-  int _remainingRecordingSeconds = 15 * 60; // 15 minutes
+  int _remainingRecordingSeconds = _kMaxRecordingSeconds;
   Timer? _recordingTimer;
+  String? _activeAlertDocId;
 
   @override
   void initState() {
@@ -44,11 +48,32 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
 
   Future<void> _initializeCamera() async {
     try {
+      // Explicitly request Camera and Microphone permissions
+      final camStatus = await Permission.camera.request();
+      final micStatus = await Permission.microphone.request();
+
+      if (!camStatus.isGranted || !micStatus.isGranted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Camera & Microphone permissions are required for SOS.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+
       final cameras = await availableCameras();
       if (cameras.isNotEmpty) {
-        // Just use the first camera for the preview
+        // Prioritize the back camera for SOS situations, fallback to any camera
+        final backCamera = cameras.firstWhere(
+          (c) => c.lensDirection == CameraLensDirection.back,
+          orElse: () => cameras.first,
+        );
         _cameraController = CameraController(
-          cameras.first,
+          backCamera,
           ResolutionPreset.medium,
           enableAudio: true, // Enable audio for real recording
         );
@@ -65,6 +90,18 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
   }
 
   void _onSOSPressed() {
+    // CRITICAL: Ensure user is logged in before starting SOS
+    if (FirebaseAuth.instance.currentUser == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error: You must be logged in to send an SOS alert.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return; // Stop execution
+    }
     if (!_isRecording) {
       _startSOS();
     }
@@ -73,7 +110,7 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
   void _startSOS() {
     setState(() {
       _isRecording = true;
-      _remainingRecordingSeconds = 15 * 60;
+      _remainingRecordingSeconds = _kMaxRecordingSeconds;
     });
 
     _recordingTimer?.cancel();
@@ -92,6 +129,8 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
   Future<void> _startCameraRecording() async {
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       try {
+        // Prepare encoders to ensure audio is captured correctly and synced
+        await _cameraController!.prepareForVideoRecording();
         await _cameraController!.startVideoRecording();
       } catch (e) {
         debugPrint('Error starting recording: $e');
@@ -109,6 +148,16 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
       if (permission == LocationPermission.deniedForever) {
         // Handle this case, maybe show a dialog
         debugPrint("Location permission denied forever.");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Location permission is permanently denied. Please enable it in app settings.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
       if (permission == LocationPermission.whileInUse ||
           permission == LocationPermission.always) {
@@ -128,13 +177,19 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
     // This acts as the trigger. A backend Cloud Function should listen to this
     // and send the WhatsApp/SMS silently via Twilio or similar API.
     try {
-      final userId = FirebaseAuth.instance.currentUser?.uid ?? 'unknown_user';
-      await FirebaseFirestore.instance.collection('sos_alerts').add({
-        'userId': userId,
-        'location': locationText,
-        'timestamp': FieldValue.serverTimestamp(),
-        'status': 'active',
-      });
+      // The user's existence is already checked in _onSOSPressed, so we can use !.
+      final userId = FirebaseAuth.instance.currentUser!.uid;
+      final docRef = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('sos_alerts')
+          .add({
+            'userId': userId,
+            'location': locationText,
+            'timestamp': FieldValue.serverTimestamp(),
+            'status': 'active',
+          });
+      _activeAlertDocId = docRef.id;
     } catch (e) {
       debugPrint('Failed to send silent alert: $e');
     }
@@ -146,7 +201,7 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
         _cameraController!.value.isRecordingVideo) {
       try {
         final XFile videoFile = await _cameraController!.stopVideoRecording();
-        final duration = (15 * 60) - _remainingRecordingSeconds;
+        final duration = _kMaxRecordingSeconds - _remainingRecordingSeconds;
 
         _uploadVideoToSupabase(videoFile.path, duration);
       } catch (e) {
@@ -162,31 +217,126 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _uploadVideoToSupabase(String filePath, int duration) async {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Uploading secure evidence... Please wait.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+
     try {
-      final userId = FirebaseAuth.instance.currentUser?.uid ?? 'unknown_user';
-      final fileName = '${userId}_${DateTime.now().millisecondsSinceEpoch}.mp4';
+      final userId = FirebaseAuth.instance.currentUser?.uid;
+      if (userId == null) {
+        debugPrint('Upload failed: User is not authenticated.');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Upload failed: User session expired.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      final ext = filePath.split('.').last;
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final storagePath = '$userId/$fileName'; // Creates a folder for the user
       final file = File(filePath);
+
+      if (!await file.exists()) {
+        throw Exception('Video file not found before upload: $filePath');
+      }
 
       // Upload to Supabase Bucket 'sos_videos'
       await Supabase.instance.client.storage
           .from('sos_videos')
-          .upload(fileName, file);
+          .upload(
+            storagePath,
+            file,
+            fileOptions: const FileOptions(contentType: 'video/mp4'),
+          );
 
-      // Get public URL of the uploaded video
-      final videoUrl = Supabase.instance.client.storage
+      // CRITICAL FIX: Use createSignedUrl instead of getPublicUrl.
+      // If the Supabase bucket is private, getPublicUrl gives a broken link.
+      // createSignedUrl gives a guaranteed playable link.
+      final videoUrl = await Supabase.instance.client.storage
           .from('sos_videos')
-          .getPublicUrl(fileName);
+          .createSignedUrl(
+            storagePath,
+            60 * 60 * 24 * 365 * 10,
+          ); // Valid for 10 years
 
-      // Save the record to Firestore to show in SOS Evidence History
-      await FirebaseFirestore.instance.collection('sos_requests').add({
-        'userId': userId,
-        'videoUrl': videoUrl,
-        'timestamp': FieldValue.serverTimestamp(),
-        'duration': duration,
-        'status': 'saved',
-      });
+      if (_activeAlertDocId != null) {
+        // Update the existing alert record to include the videoUrl
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('sos_alerts')
+            .doc(_activeAlertDocId)
+            .update({
+              'videoUrl': videoUrl,
+              'duration': duration,
+              'status': 'saved',
+            });
+      } else {
+        // Fallback: Create a new record if silent alert somehow didn't store the ID
+        await FirebaseFirestore.instance.collection('sos_alerts').add({
+          'userId': userId, // Now using the verified non-null userId
+          'videoUrl': videoUrl,
+          'timestamp': FieldValue.serverTimestamp(),
+          'duration': duration,
+          'status': 'saved',
+          'location': 'Location unavailable',
+        });
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('sos_alerts')
+            .add({
+              'userId': userId,
+              'videoUrl': videoUrl,
+              'timestamp': FieldValue.serverTimestamp(),
+              'duration': duration,
+              'status': 'saved',
+              'location': 'Location unavailable',
+            });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Evidence uploaded and saved successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } on StorageException catch (e) {
+      debugPrint('Supabase Storage Error: ${e.message}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Storage Access Error: ${e.message} (Check Supabase Policies)',
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('Error uploading video to Supabase: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Upload failed: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
 
@@ -277,91 +427,105 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 600;
 
-    return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF0A0E27), Color(0xFF1A1A3E)],
-          ),
-        ),
-        child: Stack(
-          children: [
-            // Camera Preview Background
-            if (_isCameraInitialized && _cameraController != null)
-              Positioned.fill(
-                child: Opacity(
-                  opacity: 0.4, // Lower opacity to keep text readable
-                  child: CameraPreview(_cameraController!),
-                ),
-              ),
-            // Glow background effect
-            Positioned.fill(
-              child: AnimatedBuilder(
-                animation: _glowController,
-                builder: (context, child) {
-                  return Container(
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        center: Alignment.center,
-                        radius: 1.5,
-                        colors: [
-                          Colors.red.withOpacity(0.1 * _glowController.value),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
+    return PopScope(
+      canPop: !_isRecording,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_isRecording) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please stop the SOS alert to go back.'),
+              backgroundColor: Colors.red,
             ),
-            // Main content
-            SafeArea(
-              child: SizedBox(
-                width: double.infinity,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return SingleChildScrollView(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight: constraints.maxHeight,
-                          minWidth: constraints.maxWidth,
+          );
+        }
+      },
+      child: Scaffold(
+        body: Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF0A0E27), Color(0xFF1A1A3E)],
+            ),
+          ),
+          child: Stack(
+            children: [
+              // Camera Preview Background
+              if (_isCameraInitialized && _cameraController != null)
+                Positioned.fill(
+                  child: Opacity(
+                    opacity: 0.4, // Lower opacity to keep text readable
+                    child: CameraPreview(_cameraController!),
+                  ),
+                ),
+              // Glow background effect
+              Positioned.fill(
+                child: AnimatedBuilder(
+                  animation: _glowController,
+                  builder: (context, child) {
+                    return Container(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          center: Alignment.center,
+                          radius: 1.5,
+                          colors: [
+                            Colors.red.withOpacity(0.1 * _glowController.value),
+                            Colors.transparent,
+                          ],
                         ),
-                        child: _isRecording
-                            ? _buildRecordingUI()
-                            : Column(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  _buildHeader(isMobile),
-                                  _buildSOSButton(isMobile),
-                                ],
-                              ),
                       ),
                     );
                   },
                 ),
               ),
-            ),
-            // Back Arrow to Dashboard
-            if (!_isRecording)
-              Positioned(
-                top: MediaQuery.of(context).padding.top + 16.h,
-                left: 16.w,
-                child: IconButton(
-                  icon: Icon(
-                    Icons.arrow_back_ios_new_rounded,
-                    color: Colors.white,
-                    size: 28.sp,
+              // Main content
+              SafeArea(
+                child: SizedBox(
+                  width: double.infinity,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: constraints.maxHeight,
+                            minWidth: constraints.maxWidth,
+                          ),
+                          child: _isRecording
+                              ? _buildRecordingUI()
+                              : Column(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    _buildHeader(isMobile),
+                                    _buildSOSButton(isMobile),
+                                  ],
+                                ),
+                        ),
+                      );
+                    },
                   ),
-                  onPressed: () => Navigator.of(context).pop(),
                 ),
               ),
-          ],
+              // Back Arrow to Dashboard
+              if (!_isRecording)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 16.h,
+                  left: 16.w,
+                  child: IconButton(
+                    icon: Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      color: Colors.white,
+                      size: 28.sp,
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

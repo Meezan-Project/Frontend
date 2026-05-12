@@ -455,9 +455,7 @@ class _SavedCardsScreenState extends State<SavedCardsScreen> {
                                     side: BorderSide(
                                       color: isDark
                                           ? Colors.white54
-                                          : AppColors.navyBlue.withValues(
-                                              alpha: 0.5,
-                                            ),
+                                          : AppColors.navyBlue.withOpacity(0.5),
                                       width: 1.5,
                                     ),
                                   ),
@@ -474,9 +472,7 @@ class _SavedCardsScreenState extends State<SavedCardsScreen> {
                                               : AppColors.navyBlue)
                                         : (isDark
                                               ? Colors.white54
-                                              : AppColors.textDark.withValues(
-                                                  alpha: 0.6,
-                                                )),
+                                              : AppColors.textDark.withOpacity(0.6)),
                                     fontWeight: card.isDefault
                                         ? FontWeight.w800
                                         : FontWeight.w600,
@@ -852,7 +848,7 @@ class _CardFace extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
+              color: Colors.black.withOpacity(0.18),
               blurRadius: 18,
               offset: Offset(0, 12.h),
             ),
@@ -923,7 +919,7 @@ class _CardFrontContent extends StatelessWidget {
               height: 30.h,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8.r),
-                color: Colors.white.withValues(alpha: 0.24),
+                color: Colors.white.withOpacity(0.24),
               ),
             ),
             const Spacer(),
@@ -935,9 +931,9 @@ class _CardFrontContent extends StatelessWidget {
           width: double.infinity,
           padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 9.h),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.12),
+            color: Colors.white.withOpacity(0.12),
             borderRadius: BorderRadius.circular(12.r),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+            border: Border.all(color: Colors.white.withOpacity(0.25)),
           ),
           child: Text(
             _formatCardNumber(numberText),
@@ -979,7 +975,7 @@ class _CardBackContent extends StatelessWidget {
         Container(
           width: double.infinity,
           height: 44.h,
-          color: Colors.black.withValues(alpha: 0.7),
+          color: Colors.black.withOpacity(0.7),
         ),
         SizedBox(height: 16.h),
         Align(
@@ -1009,7 +1005,7 @@ class _CardBackContent extends StatelessWidget {
           child: Text(
             'Secure card • Mezaan',
             style: GoogleFonts.cairo(
-              color: Colors.white.withValues(alpha: 0.88),
+              color: Colors.white.withOpacity(0.88),
               fontWeight: FontWeight.w600,
               fontSize: 11.sp,
             ),
@@ -1034,7 +1030,7 @@ class _CardMetaItem extends StatelessWidget {
         Text(
           label,
           style: GoogleFonts.cairo(
-            color: Colors.white.withValues(alpha: 0.82),
+            color: Colors.white.withOpacity(0.82),
             fontSize: 11.sp,
             fontWeight: FontWeight.w600,
           ),
@@ -1135,7 +1131,7 @@ class _PremiumHeader extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0D2345).withValues(alpha: 0.22),
+            color: const Color(0xFF0D2345).withOpacity(0.22),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -1147,7 +1143,7 @@ class _PremiumHeader extends StatelessWidget {
             width: 42.w,
             height: 42.h,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.15),
+              color: Colors.white.withOpacity(0.15),
               borderRadius: BorderRadius.circular(14.r),
             ),
             child: IconButton(
@@ -1173,7 +1169,7 @@ class _PremiumHeader extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.cairo(
-                    color: Colors.white.withValues(alpha: 0.85),
+                    color: Colors.white.withOpacity(0.85),
                     fontWeight: FontWeight.w600,
                     fontSize: 12.sp,
                   ),
@@ -1196,10 +1192,10 @@ class _CardNetworkBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final border = bright
-        ? Colors.white.withValues(alpha: 0.32)
+        ? Colors.white.withOpacity(0.32)
         : const Color(0xFFCFD8E8);
     final bg = bright
-        ? Colors.white.withValues(alpha: 0.18)
+        ? Colors.white.withOpacity(0.18)
         : const Color(0xFFF2F6FD);
     final textColor = bright ? Colors.white : AppColors.navyBlue;
 
