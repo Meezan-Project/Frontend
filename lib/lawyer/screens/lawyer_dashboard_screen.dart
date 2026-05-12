@@ -86,6 +86,15 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
     );
   }
 
+  void _showAddCaseModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const _AddCaseSheet(),
+    );
+  }
+
   Future<void> _handleLogout() async {
     final shouldLogout = await showDialog<bool>(
       context: context,
@@ -175,7 +184,7 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
       case 1:
         return const _ScheduleView();
       case 2:
-        return _CasesView(cases: payload.activeCases);
+        return const _CasesView();
       case 3:
         return _buildDashboardView(payload);
       default:
@@ -321,7 +330,17 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
                 onLogout: () => _handleLogout(),
                 onLanguageChanged: (lang) => _runPanelAction(() => _showComingSoon('Lang: $lang'.translate())),
               ),
-              floatingActionButton: null,
+              floatingActionButton: _selectedIndex == 2
+                  ? FloatingActionButton.extended(
+                      onPressed: _showAddCaseModal,
+                      backgroundColor: const Color(0xFF001F3F),
+                      icon: const Icon(Icons.add_rounded, color: Color(0xFFFFD700)),
+                      label: Text(
+                        'Add Case'.translate(),
+                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    )
+                  : null,
               body: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -1629,19 +1648,374 @@ class _ScheduleItemWidget extends StatelessWidget {
 }
 
 class _CasesView extends StatelessWidget {
-  final List<UserCase> cases;
-
-  const _CasesView({required this.cases});
+  const _CasesView();
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
-      children: cases.isEmpty
-          ? [const Center(child: _DataEmptyHint(message: 'No active cases.'))]
-          : cases.map((caseData) => _CaseCard(case_: caseData)).toList(),
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('cases')
+          .where('lawyerId', isEqualTo: currentUser.uid)
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: _DataEmptyHint(message: 'Error loading cases.'.translate()));
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return Center(child: _DataEmptyHint(message: 'No active cases.'.translate()));
+        }
+
+        return ListView.builder(
+          padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
+          itemCount: docs.length,
+          itemBuilder: (context, index) {
+            final data = docs[index].data() as Map<String, dynamic>;
+            final caseData = UserCase(
+              id: docs[index].id,
+              lawyerId: data['lawyerId'] ?? '',
+              caseNumber: data['caseNumber'] ?? 'N/A',
+              title: data['title'] ?? 'Untitled',
+              description: data['description'] ?? '',
+              category: data['category'] ?? 'Civil',
+              status: data['status'] ?? 'pending',
+              createdDate: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+              lawyerName: '', // Placeholder as fetching client name would require a separate query
+              requiredDocuments: [],
+              sessions: [],
+              updates: [],
+            );
+            return _CaseCard(case_: caseData);
+          },
+        );
+      },
     );
   }
 }
 
 // _ChatView class removed - was unused
+
+class _AddCaseSheet extends StatefulWidget {
+  const _AddCaseSheet();
+
+  @override
+  State<_AddCaseSheet> createState() => _AddCaseSheetState();
+}
+
+class _AddCaseSheetState extends State<_AddCaseSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final String _caseNumber;
+
+  final _phoneController = TextEditingController();
+  final _titleController = TextEditingController();
+  final _descController = TextEditingController();
+  final _feesController = TextEditingController();
+
+  String _selectedCategory = 'Civil';
+  Map<String, dynamic>? _selectedClient;
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isSearching = false;
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _caseNumber = 'CASE-${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    _titleController.dispose();
+    _descController.dispose();
+    _feesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onSearchChanged(String value) async {
+    if (value.length < 3) {
+      setState(() => _searchResults = []);
+      return;
+    }
+
+    setState(() => _isSearching = true);
+    try {
+      final querySnap = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'client')
+          .where('phone', isGreaterThanOrEqualTo: value)
+          .where('phone', isLessThanOrEqualTo: '$value\uf8ff')
+          .limit(5)
+          .get();
+
+      setState(() {
+        _searchResults = querySnap.docs.map((doc) => {...doc.data(), 'uid': doc.id}).toList();
+      });
+    } catch (e) {
+      debugPrint('Search error: $e');
+    } finally {
+      setState(() => _isSearching = false);
+    }
+  }
+
+  Future<void> _submitCase() async {
+    if (!_formKey.currentState!.validate()) return;
+    debugPrint(">>> Create Case Button Tapped! <<<");
+
+    // Check form validation
+    final isValid = _formKey.currentState?.validate() ?? false;
+    debugPrint("Form Validation Status: $isValid");
+    if (!isValid) {
+      debugPrint("Stopping: Form validation failed.");
+      return;
+    }
+
+    if (_selectedClient == null) {
+      debugPrint("Stopping: No client selected.");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please select a client'.translate())),
+      );
+      return;
+    }
+
+    if (_isSubmitting) {
+      debugPrint("Warning: Submission already in progress (Async Lock).");
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    debugPrint("Submitting to Firebase...");
+    
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        debugPrint("Error: No authenticated user found.");
+        return;
+      }
+
+      final casePayload = {
+        'caseNumber': _caseNumber,
+        'clientId': _selectedClient!['uid'],
+        'lawyerId': user.uid,
+        'title': _titleController.text.trim(),
+        'status': 'pending_payment',
+        'category': _selectedCategory,
+        'description': _descController.text.trim(),
+        'legalFees': double.tryParse(_feesController.text) ?? 0.0,
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+
+      debugPrint("Payload: $casePayload");
+
+      await FirebaseFirestore.instance.collection('cases').add(casePayload);
+
+      debugPrint("Success: Document added to Firestore.");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Case linked successfully'.translate())),
+      );
+      Navigator.pop(context);
+    } catch (e) {
+      debugPrint("Firebase Error: $e");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'.translate())),
+      );
+    } finally {
+      debugPrint("Resetting isSubmitting state.");
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final inputBg = isDark ? const Color(0xFF1A2940) : Colors.grey[50]!;
+    final labelStyle = GoogleFonts.cairo(
+      fontSize: 13.sp,
+      fontWeight: FontWeight.bold,
+      color: isDark ? Colors.white70 : const Color(0xFF001F3F),
+    );
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F1419) : Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: 16.h),
+            child: Text('Add New Case'.translate(), style: GoogleFonts.cairo(fontSize: 18.sp, fontWeight: FontWeight.w800)),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(20.w, 10.h, 20.w, MediaQuery.of(context).viewInsets.bottom + 20.h),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Section 1: Generated ID
+                    Text('Case Number'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
+                    TextFormField(
+                      initialValue: _caseNumber,
+                      readOnly: true,
+                      decoration: _inputDeco(inputBg, Icons.confirmation_number_outlined),
+                      style: GoogleFonts.cairo(color: Colors.grey, fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: 20.h),
+
+                    // Section 2: Client Search
+                    Text('Search Client by Phone'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
+                    TextFormField(
+                      controller: _phoneController,
+                      onChanged: _onSearchChanged,
+                      keyboardType: TextInputType.phone,
+                      decoration: _inputDeco(inputBg, Icons.person_search_outlined).copyWith(
+                        suffixIcon: _isSearching ? Padding(padding: EdgeInsets.all(12.r), child: const CircularProgressIndicator(strokeWidth: 2)) : null,
+                      ),
+                    ),
+                    if (_searchResults.isNotEmpty && _selectedClient == null)
+                      Container(
+                        margin: EdgeInsets.only(top: 8.h),
+                        decoration: BoxDecoration(color: inputBg, borderRadius: BorderRadius.circular(12.r), border: Border.all(color: const Color(0xFFFFD700))),
+                        child: Column(
+                          children: _searchResults.map((user) => ListTile(
+                            title: Text('${user['first_name'] ?? ''} ${user['second_name'] ?? ''}', style: GoogleFonts.cairo(fontSize: 14.sp)),
+                            subtitle: Text(user['phone'] ?? '', style: GoogleFonts.cairo(fontSize: 12.sp)),
+                            onTap: () => setState(() {
+                              _selectedClient = user;
+                              _searchResults = [];
+                            }),
+                          )).toList(),
+                        ),
+                      ),
+                    if (_selectedClient != null) ...[
+                      SizedBox(height: 12.h),
+                      Container(
+                        padding: EdgeInsets.all(12.r),
+                        decoration: BoxDecoration(color: const Color(0xFFFFD700).withOpacity(0.1), borderRadius: BorderRadius.circular(12.r)),
+                        child: Column(
+                          children: [
+                            _buildReadOnlyRow(Icons.person, 'Client Name'.translate(), '${_selectedClient!['first_name'] ?? ''} ${_selectedClient!['second_name'] ?? ''}'),
+                            _buildReadOnlyRow(Icons.phone, 'Phone'.translate(), _selectedClient!['phone'] ?? ''),
+                            _buildReadOnlyRow(Icons.badge, 'National ID'.translate(), _selectedClient!['national_id'] ?? 'N/A'),
+                            TextButton(onPressed: () => setState(() => _selectedClient = null), child: Text('Clear Selection'.translate(), style: const TextStyle(color: Colors.red))),
+                          ],
+                        ),
+                      ),
+                    ],
+                    SizedBox(height: 20.h),
+
+                    // Section 3: Specifications
+                    Text('Case Title'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
+                    TextFormField(
+                      controller: _titleController,
+                      decoration: _inputDeco(inputBg, Icons.title_rounded),
+                      validator: (v) => v!.isEmpty ? 'Required'.translate() : null,
+                    ),
+                    SizedBox(height: 16.h),
+                    Text('Status'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
+                    TextFormField(
+                      initialValue: 'pending_payment'.translate(),
+                      readOnly: true,
+                      decoration: _inputDeco(inputBg, Icons.hourglass_empty_rounded),
+                    ),
+                    SizedBox(height: 16.h),
+                    Text('Category'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
+                    DropdownButtonFormField<String>(
+                      value: _selectedCategory,
+                      items: ['Civil', 'Criminal', 'Family', 'Commercial', 'Labor', 'Real Estate']
+                          .map((e) => DropdownMenuItem(value: e, child: Text(e.translate())))
+                          .toList(),
+                      onChanged: (v) => setState(() => _selectedCategory = v!),
+                      decoration: _inputDeco(inputBg, Icons.list_alt_rounded),
+                    ),
+                    SizedBox(height: 20.h),
+
+                    // Section 4: Details & Fees
+                    Text('Description'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
+                    TextFormField(
+                      controller: _descController,
+                      maxLines: 4,
+                      decoration: _inputDeco(inputBg, Icons.description_outlined),
+                    ),
+                    SizedBox(height: 16.h),
+                    Text('Legal Fees (EGP)'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
+                    TextFormField(
+                      controller: _feesController,
+                      keyboardType: TextInputType.number,
+                      decoration: _inputDeco(inputBg, Icons.account_balance_wallet_outlined),
+                      validator: (v) => v!.isEmpty ? 'Required'.translate() : null,
+                    ),
+                    SizedBox(height: 32.h),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54.h,
+                      child: ElevatedButton(
+                        onPressed: _isSubmitting ? null : _submitCase,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF001F3F),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14.r)),
+                        ),
+                        child: _isSubmitting 
+                            ? const CircularProgressIndicator(color: Colors.white)
+                            : Text('Create Case'.translate(), style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: Colors.white)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  InputDecoration _inputDeco(Color bg, IconData icon) {
+    return InputDecoration(
+      filled: true,
+      fillColor: bg,
+      prefixIcon: Icon(icon, color: const Color(0xFFFFD700), size: 20.sp),
+      contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide(color: Colors.grey.withOpacity(0.1))),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: const BorderSide(color: Color(0xFFFFD700))),
+    );
+  }
+
+  Widget _buildReadOnlyRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4.h),
+      child: Row(
+        children: [
+          Icon(icon, size: 16.sp, color: const Color(0xFF001F3F)),
+          SizedBox(width: 8.w),
+          Text('$label: ', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13.sp)),
+          Expanded(child: Text(value, style: GoogleFonts.cairo(fontSize: 13.sp), overflow: TextOverflow.ellipsis)),
+        ],
+      ),
+    );
+  }
+}
