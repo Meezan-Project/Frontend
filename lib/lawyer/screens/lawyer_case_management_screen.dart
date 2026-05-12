@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
-import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/models/case_model.dart';
 
 // Reusing the date formatting helper for consistency with User side
@@ -51,8 +50,8 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
   late List<CaseUpdate> _updates;
 
   // Dummy data for Fees Tab
-  double _totalFunded = 75000.0;
-  double _spentAmount = 32450.0;
+  final double _totalFunded = 75000.0;
+  final double _spentAmount = 32450.0;
   final List<Map<String, dynamic>> _financialActivity = [
     {'title': 'Case Deposit', 'amount': 75000.0, 'date': 'May 01, 2024', 'type': 'funded'},
     {'title': 'Power of Attorney Filing', 'amount': 450.0, 'date': 'May 05, 2024', 'type': 'spent'},
@@ -219,7 +218,7 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
         ],
         _buildLabel('Case Status'.translate()),
         widget.isLawyer ? DropdownButtonFormField<String>(
-          value: _selectedStatus,
+          initialValue: _selectedStatus,
           items: ['active', 'closed', 'on_hold', 'pending'].map((s) => DropdownMenuItem(value: s, child: Text(s.toUpperCase()))).toList(),
           onChanged: (val) => setState(() => _selectedStatus = val),
           decoration: _inputDecoration(isDark),
@@ -227,7 +226,7 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
         SizedBox(height: 16.h),
         _buildLabel('Category'.translate()),
         widget.isLawyer ? DropdownButtonFormField<String>(
-          value: _selectedCategory,
+          initialValue: _selectedCategory,
           items: ['Criminal', 'Civil', 'Family', 'Corporate'].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
           onChanged: (val) => setState(() => _selectedCategory = val),
           decoration: _inputDecoration(isDark),
@@ -670,7 +669,7 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
         SizedBox(height: 12.h),
         ..._financialActivity.map((activity) => 
           _buildActivityItem(activity['date'], activity['title'], '${activity['type'] == 'spent' ? '-' : '+'} ${activity['amount']} EGP', activity['type'] == 'spent' ? Colors.red : Colors.green, isDark)
-        ).toList(),
+        ),
       ],
     );
   }

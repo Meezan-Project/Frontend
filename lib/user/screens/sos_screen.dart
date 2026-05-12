@@ -51,11 +51,16 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
       // Explicitly request Camera and Microphone permissions
       final camStatus = await Permission.camera.request();
       final micStatus = await Permission.microphone.request();
-      
+
       if (!camStatus.isGranted || !micStatus.isGranted) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Camera & Microphone permissions are required for SOS.'), backgroundColor: Colors.red),
+            const SnackBar(
+              content: Text(
+                'Camera & Microphone permissions are required for SOS.',
+              ),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       }
@@ -175,6 +180,8 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
       // The user's existence is already checked in _onSOSPressed, so we can use !.
       final userId = FirebaseAuth.instance.currentUser!.uid;
       final docRef = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
           .collection('sos_alerts')
           .add({
             'userId': userId,
@@ -246,18 +253,27 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
       // Upload to Supabase Bucket 'sos_videos'
       await Supabase.instance.client.storage
           .from('sos_videos')
-          .upload(storagePath, file, fileOptions: const FileOptions(contentType: 'video/mp4'));
+          .upload(
+            storagePath,
+            file,
+            fileOptions: const FileOptions(contentType: 'video/mp4'),
+          );
 
       // CRITICAL FIX: Use createSignedUrl instead of getPublicUrl.
       // If the Supabase bucket is private, getPublicUrl gives a broken link.
       // createSignedUrl gives a guaranteed playable link.
       final videoUrl = await Supabase.instance.client.storage
           .from('sos_videos')
-          .createSignedUrl(storagePath, 60 * 60 * 24 * 365 * 10); // Valid for 10 years
+          .createSignedUrl(
+            storagePath,
+            60 * 60 * 24 * 365 * 10,
+          ); // Valid for 10 years
 
       if (_activeAlertDocId != null) {
         // Update the existing alert record to include the videoUrl
         await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
             .collection('sos_alerts')
             .doc(_activeAlertDocId)
             .update({
@@ -275,6 +291,18 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
           'status': 'saved',
           'location': 'Location unavailable',
         });
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('sos_alerts')
+            .add({
+              'userId': userId,
+              'videoUrl': videoUrl,
+              'timestamp': FieldValue.serverTimestamp(),
+              'duration': duration,
+              'status': 'saved',
+              'location': 'Location unavailable',
+            });
       }
 
       if (mounted) {
@@ -290,7 +318,9 @@ class _SOSScreenState extends State<SOSScreen> with TickerProviderStateMixin {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Storage Access Error: ${e.message} (Check Supabase Policies)'),
+            content: Text(
+              'Storage Access Error: ${e.message} (Check Supabase Policies)',
+            ),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 8),
           ),

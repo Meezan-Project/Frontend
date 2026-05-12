@@ -79,7 +79,11 @@ class _DepositScreenState extends State<DepositScreen> {
       batch.update(userRef, {'balance': FieldValue.increment(netBalance)});
 
       // 2. Add transaction record
-      final transRef = firestore.collection('transactions').doc();
+      final transRef = firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('transactions')
+          .doc();
       String methodDesc = 'Credit/Debit Card';
       if (_selectedPaymentMethod == 'wallet') {
         methodDesc = 'Smart Wallet (${_walletPhoneController.text})';

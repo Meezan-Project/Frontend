@@ -44,8 +44,9 @@ class SosRequestsScreen extends StatelessWidget {
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
-            .collection('sos_requests')
-            .where('userId', isEqualTo: currentUser.uid)
+            .collection('users')
+            .doc(currentUser.uid)
+            .collection('sos_alerts')
             .orderBy('timestamp', descending: true)
             .snapshots(),
         builder: (context, snapshot) {

@@ -21,13 +21,16 @@ import 'package:mezaan/user/screens/user_edit_profile_screen.dart';
 import 'package:mezaan/user/screens/user_emergency_contacts_screen.dart';
 import 'package:mezaan/user/screens/transaction_history_screen.dart';
 import 'package:mezaan/user/screens/sos_screen.dart';
+import 'package:mezaan/user/screens/privacy_security_screen.dart';
 import 'package:mezaan/user/screens/sos_requests_screen.dart';
 import 'package:mezaan/user/screens/appointments_screen.dart';
 import 'package:mezaan/user/screens/search_screen.dart';
+import 'package:mezaan/user/screens/lawyer_profile_screen.dart';
 // import 'package:mezaan/user/screens/user_evidence_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
 import 'package:mezaan/user/widgets/user_profile_side_panel.dart';
 import 'package:mezaan/user/widgets/user_top_header.dart';
+import 'package:mezaan/user/widgets/upcoming_appointments_widget.dart';
 import 'dart:async';
 
 class UserDashboardScreen extends StatefulWidget {
@@ -168,9 +171,13 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                         _payloadFuture = null;
                       });
                     }),
-                    onPrivacy: () => _runPanelAction(
-                      () => _showComingSoon('Privacy & security'.translate()),
-                    ),
+                    onPrivacy: () => _runPanelAction(() async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) => const PrivacySecurityScreen(),
+                        ),
+                      );
+                    }),
                     onHelp: () => _runPanelAction(
                       () => _showComingSoon('Help center'.translate()),
                     ),
@@ -259,6 +266,9 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
             _openGovernmentMap();
           },
         ),
+        SizedBox(height: 16.h),
+        // --- Upcoming Appointments Section ---
+        UpcomingAppointmentsWidget(),
         SizedBox(height: 16.h),
         _SectionHeader(
           title: 'Top Lawyers'.translate(),
@@ -1325,7 +1335,11 @@ class _LawyerCard extends StatelessWidget {
                     SizedBox(width: 12.w),
                     const Icon(Icons.work_outline_rounded, size: 18),
                     SizedBox(width: 4.w),
-                    Text(lawyer.experience.translate()),
+                    Text(
+                      lawyer.experience == 'Experienced'
+                          ? lawyer.experience.translate()
+                          : '${lawyer.experience} ${'years experience'.translate()}',
+                    ),
                   ],
                 ),
               ],
@@ -1333,23 +1347,24 @@ class _LawyerCard extends StatelessWidget {
           ),
           SizedBox(width: 10.w),
           Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               ElevatedButton(
-                onPressed: () {},
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          LawyerProfileScreen(lawyerId: lawyer.id),
+                    ),
+                  );
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.navyBlue,
                   foregroundColor: Colors.white,
                   minimumSize: Size(78.w, 36.h),
                 ),
                 child: Text('View'.translate()),
-              ),
-              SizedBox(height: 8.h),
-              Text(
-                lawyer.onlineStatus.translate(),
-                style: TextStyle(
-                  color: lawyer.isOnline ? Colors.green : Colors.grey,
-                  fontSize: 11.sp,
-                ),
               ),
             ],
           ),
@@ -1531,50 +1546,87 @@ class _UserDashboardRepository {
     FirebaseFirestore firestore,
   ) async {
     try {
-      final snapshot = await firestore.collection('lawyers').limit(8).get();
+      // Fetch a larger pool to sort locally and find the best
+      final snapshot = await firestore.collection('lawyers').limit(20).get();
 
       final loaded = snapshot.docs
           .map((doc) {
             final data = doc.data();
             final firstName = data['firstName']?.toString().trim() ?? '';
             final secondName = data['secondName']?.toString().trim() ?? '';
-            final fullName = '$firstName $secondName'.trim();
+            String fullName = '$firstName $secondName'.trim();
+
+            if (fullName.isEmpty) {
+              fullName = (data['name'] ?? data['fullName'] ?? 'Lawyer')
+                  .toString()
+                  .trim();
+            }
 
             if (fullName.isEmpty) {
               return null;
             }
 
-            final specialization = data['specialization']?.toString().trim();
+            String parsedTitle = 'General Law';
+            if (data['title'] != null && data['title'] is String) {
+              parsedTitle = data['title'];
+            } else if (data['specialization'] != null) {
+              parsedTitle = (data['specialization'] is List)
+                  ? (data['specialization'] as List).join(', ')
+                  : data['specialization'].toString();
+            }
+
             final rating = data['rating']?.toString().trim();
-            final years = data['yearsExperience']?.toString().trim();
+            final yearsRaw =
+                data['years_of_experience'] ??
+                data['experience'] ??
+                data['yearsExperience'];
+            final years = yearsRaw?.toString().trim();
+
+            String fetchedImg =
+                (data['profile_photo'] ??
+                        data['profilePic'] ??
+                        data['imageUrl'] ??
+                        data['photoUrl'] ??
+                        '')
+                    .toString();
+            if (fetchedImg.trim().isEmpty) {
+              fetchedImg = 'https://i.pravatar.cc/150?u=${doc.id}';
+            }
 
             return _LawyerProfile(
+              id: doc.id,
               name: fullName,
-              specialization: specialization == null || specialization.isEmpty
-                  ? 'General Law'
-                  : specialization,
+              specialization: parsedTitle,
               rating: (rating == null || rating.isEmpty) ? '4.5' : rating,
               experience: (years == null || years.isEmpty)
                   ? 'Experienced'
-                  : '$years years experience',
+                  : years,
               onlineStatus: (data['isOnline'] == true)
                   ? 'Online now'
                   : 'Available later',
               isOnline: data['isOnline'] == true,
-              imageUrl: data['photoUrl']?.toString().trim().isNotEmpty == true
-                  ? data['photoUrl'].toString().trim()
-                  : (data['imageUrl']?.toString().trim().isNotEmpty == true
-                        ? data['imageUrl'].toString().trim()
-                        : ''),
+              imageUrl: fetchedImg,
             );
           })
           .whereType<_LawyerProfile>()
-          .toList(growable: false);
+          .toList();
 
-      if (loaded.isNotEmpty) {
-        return loaded;
+      // Sort lawyers based on Rating (Highest first)
+      loaded.sort((a, b) {
+        final ratingA = double.tryParse(a.rating) ?? 0.0;
+        final ratingB = double.tryParse(b.rating) ?? 0.0;
+        return ratingB.compareTo(ratingA); // Descending order
+      });
+
+      // Take exactly the top 3
+      final top3 = loaded.take(3).toList(growable: false);
+
+      if (top3.isNotEmpty) {
+        return top3;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error fetching top lawyers: $e');
+    }
 
     return const <_LawyerProfile>[];
   }
@@ -1851,6 +1903,7 @@ class _UserCategory {
 }
 
 class _LawyerProfile {
+  final String id;
   final String name;
   final String specialization;
   final String rating;
@@ -1860,6 +1913,7 @@ class _LawyerProfile {
   final String imageUrl;
 
   const _LawyerProfile({
+    required this.id,
     required this.name,
     required this.specialization,
     required this.rating,

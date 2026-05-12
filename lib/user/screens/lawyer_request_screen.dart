@@ -10,7 +10,6 @@ import 'package:latlong2/latlong.dart';
 import 'dart:math'; // For atan2
 import 'package:mezaan/shared/localization/localization_controller.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
-import 'package:mezaan/user/screens/sos_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -310,8 +309,9 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
                       data['imageUrl'] ??
                       '')
                   .toString();
-          if (fetchedImg.trim().isEmpty)
+          if (fetchedImg.trim().isEmpty) {
             fetchedImg = 'https://i.pravatar.cc/150?u=${doc.id}';
+          }
 
           return LawyerOffer(
             name: (data['name'] ?? data['fullName'] ?? 'Lawyer').toString(),

@@ -44,7 +44,7 @@ class LegalAiChatService {
 
     try {
       final model = GenerativeModel(
-        model: _config?.geminiModel ?? 'gemini-1.5-flash-latest',
+        model: _config?.geminiModel ?? 'gemini-pro',
         apiKey: apiKey,
       );
 

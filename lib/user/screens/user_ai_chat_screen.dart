@@ -7,9 +7,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
-import 'package:mezaan/user/services/legal_ai_chat_service.dart';
 
 class UserAIChatScreen extends StatefulWidget {
   const UserAIChatScreen({super.key});
@@ -20,7 +20,6 @@ class UserAIChatScreen extends StatefulWidget {
 
 class _UserAIChatScreenState extends State<UserAIChatScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final LegalAiChatService _chatService = LegalAiChatService();
   final List<_ChatMessage> _messages = [];
   final List<Map<String, dynamic>> _chatSessions = [];
   final TextEditingController _messageController = TextEditingController();
@@ -315,35 +314,65 @@ class _UserAIChatScreenState extends State<UserAIChatScreen> {
     _scrollToBottom();
 
     try {
-      // Prepare context for AI including image awareness
-      String promptToAi = messageText;
-      if (uploadedImageUrl != null) {
-        promptToAi += '\n[User attached an image to this prompt]';
+      String apiKey = 'AIzaSyCSgWTgIkHlGLXn7ddF1pBvYNhlCTxy194'; 
+      String modelName = 'gemini-pro';
+      try {
+        final configDoc = await FirebaseFirestore.instance.collection('legal_ai_config').doc('default').get();
+        if (configDoc.exists) {
+          apiKey = configDoc.data()?['geminiApiKey'] ?? apiKey;
+          modelName = configDoc.data()?['geminiModel'] ?? modelName;
+        }
+      } catch (_) {}
+
+      // الموديل القديم يحتاج إلى اسم مختلف عند إرسال الصور
+      if (imageToSend != null && modelName == 'gemini-pro') {
+        modelName = 'gemini-pro-vision';
       }
 
-      final reply = await _chatService.reply(
-        userInput: promptToAi,
-        history: _messages
-            .map(
-              (item) => LegalAiHistoryMessage(
-                role: item.sender == _ChatSender.user
-                    ? LegalAiRole.user
-                    : LegalAiRole.assistant,
-                text: item.text,
-              ),
-            )
-            .toList(growable: false),
+      final model = GenerativeModel(
+        model: modelName,
+        apiKey: apiKey,
+        systemInstruction: modelName.contains('1.5') ? Content.system(
+          "You are an expert legal assistant for the 'Mezaan' app. Your sole purpose is to provide legal information and assistance. You must ONLY answer legal-related questions. If the user asks about ANY other topic, politely decline. You must respond in the same language the user uses."
+        ) : null,
       );
+
+      List<Content> apiContent = [];
+      for (var m in _messages) {
+        if (m.text.trim().isEmpty && m.imageUrl == null) continue;
+        final role = m.sender == _ChatSender.user ? 'user' : 'model';
+        final textPart = TextPart(m.text.isNotEmpty ? m.text : '[Image Attachment]');
+        
+        if (apiContent.isNotEmpty && apiContent.last.role == role) {
+          final lastPart = apiContent.last.parts.first;
+          final lastText = lastPart is TextPart ? lastPart.text : '';
+          apiContent[apiContent.length - 1] = Content(role, [TextPart('$lastText\n${textPart.text}')]);
+        } else {
+          apiContent.add(Content(role, [textPart]));
+        }
+      }
+
+      if (apiContent.isNotEmpty && apiContent.first.role == 'model') {
+        apiContent.removeAt(0);
+      }
+
+      if (imageToSend != null && apiContent.isNotEmpty && apiContent.last.role == 'user') {
+        final lastContent = apiContent.last;
+        final parts = List<Part>.from(lastContent.parts);
+        parts.add(DataPart('image/jpeg', await imageToSend.readAsBytes()));
+        apiContent[apiContent.length - 1] = Content('user', parts);
+      }
+
+      final response = await model.generateContent(apiContent);
 
       if (!mounted) {
         return;
       }
 
       final assistantMessage = _ChatMessage(
-        text: reply.text,
+        text: response.text ?? 'I could not generate a response.',
         sender: _ChatSender.assistant,
         createdAt: DateTime.now(),
-        sourceTitles: reply.sourceTitles,
       );
 
       setState(() {
@@ -351,14 +380,13 @@ class _UserAIChatScreenState extends State<UserAIChatScreen> {
         _isSending = false;
       });
       _persistMessage(assistantMessage, sessionId);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) {
         return;
       }
 
       final failedMessage = _ChatMessage(
-        text:
-            'I could not process your request right now. Please try again in a moment.',
+        text: 'عذراً، حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.\n\nتفاصيل الخطأ:\n$e',
         sender: _ChatSender.assistant,
         createdAt: DateTime.now(),
       );
