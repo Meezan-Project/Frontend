@@ -315,7 +315,7 @@ class _UserAIChatScreenState extends State<UserAIChatScreen> {
 
     try {
       String apiKey = 'AIzaSyCSgWTgIkHlGLXn7ddF1pBvYNhlCTxy194'; 
-      String modelName = 'gemini-pro';
+        String modelName = 'gemini-pro';
       try {
         final configDoc = await FirebaseFirestore.instance.collection('legal_ai_config').doc('default').get();
         if (configDoc.exists) {

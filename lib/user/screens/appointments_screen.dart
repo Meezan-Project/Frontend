@@ -7,6 +7,7 @@ import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/theme/app_typography.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:mezaan/user/screens/video_call_screen.dart';
 
 class AppointmentsScreen extends StatelessWidget {
   const AppointmentsScreen({super.key});
@@ -345,9 +346,8 @@ class AppointmentsScreen extends StatelessWidget {
                     ? 'Not available'.translate()
                     : 'Location not specified'.translate());
             final lawyerImage = data['lawyerImage']?.toString().trim() ?? '';
-            final meetingLink =
-                data['meetingLink']?.toString().trim() ??
-                (isCancelled ? '' : 'https://meet.mezaan.com/room/${doc.id}');
+            final agoraChannelId = doc.id;
+            final meetingStatusText = isCancelled ? 'Not available'.translate() : 'Available'.translate();
 
             final dayStr = data['day']?.toString() ?? '';
             final dateStr = data['dateLabel'] ?? data['date'] ?? 'Pending Date';
@@ -484,12 +484,17 @@ class AppointmentsScreen extends StatelessWidget {
                       context,
                       Icons.video_camera_front_rounded,
                       'Meeting Link'.translate(),
-                      meetingLink.isEmpty
-                          ? 'Not available'.translate()
-                          : meetingLink,
-                      isActionable: meetingLink.isNotEmpty,
+                      meetingStatusText,
+                      isActionable: !isCancelled,
                       actionText: 'Join Meeting'.translate(),
-                      onActionTap: () => _launchUrl(context, meetingLink),
+                      onActionTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => VideoCallScreen(meetingId: agoraChannelId),
+                          ),
+                        );
+                      },
                       isDark: isDark,
                     ),
                   ],

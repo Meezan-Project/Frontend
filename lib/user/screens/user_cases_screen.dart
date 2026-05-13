@@ -1,10 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/models/case_model.dart';
-import 'package:mezaan/user/models/mock_case_data.dart';
 import 'case_details_screen.dart';
 
 class UserCasesScreen extends StatefulWidget {
@@ -24,29 +25,35 @@ class _UserCasesScreenState extends State<UserCasesScreen>
   bool get wantKeepAlive => true;
 
   Stream<List<UserCase>> _getUserCases() {
-    // Using mock data for UI design preview
-    // To use real Firestore data, uncomment the code below and comment out the mock data
-    return Stream.value(MockCaseData.getMockCases());
-
-    // Real Firestore implementation:
-    /*
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
+      debugPrint('UserCasesScreen: No authenticated user found.');
       return Stream.value([]);
     }
 
+    debugPrint('UserCasesScreen: Querying cases for clientId: ${user.uid}');
     return FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
         .collection('cases')
-        .orderBy('createdDate', descending: true)
+        // OPTION 1: If 'clientId' is saved as a normal String in your database
+        .where('clientId', isEqualTo: user.uid)
+        // OPTION 2: If 'clientId' is saved as a Reference type in your database, comment out the line above and uncomment the line below:
+        // .where('clientId', isEqualTo: FirebaseFirestore.instance.collection('users').doc(user.uid))
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs
+          debugPrint(
+            'UserCasesScreen: Found ${snapshot.docs.length} cases for this user.',
+          );
+
+          final casesList = snapshot.docs
               .map((doc) => UserCase.fromFirestore(doc))
               .toList();
+
+          // We sort the cases here in Dart instead of using .orderBy() in the query.
+          // This completely prevents the "Missing Composite Index" error that causes 0 cases to load!
+          casesList.sort((a, b) => b.createdDate.compareTo(a.createdDate));
+
+          return casesList;
         });
-    */
   }
 
   List<UserCase> _filterCases(List<UserCase> cases) {
@@ -66,9 +73,7 @@ class _UserCasesScreenState extends State<UserCasesScreen>
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Center(
-            child: CircularProgressIndicator(
-              color: AppColors.legalGold,
-            ),
+            child: CircularProgressIndicator(color: AppColors.legalGold),
           );
         }
 
@@ -106,9 +111,7 @@ class _UserCasesScreenState extends State<UserCasesScreen>
                 Icon(
                   Icons.folder_shared_outlined,
                   size: 64.sp,
-                  color: isDark
-                      ? Colors.grey.shade600
-                      : Colors.grey.shade400,
+                  color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
                 ),
                 SizedBox(height: 16.h),
                 Text(
@@ -149,19 +152,40 @@ class _UserCasesScreenState extends State<UserCasesScreen>
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _buildFilterChip('all', 'All'.translate(), allCases.length, isDark),
+                  _buildFilterChip(
+                    'all',
+                    'All'.translate(),
+                    allCases.length,
+                    isDark,
+                  ),
                   SizedBox(width: 8.w),
-                  _buildFilterChip('active', 'Active'.translate(),
-                      allCases.where((c) => c.status == 'active').length, isDark),
+                  _buildFilterChip(
+                    'active',
+                    'Active'.translate(),
+                    allCases.where((c) => c.status == 'active').length,
+                    isDark,
+                  ),
                   SizedBox(width: 8.w),
-                  _buildFilterChip('closed', 'Closed'.translate(),
-                      allCases.where((c) => c.status == 'closed').length, isDark),
+                  _buildFilterChip(
+                    'closed',
+                    'Closed'.translate(),
+                    allCases.where((c) => c.status == 'closed').length,
+                    isDark,
+                  ),
                   SizedBox(width: 8.w),
-                  _buildFilterChip('pending', 'Pending'.translate(),
-                      allCases.where((c) => c.status == 'pending').length, isDark),
+                  _buildFilterChip(
+                    'pending',
+                    'Pending'.translate(),
+                    allCases.where((c) => c.status == 'pending').length,
+                    isDark,
+                  ),
                   SizedBox(width: 8.w),
-                  _buildFilterChip('on_hold', 'On Hold'.translate(),
-                      allCases.where((c) => c.status == 'on_hold').length, isDark),
+                  _buildFilterChip(
+                    'on_hold',
+                    'On Hold'.translate(),
+                    allCases.where((c) => c.status == 'on_hold').length,
+                    isDark,
+                  ),
                 ],
               ),
             ),
@@ -176,38 +200,36 @@ class _UserCasesScreenState extends State<UserCasesScreen>
                     'No cases in this category'.translate(),
                     style: GoogleFonts.cairo(
                       fontSize: 14.sp,
-                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                      color: isDark
+                          ? Colors.grey.shade400
+                          : Colors.grey.shade600,
                     ),
                   ),
                 ),
               )
             else
-              ...filteredCases.map((case_) => Padding(
-                    padding: EdgeInsets.only(bottom: 12.h),
-                    child: _CaseCard(
-                      case_: case_,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (context) =>
-                                CaseDetailsScreen(case_: case_),
-                          ),
-                        );
-                      },
-                    ),
-                  )),
+              ...filteredCases.map(
+                (case_) => Padding(
+                  padding: EdgeInsets.only(bottom: 12.h),
+                  child: _CaseCard(
+                    case_: case_,
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (context) => CaseDetailsScreen(case_: case_),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
           ],
         );
       },
     );
   }
 
-  Widget _buildFilterChip(
-    String value,
-    String label,
-    int count,
-    bool isDark,
-  ) {
+  Widget _buildFilterChip(String value, String label, int count, bool isDark) {
     final isActive = _filterStatus == value;
     return FilterChip(
       label: Text(
@@ -215,7 +237,9 @@ class _UserCasesScreenState extends State<UserCasesScreen>
         style: GoogleFonts.cairo(
           fontSize: 12.sp,
           fontWeight: FontWeight.w600,
-          color: isActive ? Colors.white : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
+          color: isActive
+              ? Colors.white
+              : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
         ),
       ),
       backgroundColor: isActive
@@ -226,9 +250,7 @@ class _UserCasesScreenState extends State<UserCasesScreen>
           _filterStatus = value;
         });
       },
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20.r),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.r)),
     );
   }
 }
@@ -237,10 +259,7 @@ class _CaseCard extends StatelessWidget {
   final UserCase case_;
   final VoidCallback onTap;
 
-  const _CaseCard({
-    required this.case_,
-    required this.onTap,
-  });
+  const _CaseCard({required this.case_, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -259,7 +278,9 @@ class _CaseCard extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.3 : 0.1), // Fixed: withValues to withOpacity
+              color: Colors.black.withOpacity(
+                isDark ? 0.3 : 0.1,
+              ), // Fixed: withValues to withOpacity
               blurRadius: 12,
               offset: Offset(0, 4.h),
             ),
@@ -309,7 +330,9 @@ class _CaseCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 18.r,
-                  backgroundColor: AppColors.legalGold.withOpacity(0.2), // Fixed: withValues to withOpacity
+                  backgroundColor: AppColors.legalGold.withOpacity(
+                    0.2,
+                  ), // Fixed: withValues to withOpacity
                   child: Text(
                     case_.lawyerName.isNotEmpty
                         ? case_.lawyerName[0].toUpperCase()
@@ -329,7 +352,9 @@ class _CaseCard extends StatelessWidget {
                         'Lawyer'.translate(),
                         style: GoogleFonts.cairo(
                           fontSize: 11.sp,
-                          color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+                          color: isDark
+                              ? Colors.grey.shade500
+                              : Colors.grey.shade600,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -379,8 +404,9 @@ class _CaseCard extends StatelessWidget {
                   child: LinearProgressIndicator(
                     value: completionPercent / 100,
                     minHeight: 6.h,
-                    backgroundColor:
-                        isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                    backgroundColor: isDark
+                        ? Colors.grey.shade700
+                        : Colors.grey.shade300,
                     valueColor: AlwaysStoppedAnimation<Color>(
                       AppColors.legalGold,
                     ),
@@ -396,8 +422,7 @@ class _CaseCard extends StatelessWidget {
               children: [
                 _buildInfoChip(
                   icon: Icons.calendar_today_outlined,
-                  label:
-                      '${case_.sessions.length} ${'sessions'.translate()}',
+                  label: '${case_.sessions.length} ${'sessions'.translate()}',
                   isDark: isDark,
                 ),
                 _buildInfoChip(
@@ -420,15 +445,19 @@ class _CaseCard extends StatelessWidget {
       'closed': {'bg': 0xFF1976D2, 'label': 'Closed'.translate()},
       'pending': {'bg': 0xFFFF9800, 'label': 'Pending'.translate()},
       'on_hold': {'bg': 0xFFF44336, 'label': 'On Hold'.translate()},
+      'pending_payment': {'bg': 0xFFFF9800, 'label': 'Pending Payment'.translate()},
     };
 
-    final config = statusColors[status] ??
+    final config =
+        statusColors[status] ??
         {'bg': 0xFF757575, 'label': status.replaceAll('_', ' ')};
 
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
       decoration: BoxDecoration(
-        color: Color(config['bg'] as int).withOpacity(0.15), // Fixed: withValues to withOpacity
+        color: Color(
+          config['bg'] as int,
+        ).withOpacity(0.15), // Fixed: withValues to withOpacity
         borderRadius: BorderRadius.circular(8.r),
       ),
       child: Text(
@@ -450,11 +479,7 @@ class _CaseCard extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          icon,
-          size: 14.sp,
-          color: AppColors.legalGold,
-        ),
+        Icon(icon, size: 14.sp, color: AppColors.legalGold),
         SizedBox(width: 4.w),
         Text(
           label,

@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/user/screens/booking_confirmation_screen.dart';
+import 'package:mezaan/user/widgets/review_submission_sheet.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // --- Lawyer Model ---
@@ -131,7 +132,7 @@ class LawyerModel {
             '',
       ),
       rating: (data['rating'] ?? 0.0).toDouble(),
-      reviewsCount: data['reviewsCount'] ?? 0,
+      reviewsCount: data['reviewsCount'] ?? data['reviewCount'] ?? 0,
       location: parsedLocation,
       fullAddress: safeParseString(data['fullAddress']),
       governorates: List<String>.from(data['governorates'] ?? []),
@@ -607,10 +608,19 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                 final to =
                     val['to']?.toString() ?? val['end']?.toString() ?? '';
                 if (from.isNotEmpty && to.isNotEmpty) {
-                  timeStr = '$from - $to';
+                  final formattedFrom = _formatMinsTo12h(_parseTimeToMinutes(from));
+                  final formattedTo = _formatMinsTo12h(_parseTimeToMinutes(to));
+                  timeStr = '$formattedFrom - $formattedTo';
                 }
               } else if (val is String && val.contains('-')) {
-                timeStr = val;
+                final parts = val.split('-');
+                if (parts.length == 2) {
+                  final formattedFrom = _formatMinsTo12h(_parseTimeToMinutes(parts[0].trim()));
+                  final formattedTo = _formatMinsTo12h(_parseTimeToMinutes(parts[1].trim()));
+                  timeStr = '$formattedFrom - $formattedTo';
+                } else {
+                  timeStr = val;
+                }
               }
               return timeStr.isNotEmpty
                   ? Padding(
@@ -1269,6 +1279,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
       title: 'Client Reviews',
       isDark: isDark,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -1281,24 +1292,119 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                 ),
               ),
               SizedBox(width: 12.w),
-              Text(
-                'Based on ${_currentLawyer!.reviewsCount} reviews',
-                style: GoogleFonts.cairo(
-                  fontSize: 14.sp,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white70 : Colors.grey.shade600,
+              Expanded(
+                child: Text(
+                  'Based on ${_currentLawyer!.reviewsCount} reviews',
+                  style: GoogleFonts.cairo(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white70 : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: () {
+                  ReviewSubmissionSheet.show(context, _currentLawyer!.id);
+                },
+                icon: const Icon(Icons.edit_note_rounded, size: 18),
+                label: Text(
+                  'Rate',
+                  style: GoogleFonts.cairo(fontWeight: FontWeight.w700),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.legalGold,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8.r),
+                  ),
+                  padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+                  elevation: 0,
                 ),
               ),
             ],
           ),
           SizedBox(height: 16.h),
-          Center(
-            child: Text(
-              'No reviews available yet.',
-              style: GoogleFonts.cairo(
-                color: isDark ? Colors.white54 : Colors.grey.shade500,
-              ),
-            ),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('lawyers')
+                .doc(_currentLawyer!.id)
+                .collection('reviews')
+                .orderBy('createdAt', descending: true)
+                .limit(5)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError || !snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return Center(
+                  child: Text(
+                    'No reviews available yet.',
+                    style: GoogleFonts.cairo(
+                      color: isDark ? Colors.white54 : Colors.grey.shade500,
+                    ),
+                  ),
+                );
+              }
+              
+              final reviews = snapshot.data!.docs;
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: EdgeInsets.zero,
+                itemCount: reviews.length,
+                separatorBuilder: (context, index) => Divider(
+                  color: isDark ? Colors.white12 : Colors.grey.shade200,
+                  height: 24.h,
+                ),
+                itemBuilder: (context, index) {
+                  final data = reviews[index].data() as Map<String, dynamic>;
+                  final rating = (data['rating'] ?? 0).toDouble();
+                  final comment = data['comment'] ?? '';
+                  
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.account_circle, size: 24.sp, color: Colors.grey),
+                          SizedBox(width: 8.w),
+                          Text(
+                            'Mezaan Client',
+                            style: GoogleFonts.cairo(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14.sp,
+                              color: isDark ? Colors.white : AppColors.navyBlue,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '$rating ⭐',
+                            style: GoogleFonts.cairo(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.legalGold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (comment.isNotEmpty) ...[
+                        SizedBox(height: 6.h),
+                        Padding(
+                          padding: EdgeInsets.only(left: 32.w),
+                          child: Text(
+                            comment,
+                            style: GoogleFonts.cairo(
+                              fontSize: 13.sp,
+                              color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              );
+            },
           ),
         ],
       ),

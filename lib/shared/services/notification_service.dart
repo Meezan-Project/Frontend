@@ -7,6 +7,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 // TODO: Uncomment the line below and ensure firebase_options.dart is generated
 // import 'package:mezaan/firebase_options.dart';
 
@@ -60,6 +62,9 @@ class NotificationService {
     } else {
       debugPrint('User declined or has not accepted notification permissions');
     }
+
+    // Initialize timezones for scheduled notifications
+    tz.initializeTimeZones();
 
     // 2. Set up the background message handler
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -181,6 +186,35 @@ class NotificationService {
     }
   }
 
+  Future<void> showInstantLocalNotification(
+    String title,
+    String body,
+    Map<String, dynamic> payload,
+  ) async {
+    await _localNotifications.show(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      title,
+      body,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channel.id,
+          _channel.name,
+          channelDescription: _channel.description,
+          icon: '@mipmap/ic_launcher',
+          priority: Priority.high,
+          importance: Importance.high,
+          playSound: true,
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+      payload: jsonEncode(payload),
+    );
+  }
+
   // --- Part 1: Save Token to Firestore ---
   Future<void> _saveTokenToFirestore(String token) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -227,6 +261,90 @@ class NotificationService {
       );
     } catch (e) {
       debugPrint('Error triggering push notification: $e');
+    }
+  }
+
+  // --- Part 5: Create Firestore Record and Send Push ---
+  Future<void> createAndSendNotification({
+    required String targetUserId,
+    required String title,
+    required String body,
+    required String type, // 'appointment', 'transaction', 'video_call', etc.
+    required String referenceId,
+  }) async {
+    try {
+      // 1. Save to Firestore so it appears in the Notification Widget
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(targetUserId)
+          .collection('notifications')
+          .add({
+        'title': title,
+        'body': body,
+        'type': type,
+        'referenceId': referenceId,
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // 2. Send the Push Notification
+      await sendPushNotification(
+        targetUserId,
+        title,
+        body,
+        data: {'type': type, 'referenceId': referenceId},
+      );
+
+      // 3. If target is the current user, show local heads-up notification immediately
+      if (FirebaseAuth.instance.currentUser?.uid == targetUserId) {
+        await showInstantLocalNotification(
+          title, 
+          body, 
+          {'type': type, 'referenceId': referenceId}
+        );
+      }
+    } catch (e) {
+      debugPrint('Error creating and sending notification: $e');
+    }
+  }
+
+  // --- Part 6: Schedule Local Notification for Meetings ---
+  Future<void> scheduleOnlineMeetingReminder({
+    required String meetingId,
+    required String title,
+    required String body,
+    required DateTime meetingTime,
+  }) async {
+    // Calculate 30 minutes before the meeting
+    final scheduledTime = meetingTime.subtract(const Duration(minutes: 30));
+    
+    // Only schedule if it's in the future
+    if (scheduledTime.isBefore(DateTime.now())) return;
+
+    try {
+      await _localNotifications.zonedSchedule(
+        meetingId.hashCode,
+        title,
+        body,
+        tz.TZDateTime.from(scheduledTime, tz.local),
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channel.id,
+            _channel.name,
+            channelDescription: _channel.description,
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: const DarwinNotificationDetails(),
+        ),
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        payload: jsonEncode({'type': 'video_call', 'referenceId': meetingId}),
+      );
+      debugPrint('Scheduled reminder for meeting $meetingId at $scheduledTime');
+    } catch (e) {
+      debugPrint('Failed to schedule meeting reminder: $e');
     }
   }
 }

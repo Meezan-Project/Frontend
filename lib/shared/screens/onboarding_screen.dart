@@ -622,31 +622,18 @@ class _OnboardingSlideWidgetState extends State<OnboardingSlideWidget> {
                                 ),
                               ],
                             ),
-                          )
-                        : LayoutBuilder(
-                            builder: (context, constraints) {
-                              final videoSize = _videoController!.value.size;
-
-                              return ColoredBox(
-                                color: const Color(0xFFEAF1F8),
-                                child: ClipRect(
-                                  child: SizedBox.expand(
-                                    child: Transform.scale(
-                                      scale: widget.slide.videoScale,
-                                      alignment: Alignment.center,
-                                      child: FittedBox(
-                                        fit: BoxFit.cover,
-                                        child: SizedBox(
-                                          width: videoSize.width,
-                                          height: videoSize.height,
-                                          child: VideoPlayer(_videoController!),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                        )
+                        : ColoredBox(
+                            color: const Color(0xFFEAF1F8),
+                            child: Center(
+                              child: Transform.scale(
+                                scale: widget.slide.videoScale,
+                                child: AspectRatio(
+                                  aspectRatio: _videoController!.value.aspectRatio,
+                                  child: VideoPlayer(_videoController!),
                                 ),
-                              );
-                            },
+                              ),
+                            ),
                           ),
                   ),
                 )

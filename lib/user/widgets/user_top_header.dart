@@ -4,6 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/screens/user_balance_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class UserTopHeader extends StatefulWidget {
   final String balance;
@@ -170,33 +172,55 @@ class _UserTopHeaderState extends State<UserTopHeader> {
                   color: bellContainerColor,
                   borderRadius: BorderRadius.circular(12.r),
                 ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  IconButton(
-                    onPressed: widget.onNotificationTap,
-                    icon: Icon(
-                      Icons.notifications_none_rounded,
-                      color: const Color(0xFFEF6A6A),
-                      size: 22.sp,
-                    ),
-                    splashRadius: 20.r,
-                    tooltip: 'Notifications'.translate(),
-                  ),
-                  Positioned(
-                    top: 10.h,
-                    right: 10.w,
-                    child: Container(
-                      width: 8.w,
-                      height: 8.w,
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
+              child: StreamBuilder<QuerySnapshot>(
+                stream: FirebaseAuth.instance.currentUser != null
+                    ? FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(FirebaseAuth.instance.currentUser!.uid)
+                        .collection('notifications')
+                        .where('isRead', isEqualTo: false)
+                        .snapshots()
+                    : null,
+                builder: (context, snapshot) {
+                  int unreadCount = snapshot.data?.docs.length ?? 0;
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      IconButton(
+                        onPressed: widget.onNotificationTap,
+                        icon: Icon(
+                          Icons.notifications_none_rounded,
+                          color: const Color(0xFFEF6A6A),
+                          size: 22.sp,
+                        ),
+                        splashRadius: 20.r,
+                        tooltip: 'Notifications'.translate(),
                       ),
-                    ),
-                  ),
-                ],
-                ),
+                      if (unreadCount > 0)
+                        Positioned(
+                          top: 4.h,
+                          right: 4.w,
+                          child: Container(
+                            padding: EdgeInsets.all(4.r),
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              unreadCount > 9 ? '9+' : unreadCount.toString(),
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9.sp,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
               ),
             ],
           ),

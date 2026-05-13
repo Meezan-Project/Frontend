@@ -26,6 +26,7 @@ import 'package:mezaan/user/screens/sos_requests_screen.dart';
 import 'package:mezaan/user/screens/appointments_screen.dart';
 import 'package:mezaan/user/screens/search_screen.dart';
 import 'package:mezaan/user/screens/lawyer_profile_screen.dart';
+import 'package:mezaan/user/screens/video_call_screen.dart';
 // import 'package:mezaan/user/screens/user_evidence_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
 import 'package:mezaan/user/widgets/user_profile_side_panel.dart';
@@ -500,13 +501,16 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
   void _showNotificationsSheet() {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) return;
 
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.6,
+        height: MediaQuery.of(context).size.height * 0.7,
         decoration: BoxDecoration(
           color: theme.cardColor,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
@@ -533,38 +537,99 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
             ),
             SizedBox(height: 16.h),
             Expanded(
-              child: ListView(
-                padding: EdgeInsets.symmetric(horizontal: 16.w),
-                children: [
-                  _buildNotificationItem(
-                    title: 'Welcome to Mezaan!'.translate(),
-                    body: 'Your account has been created successfully.'
-                        .translate(),
-                    time: 'Just now'.translate(),
-                    isUnread: true,
-                    icon: Icons.celebration_rounded,
-                    isDark: isDark,
-                  ),
-                  _buildNotificationItem(
-                    title: 'Complete your profile'.translate(),
-                    body:
-                        'Add your details to get better legal recommendations.'
-                            .translate(),
-                    time: '2 hours ago'.translate(),
-                    isUnread: false,
-                    icon: Icons.person_outline_rounded,
-                    isDark: isDark,
-                  ),
-                  _buildNotificationItem(
-                    title: 'New Feature Available'.translate(),
-                    body: 'You can now book online consultations easily.'
-                        .translate(),
-                    time: 'Yesterday'.translate(),
-                    isUnread: false,
-                    icon: Icons.new_releases_outlined,
-                    isDark: isDark,
-                  ),
-                ],
+              child: StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user.uid)
+                    .collection('notifications')
+                    .orderBy('createdAt', descending: true)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return Center(
+                      child: Text(
+                        'No notifications yet.'.translate(),
+                        style: GoogleFonts.cairo(
+                          color: isDark ? Colors.white54 : Colors.black54,
+                        ),
+                      ),
+                    );
+                  }
+
+                  final docs = snapshot.data!.docs;
+
+                  return ListView.builder(
+                    padding: EdgeInsets.symmetric(horizontal: 16.w),
+                    itemCount: docs.length,
+                    itemBuilder: (context, index) {
+                      final data = docs[index].data() as Map<String, dynamic>;
+                      final docId = docs[index].id;
+                      
+                      final title = data['title'] ?? 'Notification';
+                      final body = data['body'] ?? '';
+                      final isRead = data['isRead'] ?? false;
+                      final type = data['type'] ?? '';
+                      final referenceId = data['referenceId'] ?? '';
+                      final createdAt = data['createdAt'] as Timestamp?;
+                      
+                      // Format time (simple relative time)
+                      String timeText = '';
+                      if (createdAt != null) {
+                        final diff = DateTime.now().difference(createdAt.toDate());
+                        if (diff.inDays > 0) {
+                          timeText = '${diff.inDays} ${'days ago'.translate()}';
+                        } else if (diff.inHours > 0) {
+                          timeText = '${diff.inHours} ${'hours ago'.translate()}';
+                        } else if (diff.inMinutes > 0) {
+                          timeText = '${diff.inMinutes} ${'minutes ago'.translate()}';
+                        } else {
+                          timeText = 'Just now'.translate();
+                        }
+                      }
+
+                      IconData icon = Icons.notifications;
+                      if (type == 'transaction') icon = Icons.account_balance_wallet;
+                      if (type == 'appointment') icon = Icons.event;
+                      if (type == 'video_call') icon = Icons.video_call;
+                      if (type == 'lawyer_request') icon = Icons.gavel;
+
+                      return _buildNotificationItem(
+                        title: title,
+                        body: body,
+                        time: timeText,
+                        isUnread: !isRead,
+                        icon: icon,
+                        isDark: isDark,
+                        onTap: () async {
+                          // Mark as read
+                          if (!isRead) {
+                            FirebaseFirestore.instance
+                                .collection('users')
+                                .doc(user.uid)
+                                .collection('notifications')
+                                .doc(docId)
+                                .update({'isRead': true});
+                          }
+                          
+                          Navigator.pop(context); // Close sheet
+
+                          // Navigate based on type
+                          if (type == 'transaction') {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => const TransactionHistoryScreen()));
+                          } else if (type == 'appointment' || type == 'lawyer_request') {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => const AppointmentsScreen()));
+                          } else if (type == 'video_call' && referenceId.isNotEmpty) {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => VideoCallScreen(meetingId: referenceId)));
+                          }
+                        },
+                      );
+                    },
+                  );
+                },
               ),
             ),
           ],
@@ -580,22 +645,25 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
     required bool isUnread,
     required IconData icon,
     required bool isDark,
+    VoidCallback? onTap,
   }) {
-    return Container(
-      margin: EdgeInsets.only(bottom: 12.h),
-      padding: EdgeInsets.all(12.w),
-      decoration: BoxDecoration(
-        color: isUnread
-            ? AppColors.legalGold.withValues(alpha: isDark ? 0.2 : 0.08)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: EdgeInsets.only(bottom: 12.h),
+        padding: EdgeInsets.all(12.w),
+        decoration: BoxDecoration(
           color: isUnread
-              ? AppColors.legalGold.withValues(alpha: 0.3)
-              : Colors.grey.withValues(alpha: 0.15),
+              ? AppColors.legalGold.withValues(alpha: isDark ? 0.2 : 0.08)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(
+            color: isUnread
+                ? AppColors.legalGold.withValues(alpha: 0.3)
+                : Colors.grey.withValues(alpha: 0.15),
+          ),
         ),
-      ),
-      child: Row(
+        child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CircleAvatar(
@@ -658,6 +726,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
           ),
         ],
       ),
+    ),
     );
   }
 }
@@ -1597,7 +1666,7 @@ class _UserDashboardRepository {
               id: doc.id,
               name: fullName,
               specialization: parsedTitle,
-              rating: (rating == null || rating.isEmpty) ? '4.5' : rating,
+              rating: (rating == null || rating.isEmpty) ? '0.0' : rating,
               experience: (years == null || years.isEmpty)
                   ? 'Experienced'
                   : years,

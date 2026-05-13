@@ -6,6 +6,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/screens/saved_cards_screen.dart'; // قم بتعديل المسار إذا كان مختلفاً
+import 'package:mezaan/shared/services/notification_service.dart';
 
 class BookingConfirmationScreen extends StatefulWidget {
   final String lawyerId;
@@ -380,9 +381,67 @@ class _BookingConfirmationScreenState extends State<BookingConfirmationScreen> {
         // Update lawyer's balance
         final lawyerRef = firestore.collection('lawyers').doc(widget.lawyerId);
         batch.update(lawyerRef, {'balance': FieldValue.increment(widget.fee)});
+
+        // Add transaction record for lawyer
+        final lawyerTxRef = lawyerRef.collection('transactions').doc();
+        batch.set(lawyerTxRef, {
+          'amount': widget.fee,
+          'type': 'deposit',
+          'description': 'Consultation fee from $_userName',
+          'isWalletTransaction': true,
+          'referenceId': apptRef.id,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
       }
 
       await batch.commit();
+
+      if (user != null) {
+        // User Notification
+        await NotificationService().createAndSendNotification(
+          targetUserId: user.uid,
+          title: 'Booking Confirmed',
+          body: 'Your appointment with ${widget.lawyerName} is confirmed.',
+          type: 'appointment',
+          referenceId: apptRef.id,
+        );
+        
+        // Lawyer Notification
+        await NotificationService().createAndSendNotification(
+          targetUserId: widget.lawyerId,
+          title: 'New Appointment',
+          body: '$_userName has booked an appointment.',
+          type: 'lawyer_request',
+          referenceId: apptRef.id,
+        );
+
+        // Lawyer Notification - Balance Update
+        await NotificationService().createAndSendNotification(
+          targetUserId: widget.lawyerId,
+          title: 'Balance Updated',
+          body: '${widget.fee} EGP was added to your wallet for a new appointment.',
+          type: 'transaction',
+          referenceId: apptRef.id,
+        );
+
+        // Schedule online reminder if it's online
+        if (widget.consultationType == 'online') {
+           try {
+              // Example: dateLabel = "10 Nov 2026", timeRange = "10:00 AM - 11:00 AM"
+              // For demonstration, assuming meeting is in 2 hours
+              final dummyMeetingTime = DateTime.now().add(const Duration(hours: 2));
+              
+              await NotificationService().scheduleOnlineMeetingReminder(
+                meetingId: apptRef.id,
+                title: 'Upcoming Video Consultation',
+                body: 'Your meeting with ${widget.lawyerName} starts in 30 minutes.',
+                meetingTime: dummyMeetingTime,
+              );
+           } catch(e) {
+             debugPrint('Could not parse date for scheduled reminder: $e');
+           }
+        }
+      }
 
       if (mounted) {
         _showPopupMessage(

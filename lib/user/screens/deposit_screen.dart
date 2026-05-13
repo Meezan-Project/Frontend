@@ -6,6 +6,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/screens/saved_cards_screen.dart';
+import 'package:mezaan/shared/services/notification_service.dart';
 
 class DepositScreen extends StatefulWidget {
   const DepositScreen({super.key});
@@ -101,6 +102,15 @@ class _DepositScreenState extends State<DepositScreen> {
       });
 
       await batch.commit();
+
+      // Trigger transaction notification
+      await NotificationService().createAndSendNotification(
+        targetUserId: user.uid,
+        title: 'Wallet Recharged',
+        body: 'You have successfully added $netBalance EGP to your wallet.',
+        type: 'transaction',
+        referenceId: transRef.id,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

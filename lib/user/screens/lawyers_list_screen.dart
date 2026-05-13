@@ -93,7 +93,7 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
               id: doc.id,
               name: name,
               specialization: _extractSpecializationLabel(data),
-              rating: _readDouble(data, ['rating', 'averageRating']) ?? 4.5,
+              rating: _readDouble(data, ['rating', 'averageRating']) ?? 0.0,
               reviewsCount:
                   _readInt(data, ['reviewsCount', 'reviewCount']) ?? 0,
               workStatus: workStatus,

@@ -159,6 +159,11 @@ class UserCase {
   final List<RequiredDocument> requiredDocuments;
   final List<CaseUpdate> updates;
   final String? notes;
+  final double legalFees;
+  final String clientId;
+  final String clientName;
+  final String? clientNationalId;
+  final String? clientPhone;
 
   const UserCase({
     required this.id,
@@ -176,6 +181,11 @@ class UserCase {
     this.requiredDocuments = const [],
     this.updates = const [],
     this.notes,
+    this.legalFees = 0.0,
+    this.clientId = '',
+    this.clientName = '',
+    this.clientNationalId,
+    this.clientPhone,
   });
 
   factory UserCase.fromFirestore(DocumentSnapshot doc) {
@@ -206,12 +216,17 @@ class UserCase {
       lawyerAvatar: data['lawyerAvatar'] as String?,
       status: data['status'] as String? ?? 'active',
       category: data['category'] as String? ?? '',
-      createdDate: (data['createdDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdDate: (data['createdAt'] as Timestamp?)?.toDate() ?? (data['createdDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       closedDate: (data['closedDate'] as Timestamp?)?.toDate(),
       sessions: sessionsList,
       requiredDocuments: documentsList,
       updates: updatesList,
       notes: data['notes'] as String?,
+      legalFees: (data['legalFees'] ?? 0).toDouble(),
+      clientId: data['clientId'] as String? ?? '',
+      clientName: data['clientName'] as String? ?? '',
+      clientNationalId: data['clientNationalId'] as String?,
+      clientPhone: data['clientPhone'] as String?,
     );
   }
 
@@ -241,12 +256,17 @@ class UserCase {
       lawyerAvatar: data['lawyerAvatar'] as String?,
       status: data['status'] as String? ?? 'active',
       category: data['category'] as String? ?? '',
-      createdDate: (data['createdDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdDate: (data['createdAt'] as Timestamp?)?.toDate() ?? (data['createdDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       closedDate: (data['closedDate'] as Timestamp?)?.toDate(),
       sessions: sessionsList,
       requiredDocuments: documentsList,
       updates: updatesList,
       notes: data['notes'] as String?,
+      legalFees: (data['legalFees'] ?? 0).toDouble(),
+      clientId: data['clientId'] as String? ?? '',
+      clientName: data['clientName'] as String? ?? '',
+      clientNationalId: data['clientNationalId'] as String?,
+      clientPhone: data['clientPhone'] as String?,
     );
   }
 
@@ -260,12 +280,17 @@ class UserCase {
       'lawyerAvatar': lawyerAvatar,
       'status': status,
       'category': category,
-      'createdDate': Timestamp.fromDate(createdDate),
+      'createdAt': Timestamp.fromDate(createdDate),
       'closedDate': closedDate != null ? Timestamp.fromDate(closedDate!) : null,
       'sessions': sessions.map((s) => s.toMap()).toList(),
       'requiredDocuments': requiredDocuments.map((d) => d.toMap()).toList(),
       'updates': updates.map((u) => u.toMap()).toList(),
       'notes': notes,
+      'legalFees': legalFees,
+      'clientId': clientId,
+      'clientName': clientName,
+      'clientNationalId': clientNationalId,
+      'clientPhone': clientPhone,
     };
   }
 
@@ -276,6 +301,8 @@ class UserCase {
       case 'closed':
         return isDark ? '#1976D2' : '#0D47A1';
       case 'pending':
+        return isDark ? '#FF9800' : '#E65100';
+      case 'pending_payment':
         return isDark ? '#FF9800' : '#E65100';
       case 'on_hold':
         return isDark ? '#F44336' : '#C62828';

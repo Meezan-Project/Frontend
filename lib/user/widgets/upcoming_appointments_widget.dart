@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:mezaan/user/screens/video_call_screen.dart';
 
 class _SectionHeader extends StatelessWidget {
   final String title;
@@ -246,7 +247,7 @@ class UpcomingAppointmentsWidget extends StatelessWidget {
               shrinkWrap: true,
               physics: NeverScrollableScrollPhysics(),
               itemCount: sortedAppointments.length,
-              separatorBuilder: (_, __) => SizedBox(height: 8.h),
+              separatorBuilder: (_, _) => SizedBox(height: 8.h),
               itemBuilder: (context, index) {
                 final data = sortedAppointments[index].data();
                 final lawyerName = data['lawyerName'] ?? 'Lawyer';
@@ -256,7 +257,8 @@ class UpcomingAppointmentsWidget extends StatelessWidget {
                 final appointmentTime = data['time'] ?? '';
                 final meetingType =
                     data['type'] ?? data['consultationType'] ?? 'in_office';
-                final meetingLink = data['meetingLink'];
+                final docId = sortedAppointments[index].id;
+                final meetingLink = docId;
                 final locationUrl =
                     data['locationUrl'] ?? data['officeAddress'];
                 final isOnline = meetingType == 'online';
@@ -347,27 +349,14 @@ class UpcomingAppointmentsWidget extends StatelessWidget {
                             );
                             if (isOnline) {
                               // Open video call link (meetingLink)
-                              if (meetingLink != null &&
-                                  meetingLink is String &&
-                                  meetingLink.isNotEmpty) {
-                                final url = meetingLink.startsWith('http')
-                                    ? meetingLink
-                                    : 'https://$meetingLink';
-                                final uri = Uri.tryParse(url);
-                                if (uri != null && await canLaunchUrl(uri)) {
-                                  await launchUrl(
-                                    uri,
-                                    mode: LaunchMode.externalApplication,
-                                  );
-                                } else {
-                                  scaffoldMessenger.showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        'Could not open meeting link.',
-                                      ),
-                                    ),
-                                  );
-                                }
+                              if (meetingLink.isNotEmpty) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        VideoCallScreen(meetingId: meetingLink),
+                                  ),
+                                );
                               } else {
                                 scaffoldMessenger.showSnackBar(
                                   SnackBar(
@@ -390,8 +379,7 @@ class UpcomingAppointmentsWidget extends StatelessWidget {
                                 } else {
                                   // Assume address
                                   googleMapsUrl =
-                                      'https://www.google.com/maps/search/?api=1&query=' +
-                                      Uri.encodeComponent(locationUrl);
+                                      'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(locationUrl)}';
                                 }
                                 final uri = Uri.tryParse(googleMapsUrl);
                                 if (uri != null && await canLaunchUrl(uri)) {

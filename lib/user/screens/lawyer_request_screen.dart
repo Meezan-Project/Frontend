@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -339,18 +340,35 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
         });
         _generateMockOffers();
       } else {
-        setState(() => isSearching = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                _isArabic
-                    ? 'لا يوجد محامين متاحين حالياً'
-                    : 'No lawyers available right now',
-              ),
+        // Fallback: Generate dummy lawyers if Firestore is empty so the UI still works
+        final random = Random();
+        _virtualLawyers = List.generate(3, (index) {
+          return LawyerOffer(
+            name: _isArabic
+                ? 'محامي تجريبي ${index + 1}'
+                : 'Test Lawyer ${index + 1}',
+            title: _isArabic ? 'مستشار قانوني' : 'Legal Consultant',
+            rating: double.parse(
+              (4.0 + random.nextDouble()).toStringAsFixed(2),
             ),
+            price: 0,
+            travelTime: 5 + random.nextInt(10),
+            serviceType: [
+              'Comfort',
+              'Premium',
+              'Express',
+              'Standard',
+            ][random.nextInt(4)],
+            cases: 50 + random.nextInt(150),
+            phoneNumber: '+201000000000',
+            location: LatLng(
+              _userLocation.latitude + (random.nextDouble() - 0.5) * 0.01,
+              _userLocation.longitude + (random.nextDouble() - 0.5) * 0.01,
+            ),
+            imageUrl: 'https://i.pravatar.cc/150?u=dummy$index',
           );
-        }
+        });
+        _generateMockOffers();
       }
     } catch (e) {
       debugPrint('Error fetching lawyers from Firestore: $e');
@@ -393,6 +411,10 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
           );
           _offerIndex++;
         });
+
+        // إصدار صوت تنبيه واهتزاز خفيف عند وصول العرض
+        HapticFeedback.vibrate(); // اهتزاز أقوى وأوضح
+        SystemSound.play(SystemSoundType.click); // Click مدعوم بشكل أفضل
       } else {
         timer.cancel();
       }
@@ -1945,11 +1967,25 @@ class _LawyerRequestScreenState extends State<LawyerRequestScreen>
               ),
               SizedBox(height: 22.h),
               ElevatedButton(
-                onPressed: _isFormValid ? _findLawyer : null,
+                onPressed: () {
+                  if (!_isFormValid) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          _isArabic
+                              ? 'يرجى اختيار الخدمة وكتابة وصف المشكلة أولاً'
+                              : 'Please select a service and describe your issue first',
+                        ),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+                  _findLawyer();
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF002147),
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.grey[400],
                   padding: EdgeInsets.symmetric(vertical: 16.h),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14.r),

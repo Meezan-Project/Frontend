@@ -20,6 +20,7 @@ import 'package:mezaan/lawyer/screens/lawyer_legal_library_screen.dart';
 import 'package:mezaan/lawyer/screens/lawyer_conflict_checker_screen.dart';
 import 'package:mezaan/lawyer/screens/lawyer_case_management_screen.dart';
 import 'package:mezaan/user/models/case_model.dart';
+import 'package:mezaan/user/screens/video_call_screen.dart';
 import 'dart:async';
 
 class LawyerDashboardScreen extends StatefulWidget {
@@ -32,7 +33,8 @@ class LawyerDashboardScreen extends StatefulWidget {
 class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
     with SingleTickerProviderStateMixin {
   String? _payloadLawyerUid;
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>(); // Step A: Create GlobalKey
+  final GlobalKey<ScaffoldState> _scaffoldKey =
+      GlobalKey<ScaffoldState>(); // Step A: Create GlobalKey
   Future<_LawyerDashboardPayload>? _payloadFuture;
   late final AnimationController _sosPulseController;
   int _selectedIndex = 3;
@@ -69,7 +71,11 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
   Future<void> _refreshDashboard() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      setState(() => _payloadFuture = _LawyerDashboardRepository.loadForLawyer(user: user));
+      setState(
+        () => _payloadFuture = _LawyerDashboardRepository.loadForLawyer(
+          user: user,
+        ),
+      );
     }
   }
 
@@ -206,7 +212,13 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
             children: [
               Padding(
                 padding: EdgeInsets.fromLTRB(16.w, 10.h, 16.w, 6.h),
-                child: LawyerTopHeader(rating: payload.rating, pendingCases: payload.pendingCases, onNotificationTap: () {}),
+                child: LawyerTopHeader(
+                  rating: payload.rating,
+                  pendingCases: payload.pendingCases,
+                  onNotificationTap: () {
+                    _showNotificationsSheet();
+                  },
+                ),
               ),
               Expanded(
                 child: AnimatedSwitcher(
@@ -221,6 +233,231 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
           ),
         ),
       ],
+    );
+  }
+
+  void _showNotificationsSheet() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
+        ),
+        padding: EdgeInsets.symmetric(vertical: 20.h),
+        child: Column(
+          children: [
+            Container(
+              width: 40.w,
+              height: 5.h,
+              decoration: BoxDecoration(
+                color: Colors.grey.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+            ),
+            SizedBox(height: 16.h),
+            Text(
+              'Notifications'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 18.sp,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : AppColors.navyBlue,
+              ),
+            ),
+            SizedBox(height: 16.h),
+            Expanded(
+              child: StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user.uid)
+                    .collection('notifications')
+                    .orderBy('createdAt', descending: true)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return Center(
+                      child: Text(
+                        'No notifications yet.'.translate(),
+                        style: GoogleFonts.cairo(
+                          color: isDark ? Colors.white54 : Colors.black54,
+                        ),
+                      ),
+                    );
+                  }
+
+                  final docs = snapshot.data!.docs;
+
+                  return ListView.builder(
+                    padding: EdgeInsets.symmetric(horizontal: 16.w),
+                    itemCount: docs.length,
+                    itemBuilder: (context, index) {
+                      final data = docs[index].data() as Map<String, dynamic>;
+                      final docId = docs[index].id;
+                      
+                      final title = data['title'] ?? 'Notification';
+                      final body = data['body'] ?? '';
+                      final isRead = data['isRead'] ?? false;
+                      final type = data['type'] ?? '';
+                      final referenceId = data['referenceId'] ?? '';
+                      final createdAt = data['createdAt'] as Timestamp?;
+                      
+                      String timeText = '';
+                      if (createdAt != null) {
+                        final diff = DateTime.now().difference(createdAt.toDate());
+                        if (diff.inDays > 0) {
+                          timeText = '${diff.inDays} ${'days ago'.translate()}';
+                        } else if (diff.inHours > 0) {
+                          timeText = '${diff.inHours} ${'hours ago'.translate()}';
+                        } else if (diff.inMinutes > 0) {
+                          timeText = '${diff.inMinutes} ${'minutes ago'.translate()}';
+                        } else {
+                          timeText = 'Just now'.translate();
+                        }
+                      }
+
+                      IconData icon = Icons.notifications;
+                      if (type == 'transaction') icon = Icons.account_balance_wallet;
+                      if (type == 'lawyer_request') icon = Icons.event;
+                      if (type == 'video_call') icon = Icons.video_call;
+
+                      return _buildNotificationItem(
+                        title: title,
+                        body: body,
+                        time: timeText,
+                        isUnread: !isRead,
+                        icon: icon,
+                        isDark: isDark,
+                        onTap: () async {
+                          if (!isRead) {
+                            FirebaseFirestore.instance
+                                .collection('users')
+                                .doc(user.uid)
+                                .collection('notifications')
+                                .doc(docId)
+                                .update({'isRead': true});
+                          }
+                          Navigator.pop(context);
+                          
+                          if (type == 'lawyer_request') {
+                            setState(() => _selectedIndex = 1); // Go to Schedule View
+                          } else if (type == 'video_call' && referenceId.isNotEmpty) {
+                             Navigator.push(context, MaterialPageRoute(builder: (_) => VideoCallScreen(meetingId: referenceId)));
+                          }
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotificationItem({
+    required String title,
+    required String body,
+    required String time,
+    required bool isUnread,
+    required IconData icon,
+    required bool isDark,
+    VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: EdgeInsets.only(bottom: 12.h),
+        padding: EdgeInsets.all(12.w),
+        decoration: BoxDecoration(
+          color: isUnread
+              ? AppColors.legalGold.withValues(alpha: isDark ? 0.2 : 0.08)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(
+            color: isUnread
+                ? AppColors.legalGold.withValues(alpha: 0.3)
+                : Colors.grey.withValues(alpha: 0.15),
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 20.r,
+              backgroundColor: AppColors.navyBlue.withValues(
+                alpha: isDark ? 0.3 : 0.05,
+              ),
+              child: Icon(
+                icon,
+                color: isDark ? AppColors.legalGold : AppColors.navyBlue,
+                size: 20.sp,
+              ),
+            ),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: GoogleFonts.cairo(
+                            fontSize: 14.sp,
+                            fontWeight: isUnread
+                                ? FontWeight.bold
+                                : FontWeight.w600,
+                            color: isDark ? Colors.white : AppColors.navyBlue,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      SizedBox(width: 8.w),
+                      Text(
+                        time,
+                        style: GoogleFonts.cairo(
+                          fontSize: 10.sp,
+                          color: Colors.grey,
+                          fontWeight: isUnread
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4.h),
+                  Text(
+                    body,
+                    style: GoogleFonts.cairo(
+                      fontSize: 12.sp,
+                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -278,7 +515,8 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
         return FutureBuilder<_LawyerDashboardPayload>(
           future: _loadPayloadForCurrentUser(currentUser),
           builder: (context, snapshot) {
-            final payload = snapshot.data ??
+            final payload =
+                snapshot.data ??
                 _LawyerDashboardPayload.empty(
                   fallbackName: currentUser.displayName ?? 'Lawyer',
                 );
@@ -296,37 +534,61 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
                 profileImageUrl: payload.profilePhotoUrl,
                 specialties: payload.specialization,
                 rating: payload.rating,
-                templatesCount: 12, documentsCount: 8, hasConflict: false,
+                templatesCount: 12,
+                documentsCount: 8,
+                hasConflict: false,
                 isDarkMode: ThemeController.instance.isDarkMode.value,
                 currentLanguage: 'English',
-                onDarkModeChanged: (value) => ThemeController.instance.setDarkMode(value),
+                onDarkModeChanged: (value) =>
+                    ThemeController.instance.setDarkMode(value),
                 onManageSchedule: () {
                   Navigator.pop(context);
                   _showComingSoon('Manage Schedule'.translate());
                 },
                 onQuickTemplates: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const LawyerTemplatesScreen()));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LawyerTemplatesScreen(),
+                    ),
+                  );
                 },
                 onLegalLibrary: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const LawyerLegalLibraryScreen()));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LawyerLegalLibraryScreen(),
+                    ),
+                  );
                 },
                 onConflictChecker: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const LawyerConflictCheckerScreen()));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LawyerConflictCheckerScreen(),
+                    ),
+                  );
                 },
-                onPrivacyPolicy: () => _runPanelAction(() => _showComingSoon('Privacy'.translate())),
-                onHelpSupport: () => _runPanelAction(() => _showComingSoon('Support'.translate())),
+                onPrivacyPolicy: () => _runPanelAction(
+                  () => _showComingSoon('Privacy'.translate()),
+                ),
+                onHelpSupport: () => _runPanelAction(
+                  () => _showComingSoon('Support'.translate()),
+                ),
                 onLogout: () => _handleLogout(),
-                onLanguageChanged: (lang) => _runPanelAction(() => _showComingSoon('Lang: $lang'.translate())),
+                onLanguageChanged: (lang) => _runPanelAction(
+                  () => _showComingSoon('Lang: $lang'.translate()),
+                ),
               ),
               floatingActionButton: null,
               body: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: isDark 
-                        ? [const Color(0xFF0B1220), const Color(0xFF131C2C)] 
+                    colors: isDark
+                        ? [const Color(0xFF0B1220), const Color(0xFF131C2C)]
                         : [const Color(0xFFF8FAFE), const Color(0xFFF1F6FF)],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
@@ -334,14 +596,16 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
                 ),
                 child: _buildBodyContent(snapshot, payload),
               ),
-              bottomNavigationBar: snapshot.connectionState != ConnectionState.done
+              bottomNavigationBar:
+                  snapshot.connectionState != ConnectionState.done
                   ? null
                   : LawyerBottomNavBar(
                       currentIndex: _selectedIndex,
                       onDestinationSelected: (index) {
                         setState(() => _selectedIndex = index);
                       },
-                      onOpenDrawer: () => _scaffoldKey.currentState?.openEndDrawer(),
+                      onOpenDrawer: () =>
+                          _scaffoldKey.currentState?.openEndDrawer(),
                     ),
             );
           },
@@ -360,11 +624,7 @@ class _RescueView extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.radar_rounded,
-            size: 64.sp,
-            color: Colors.redAccent,
-          ),
+          Icon(Icons.radar_rounded, size: 64.sp, color: Colors.redAccent),
           SizedBox(height: 16.h),
           Text(
             'Rescue Mode'.translate(),
@@ -440,7 +700,6 @@ class _UpcomingScheduleSection extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('appointments')
           .where('lawyerId', isEqualTo: currentUser.uid)
-          .limit(3)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -451,95 +710,128 @@ class _UpcomingScheduleSection extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final appointments = snapshot.data?.docs ?? [];
+        var appointments = snapshot.data?.docs.toList() ?? [];
 
         if (appointments.isEmpty) {
           return const _DataEmptyHint(message: 'No scheduled appointments.');
         }
 
+        // Sort locally by createdAt descending to get the most recent appointment
+        appointments.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          final aTime = aData['createdAt'] as Timestamp?;
+          final bTime = bData['createdAt'] as Timestamp?;
+          if (aTime == null && bTime == null) return 0;
+          if (aTime == null) return 1;
+          if (bTime == null) return -1;
+          return bTime.compareTo(aTime);
+        });
+
+        // Get the nearest / most recent
+        final doc = appointments.first;
+        final data = doc.data() as Map<String, dynamic>;
+        
+        final clientName = data['userName'] as String? ?? data['clientName'] as String? ?? 'Unknown Client';
+        final appointmentTime = data['time'] as String? ?? data['appointmentTime'] as String? ?? 'Time not set';
+        final day = data['day'] as String? ?? 'Date not set';
+        final type = data['consultationType'] as String? ?? 'office';
+        final isOnline = type.toLowerCase() == 'online';
+
         final isDark = Theme.of(context).brightness == Brightness.dark;
         final cardColor = isDark ? const Color(0xFF162235) : Colors.white;
+        final badgeColor = isOnline ? const Color(0xFFE8F5E9) : const Color(0xFFE3F2FD);
+        final badgeTextColor = isOnline ? const Color(0xFF2E7D32) : const Color(0xFF1565C0);
 
         return Container(
           padding: EdgeInsets.all(16.r),
           decoration: BoxDecoration(
             color: cardColor,
-            borderRadius: BorderRadius.circular(16.r),
+            borderRadius: BorderRadius.circular(20.r),
             border: Border.all(
               color: isDark ? const Color(0xFF334766) : const Color(0xFFE5E7EB),
+              width: 1.w,
             ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
-                blurRadius: 8,
-                offset: Offset(0, 2.h),
+                blurRadius: 10,
+                offset: Offset(0, 4.h),
               ),
             ],
           ),
-          child: Column(
+          child: Row(
             children: [
-              for (int i = 0; i < appointments.length; i++) ...[
-                Builder(
-                  builder: (context) {
-                    final doc = appointments[i];
-                    final data = doc.data() as Map<String, dynamic>;
-                    final clientName = data['clientName'] as String? ?? 'Unknown Client';
-                    final appointmentTime = data['appointmentTime'] as String? ?? 'Time not set';
-                    final day = data['day'] as String? ?? 'Date not set';
-
-                    return Row(
+              Container(
+                padding: EdgeInsets.all(12.r),
+                decoration: BoxDecoration(
+                  color: isOnline 
+                      ? Colors.green.withOpacity(0.1) 
+                      : AppColors.navyBlue.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isOnline ? Icons.video_call_rounded : Icons.business_rounded,
+                  color: isOnline ? Colors.green : AppColors.navyBlue,
+                  size: 24.sp,
+                ),
+              ),
+              SizedBox(width: 14.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      clientName,
+                      style: GoogleFonts.cairo(
+                        fontSize: 16.sp,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? Colors.white : AppColors.navyBlue,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: 4.h),
+                    Row(
                       children: [
-                        Container(
-                          padding: EdgeInsets.all(8.r),
-                          decoration: BoxDecoration(
-                            color: AppColors.navyBlue.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8.r),
-                          ),
-                          child: Icon(
-                            Icons.schedule_rounded,
-                            color: AppColors.navyBlue,
-                            size: 18.sp,
-                          ),
+                        Icon(
+                          Icons.calendar_today_rounded,
+                          size: 12.sp,
+                          color: isDark ? Colors.white70 : Colors.grey[600],
                         ),
-                        SizedBox(width: 12.w),
+                        SizedBox(width: 4.w),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                clientName,
-                                style: GoogleFonts.cairo(
-                                  fontSize: 13.sp,
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark ? Colors.white : AppColors.navyBlue,
-                                ),
-                              ),
-                              SizedBox(height: 4.h),
-                              Text(
-                                '$day | $appointmentTime',
-                                style: GoogleFonts.cairo(
-                                  fontSize: 11.sp,
-                                  color: isDark ? Colors.white70 : Colors.grey[600]!,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            '$day | $appointmentTime',
+                            style: GoogleFonts.cairo(
+                              fontSize: 12.sp,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? Colors.white70 : Colors.grey[600],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
-                    );
-                  },
-                ),
-                if (i < appointments.length - 1)
-                  Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12.h),
-                    child: Divider(
-                      color: isDark
-                          ? const Color(0xFF334766)
-                          : const Color(0xFFE5E7EB),
-                      height: 1.h,
                     ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                decoration: BoxDecoration(
+                  color: isDark ? badgeColor.withOpacity(0.15) : badgeColor,
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+                child: Text(
+                  isOnline ? 'Online' : 'In Office',
+                  style: GoogleFonts.cairo(
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.bold,
+                    color: badgeTextColor,
                   ),
-              ],
+                ),
+              ),
             ],
           ),
         );
@@ -576,13 +868,29 @@ class _LawyerDashboardRepository {
           lawyerId: 'lawyer_admin_01', // Dummy lawyer ID
           caseNumber: 'CASE-2024-001',
           title: 'Real Estate Dispute',
-          description: 'Conflict regarding commercial property ownership in New Cairo.',
+          description:
+              'Conflict regarding commercial property ownership in New Cairo.',
           category: 'Civil',
           status: 'active',
           createdDate: DateTime(2024, 2, 12),
           lawyerName: 'Client: Ahmed Aly',
-          requiredDocuments: List.generate(4, (i) => RequiredDocument(id: '$i', name: 'Deed', description: '', isSubmitted: false)),
-          sessions: List.generate(2, (i) => CaseSession(id: '$i', scheduledDate: DateTime.now(), status: 'scheduled')),
+          requiredDocuments: List.generate(
+            4,
+            (i) => RequiredDocument(
+              id: '$i',
+              name: 'Deed',
+              description: '',
+              isSubmitted: false,
+            ),
+          ),
+          sessions: List.generate(
+            2,
+            (i) => CaseSession(
+              id: '$i',
+              scheduledDate: DateTime.now(),
+              status: 'scheduled',
+            ),
+          ),
           updates: [],
         ),
         UserCase(
@@ -590,13 +898,29 @@ class _LawyerDashboardRepository {
           lawyerId: 'lawyer_admin_01', // Dummy lawyer ID
           caseNumber: 'CASE-2024-005',
           title: 'IP Rights Review',
-          description: 'Copyright infringement investigation for a tech startup mobile app.',
+          description:
+              'Copyright infringement investigation for a tech startup mobile app.',
           category: 'Corporate',
           status: 'pending',
           createdDate: DateTime(2024, 3, 05),
           lawyerName: 'Client: Tech Nile Inc.',
-          requiredDocuments: List.generate(2, (i) => RequiredDocument(id: '$i', name: 'License', description: '', isSubmitted: false)),
-          sessions: List.generate(1, (i) => CaseSession(id: '$i', scheduledDate: DateTime.now(), status: 'scheduled')),
+          requiredDocuments: List.generate(
+            2,
+            (i) => RequiredDocument(
+              id: '$i',
+              name: 'License',
+              description: '',
+              isSubmitted: false,
+            ),
+          ),
+          sessions: List.generate(
+            1,
+            (i) => CaseSession(
+              id: '$i',
+              scheduledDate: DateTime.now(),
+              status: 'scheduled',
+            ),
+          ),
           updates: [],
         ),
         UserCase(
@@ -604,13 +928,29 @@ class _LawyerDashboardRepository {
           lawyerId: 'lawyer_admin_01', // Dummy lawyer ID
           caseNumber: 'CASE-2024-012',
           title: 'Labor Contract Breach',
-          description: 'Investigation into employee non-compete clause violations.',
+          description:
+              'Investigation into employee non-compete clause violations.',
           category: 'Labor',
           status: 'active',
           createdDate: DateTime(2024, 4, 18),
           lawyerName: 'Client: Modern Cairo Co.',
-          requiredDocuments: List.generate(6, (i) => RequiredDocument(id: '$i', name: 'Contract', description: '', isSubmitted: true)),
-          sessions: List.generate(3, (i) => CaseSession(id: '$i', scheduledDate: DateTime.now(), status: 'scheduled')),
+          requiredDocuments: List.generate(
+            6,
+            (i) => RequiredDocument(
+              id: '$i',
+              name: 'Contract',
+              description: '',
+              isSubmitted: true,
+            ),
+          ),
+          sessions: List.generate(
+            3,
+            (i) => CaseSession(
+              id: '$i',
+              scheduledDate: DateTime.now(),
+              status: 'scheduled',
+            ),
+          ),
           updates: [],
         ),
       ];
@@ -732,32 +1072,81 @@ class _LawyerDashboardRepository {
         yearsOfExperience >= 0 &&
         hasSchedule;
 
+    debugPrint('--- Lawyer Onboarding Check ---');
+    debugPrint('onboardingCompleted: [33m[1m$onboardingFlag[0m');
+    debugPrint('work_status: $workStatus');
+    debugPrint('professional_bio: $bio');
+    debugPrint('years_of_experience: $yearsOfExperience');
+    debugPrint('schedule: $scheduleRaw');
+    debugPrint('hasSchedule: $hasSchedule');
+    debugPrint('hasCoreData: $hasCoreData');
+
     if (!onboardingFlag || !hasCoreData) {
+      debugPrint('Result: [31m[1mNOT COMPLETE (core data missing)[0m');
       return false;
     }
 
     if (workStatus == 'Works in an Office') {
-      return (_asString(data['employer_lawyer_name']) ?? '').isNotEmpty;
+      final employerName = _asString(data['employer_lawyer_name']);
+      debugPrint('employer_lawyer_name: $employerName');
+      final result = (employerName ?? '').isNotEmpty;
+      debugPrint(
+        'Result: ${result ? '\u001b[32mCOMPLETE\u001b[0m' : '\u001b[31mNOT COMPLETE (employer name missing)\u001b[0m'}',
+      );
+      return result;
     }
 
     if (workStatus == 'Owns an Office') {
       final officeDetails = data['office_details'];
       if (officeDetails is! Map) {
+        debugPrint(
+          'Result: \u001b[31mNOT COMPLETE (office_details missing)\u001b[0m',
+        );
         return false;
       }
       final governorate = _asString(officeDetails['governorate']);
       final city = _asString(officeDetails['city']);
       final address = _asString(officeDetails['address']);
-      final phone = _asString(officeDetails['phone']);
-      return governorate != null &&
+      
+      List<String> allPhones = [];
+      
+      final legacyPhone = _asString(officeDetails['phone']);
+      if (legacyPhone != null && legacyPhone.isNotEmpty) {
+        allPhones.add(legacyPhone);
+      }
+      
+      final phonesRaw = officeDetails['phones'];
+      if (phonesRaw is List) {
+        for (var p in phonesRaw) {
+          final pStr = _asString(p);
+          if (pStr != null && pStr.isNotEmpty && !allPhones.contains(pStr)) {
+            allPhones.add(pStr);
+          }
+        }
+      }
+      
+      final hasPhone = allPhones.isNotEmpty;
+      final phoneDisplay = allPhones.join(', ');
+      
+      debugPrint(
+        'office_details: governorate=$governorate, city=$city, address=$address, phones=$phoneDisplay',
+      );
+      final result =
+          governorate != null &&
           city != null &&
           address != null &&
-          phone != null &&
+          hasPhone &&
           governorate.isNotEmpty &&
           city.isNotEmpty &&
-          address.isNotEmpty &&
-          phone.isNotEmpty;
+          address.isNotEmpty;
+      debugPrint(
+        'Result: ${result ? '\u001b[32mCOMPLETE\u001b[0m' : '\u001b[31mNOT COMPLETE (office details missing)\u001b[0m'}',
+      );
+      return result;
     }
+
+    debugPrint('Result: \u001b[32mCOMPLETE (default)\u001b[0m');
+    return true;
 
     return true;
   }
@@ -836,7 +1225,8 @@ class _LawyerDashboardRepository {
 
     Future<void> readQuery(Query<Map<String, dynamic>> query) async {
       try {
-        final snapshot = await query.limit(50)
+        final snapshot = await query
+            .limit(50)
             .get(const GetOptions(source: Source.serverAndCache))
             .timeout(const Duration(seconds: 10));
         for (final doc in snapshot.docs) {
@@ -938,23 +1328,20 @@ class _LawyerHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? const Color(0xFF162235) : Colors.white;
-
     return Container(
       padding: EdgeInsets.all(18.r),
       decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(20.r),
-        border: Border.all(
-          color: isDark ? const Color(0xFF334766) : const Color(0xFFE5E7EB),
-          width: 1.w,
+        borderRadius: BorderRadius.circular(24.r),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF042A52), Color(0xFF0B5E55)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.22 : 0.04),
-            blurRadius: 14, // Corrected withValues to withOpacity
-            offset: Offset(0, 6.h),
+            color: const Color(0xFF0D2345).withOpacity(0.22),
+            blurRadius: 22,
+            offset: Offset(0, 12.h),
           ),
         ],
       ),
@@ -962,29 +1349,19 @@ class _LawyerHeroCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Welcome Back!'.translate(),
+            '${'Welcome back,'.translate()} $lawyerName',
             style: GoogleFonts.cairo(
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w600,
-              color: isDark ? const Color(0xFF9FB0CA) : const Color(0xFF98A3B3),
+              color: Colors.white,
+              fontSize: 22.sp,
+              fontWeight: FontWeight.w800,
             ),
           ),
           SizedBox(height: 8.h),
           Text(
-            lawyerName,
-            style: GoogleFonts.cairo(
-              fontSize: 24.sp,
-              fontWeight: FontWeight.w800,
-              color: isDark ? Colors.white : AppColors.navyBlue,
-            ),
-          ),
-          SizedBox(height: 4.h),
-          Text(
             'You have pending cases waiting for you'.translate(),
-            style: GoogleFonts.cairo(
-              fontSize: 13.sp,
-              fontWeight: FontWeight.w500,
-              color: isDark ? const Color(0xFF9FB0CA) : const Color(0xFF98A3B3),
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.9),
+              height: 1.35,
             ),
           ),
         ],
@@ -1149,7 +1526,9 @@ class _AIAssistantCard extends StatelessWidget {
           gradient: LinearGradient(
             colors: [
               AppColors.navyBlue.withOpacity(0.95),
-              const Color(0xFF1E40AF).withOpacity(0.95), // Corrected withValues to withOpacity
+              const Color(
+                0xFF1E40AF,
+              ).withOpacity(0.95), // Corrected withValues to withOpacity
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -1157,7 +1536,9 @@ class _AIAssistantCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16.r),
           boxShadow: [
             BoxShadow(
-              color: AppColors.navyBlue.withOpacity(0.2), // Corrected withValues to withOpacity
+              color: AppColors.navyBlue.withOpacity(
+                0.2,
+              ), // Corrected withValues to withOpacity
               blurRadius: 12,
               offset: Offset(0, 4.h),
             ),
@@ -1168,7 +1549,9 @@ class _AIAssistantCard extends StatelessWidget {
             Container(
               padding: EdgeInsets.all(12.r),
               decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.25), // Corrected withValues to withOpacity
+                color: Colors.white.withOpacity(
+                  0.25,
+                ), // Corrected withValues to withOpacity
                 borderRadius: BorderRadius.circular(12.r),
               ),
               child: Icon(
@@ -1243,7 +1626,9 @@ class _ServiceMapCard extends StatelessWidget {
             Container(
               padding: EdgeInsets.all(12.r),
               decoration: BoxDecoration(
-                color: const Color(0xFF10B981).withOpacity(0.15), // Corrected withValues to withOpacity
+                color: const Color(
+                  0xFF10B981,
+                ).withOpacity(0.15), // Corrected withValues to withOpacity
                 borderRadius: BorderRadius.circular(12.r),
               ),
               child: Icon(
@@ -1306,10 +1691,8 @@ class _CaseCard extends StatelessWidget {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => LawyerCaseDetailsScreen(
-              case_: case_,
-              isLawyer: true,
-            ),
+            builder: (_) =>
+                LawyerCaseDetailsScreen(case_: case_, isLawyer: true),
           ),
         );
       },
@@ -1360,9 +1743,15 @@ class _CaseCard extends StatelessWidget {
             SizedBox(height: 12.h),
             Row(
               children: [
-                _buildStatIcon(Icons.description_outlined, '${case_.requiredDocuments.length} Documents'),
+                _buildStatIcon(
+                  Icons.description_outlined,
+                  '${case_.requiredDocuments.length} Documents',
+                ),
                 SizedBox(width: 16.w),
-                _buildStatIcon(Icons.gavel_outlined, '${case_.sessions.length} Sessions'),
+                _buildStatIcon(
+                  Icons.gavel_outlined,
+                  '${case_.sessions.length} Sessions',
+                ),
               ],
             ),
           ],
@@ -1518,7 +1907,11 @@ class _ScheduleView extends StatelessWidget {
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(child: _DataEmptyHint(message: 'Error loading schedule.'.translate()));
+          return Center(
+            child: _DataEmptyHint(
+              message: 'Error loading schedule.'.translate(),
+            ),
+          );
         }
 
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -1529,7 +1922,9 @@ class _ScheduleView extends StatelessWidget {
 
         if (appointments.isEmpty) {
           return Center(
-            child: _DataEmptyHint(message: 'No scheduled appointments yet.'.translate()),
+            child: _DataEmptyHint(
+              message: 'No scheduled appointments yet.'.translate(),
+            ),
           );
         }
 
@@ -1538,7 +1933,8 @@ class _ScheduleView extends StatelessWidget {
           itemCount: appointments.length,
           itemBuilder: (context, index) {
             final data = appointments[index].data() as Map<String, dynamic>;
-            final clientName = data['clientName'] as String? ?? 'Unknown Client';
+            final clientName =
+                data['clientName'] as String? ?? 'Unknown Client';
             final time = data['appointmentTime'] as String? ?? '--:--';
             final day = data['day'] as String? ?? 'Date not set';
 
@@ -1557,10 +1953,7 @@ class _ScheduleItemWidget extends StatelessWidget {
   final String title;
   final String subtitle;
 
-  const _ScheduleItemWidget({
-    required this.title,
-    required this.subtitle,
-  });
+  const _ScheduleItemWidget({required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
