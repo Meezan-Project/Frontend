@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
@@ -89,7 +91,7 @@ class _UserCasesScreenState extends State<UserCasesScreen>
                 ),
                 SizedBox(height: 16.h),
                 Text(
-                  'Error loading cases'.translate(),
+                  'Error: ${snapshot.error}',
                   style: GoogleFonts.cairo(
                     fontSize: 16.sp,
                     fontWeight: FontWeight.w600,
