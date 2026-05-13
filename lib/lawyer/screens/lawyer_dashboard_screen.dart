@@ -21,6 +21,7 @@ import 'package:mezaan/lawyer/screens/lawyer_conflict_checker_screen.dart';
 import 'package:mezaan/lawyer/screens/lawyer_case_management_screen.dart';
 import 'package:mezaan/user/models/case_model.dart';
 import 'dart:async';
+import 'package:flutter/services.dart';
 
 class LawyerDashboardScreen extends StatefulWidget {
   const LawyerDashboardScreen({super.key});
@@ -1666,7 +1667,8 @@ class _CasesView extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return Center(child: _DataEmptyHint(message: 'Error loading cases.'.translate()));
+          print('Error details: ${snapshot.error}');
+          return Center(child: _DataEmptyHint(message: 'Error: ${snapshot.error}'));
         }
 
         final docs = snapshot.data?.docs ?? [];
@@ -1688,7 +1690,7 @@ class _CasesView extends StatelessWidget {
               category: data['category'] ?? 'Civil',
               status: data['status'] ?? 'pending',
               createdDate: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-              lawyerName: '', // Placeholder as fetching client name would require a separate query
+              lawyerName: data['clientName'] ?? 'Unknown Client',
               requiredDocuments: [],
               sessions: [],
               updates: [],
@@ -1718,11 +1720,15 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
   final _feesController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _phoneResultController = TextEditingController();
+  final _nationalIdController = TextEditingController();
 
   String _selectedCategory = 'Civil';
   Map<String, dynamic>? _selectedClient;
   List<Map<String, dynamic>> _searchResults = [];
   bool _isSearching = false;
+  bool _clientNotFound = false;
   bool _isSubmitting = false;
 
   @override
@@ -1737,28 +1743,62 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
     _titleController.dispose();
     _descController.dispose();
     _feesController.dispose();
+    _nameController.dispose();
+    _phoneResultController.dispose();
+    _nationalIdController.dispose();
     super.dispose();
   }
 
   Future<void> _onSearchChanged(String value) async {
-    if (value.length < 3) {
-      setState(() => _searchResults = []);
+    // Sanitize input: remove spaces and dashes as requested
+    String searchPhone = value.trim().replaceAll(RegExp(r'[\s\-]'), '');
+    
+    // Standard normalization for local numbers
+    if (searchPhone.startsWith('0')) {
+      searchPhone = '+2' + searchPhone;
+    }
+
+    // Clear selection if typing again to force re-verification
+    if (_selectedClient != null && searchPhone != _selectedClient!['phone']) {
+      setState(() {
+        _selectedClient = null;
+        _clientNotFound = false;
+      });
+      _nameController.clear();
+      _phoneResultController.clear();
+      _nationalIdController.clear();
+    }
+
+    if (value.trim().isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _clientNotFound = false;
+      });
       return;
     }
 
     setState(() => _isSearching = true);
     try {
+      print('Searching for: $searchPhone');
       final querySnap = await FirebaseFirestore.instance
           .collection('users')
-          .where('role', isEqualTo: 'client')
-          .where('phone', isGreaterThanOrEqualTo: value)
-          .where('phone', isLessThanOrEqualTo: '$value\uf8ff')
+          .where('role', isEqualTo: 'user')
+          .where('phone', isEqualTo: searchPhone)
           .limit(5)
           .get();
 
+      final results = querySnap.docs.map((doc) => {...doc.data(), 'uid': doc.id}).toList();
+
       setState(() {
-        _searchResults = querySnap.docs.map((doc) => {...doc.data(), 'uid': doc.id}).toList();
+        _searchResults = results;
+        // Show error if input exists but no user was found
+        _clientNotFound = searchPhone.isNotEmpty && results.isEmpty;
       });
+
+      // Auto-fetch Trigger: If exactly one match is found, auto-fill regardless of length
+      if (results.length == 1) {
+        _selectUser(results.first);
+      }
     } catch (e) {
       debugPrint('Search error: $e');
     } finally {
@@ -1766,72 +1806,77 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
     }
   }
 
+  void _selectUser(Map<String, dynamic> user) {
+    String rawPhone = user['phone'] ?? '';
+    // If it starts with +20, we display the 0... version to the lawyer in the search bar
+    String displayPhone = rawPhone;
+    if (rawPhone.startsWith('+20')) {
+      displayPhone = rawPhone.substring(2);
+    }
+
+    setState(() {
+      _selectedClient = user;
+      _phoneController.text = displayPhone;
+      // Fill controllers with data from Firestore (FullName or parts)
+      _nameController.text = user['fullName'] ?? 
+          '${user['first_name'] ?? ''} ${user['second_name'] ?? ''}'.trim();
+      _phoneResultController.text = user['phone'] ?? '';
+      _nationalIdController.text = user['nationalId'] ?? 
+          user['national_id'] ?? 'N/A';
+      _searchResults = [];
+      _clientNotFound = false;
+    });
+  }
+
   Future<void> _submitCase() async {
-    if (!_formKey.currentState!.validate()) return;
-    debugPrint(">>> Create Case Button Tapped! <<<");
-
-    // Check form validation
-    final isValid = _formKey.currentState?.validate() ?? false;
-    debugPrint("Form Validation Status: $isValid");
-    if (!isValid) {
-      debugPrint("Stopping: Form validation failed.");
-      return;
-    }
-
-    if (_selectedClient == null) {
-      debugPrint("Stopping: No client selected.");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please select a client'.translate())),
-      );
-      return;
-    }
-
-    if (_isSubmitting) {
-      debugPrint("Warning: Submission already in progress (Async Lock).");
-      return;
-    }
+    // Bypass validation for testing as requested
+    if (_isSubmitting) return;
 
     setState(() => _isSubmitting = true);
-
-    debugPrint("Submitting to Firebase...");
     
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        debugPrint("Error: No authenticated user found.");
-        return;
-      }
-
-      final casePayload = {
+      
+      // Prepare data map for Firestore
+      final Map<String, dynamic> mapData = {
         'caseNumber': _caseNumber,
-        'clientId': _selectedClient!['uid'],
-        'lawyerId': user.uid,
+        'clientId': _selectedClient!['uid'], // Button is disabled if null
+        'lawyerId': user?.uid ?? 'unknown_lawyer',
         'title': _titleController.text.trim(),
         'status': 'pending_payment',
         'category': _selectedCategory,
         'description': _descController.text.trim(),
         'legalFees': double.tryParse(_feesController.text) ?? 0.0,
         'createdAt': FieldValue.serverTimestamp(),
+        'clientName': _nameController.text,
+        'clientPhone': _phoneResultController.text,
+        'clientNationalId': _nationalIdController.text,
       };
 
-      debugPrint("Payload: $casePayload");
+      // Task: Add Print Statements
+      print('Attempting to save to collection: cases');
+      print('Data: $mapData');
 
-      await FirebaseFirestore.instance.collection('cases').add(casePayload);
+      // Firebase Call
+      await FirebaseFirestore.instance.collection('cases').add(mapData);
 
-      debugPrint("Success: Document added to Firestore.");
       if (!mounted) return;
+      
+      // Task: Success SnackBar
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Case linked successfully'.translate())),
+        SnackBar(content: Text('Case Syncing...'.translate())),
       );
+
+      // Task: Force Close & Navigate
       Navigator.pop(context);
     } catch (e) {
-      debugPrint("Firebase Error: $e");
+      // Task: Global Error Catching
+      print("Firebase Error: $e");
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e'.translate())),
       );
     } finally {
-      debugPrint("Resetting isSubmitting state.");
       if (mounted) setState(() => _isSubmitting = false);
     }
   }
@@ -1885,40 +1930,85 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                       controller: _phoneController,
                       onChanged: _onSearchChanged,
                       keyboardType: TextInputType.phone,
+                      maxLengthEnforcement: MaxLengthEnforcement.none,
                       decoration: _inputDeco(inputBg, Icons.person_search_outlined).copyWith(
-                        suffixIcon: _isSearching ? Padding(padding: EdgeInsets.all(12.r), child: const CircularProgressIndicator(strokeWidth: 2)) : null,
+                        hintText: 'Search by phone number...'.translate(),
+                        counterText: "",
+                        suffixIcon: _isSearching 
+                            ? Padding(padding: EdgeInsets.all(12.r), child: const CircularProgressIndicator(strokeWidth: 2)) 
+                            : null,
                       ),
                     ),
+
+                    // Search Results List (Dynamic Dropdown)
                     if (_searchResults.isNotEmpty && _selectedClient == null)
                       Container(
                         margin: EdgeInsets.only(top: 8.h),
-                        decoration: BoxDecoration(color: inputBg, borderRadius: BorderRadius.circular(12.r), border: Border.all(color: const Color(0xFFFFD700))),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                          borderRadius: BorderRadius.circular(12.r),
+                          border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.5)),
+                          boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                        ),
                         child: Column(
                           children: _searchResults.map((user) => ListTile(
-                            title: Text('${user['first_name'] ?? ''} ${user['second_name'] ?? ''}', style: GoogleFonts.cairo(fontSize: 14.sp)),
+                            dense: true,
+                            leading: Icon(Icons.person_outline, size: 20.sp, color: const Color(0xFFFFD700)),
+                            title: Text('${user['first_name'] ?? ''} ${user['second_name'] ?? ''}', style: GoogleFonts.cairo(fontSize: 14.sp, fontWeight: FontWeight.bold)),
                             subtitle: Text(user['phone'] ?? '', style: GoogleFonts.cairo(fontSize: 12.sp)),
-                            onTap: () => setState(() {
-                              _selectedClient = user;
-                              _searchResults = [];
-                            }),
+                            onTap: () => _selectUser(user),
                           )).toList(),
                         ),
                       ),
-                    if (_selectedClient != null) ...[
-                      SizedBox(height: 12.h),
-                      Container(
-                        padding: EdgeInsets.all(12.r),
-                        decoration: BoxDecoration(color: const Color(0xFFFFD700).withOpacity(0.1), borderRadius: BorderRadius.circular(12.r)),
-                        child: Column(
-                          children: [
-                            _buildReadOnlyRow(Icons.person, 'Client Name'.translate(), '${_selectedClient!['first_name'] ?? ''} ${_selectedClient!['second_name'] ?? ''}'),
-                            _buildReadOnlyRow(Icons.phone, 'Phone'.translate(), _selectedClient!['phone'] ?? ''),
-                            _buildReadOnlyRow(Icons.badge, 'National ID'.translate(), _selectedClient!['national_id'] ?? 'N/A'),
-                            TextButton(onPressed: () => setState(() => _selectedClient = null), child: Text('Clear Selection'.translate(), style: const TextStyle(color: Colors.red))),
-                          ],
+
+                    if (_clientNotFound && _phoneController.text.trim().isNotEmpty)
+                      Padding(
+                        padding: EdgeInsets.only(top: 8.h),
+                        child: Text(
+                          'Client not registered'.translate(),
+                          style: GoogleFonts.cairo(color: Colors.red, fontSize: 12.sp, fontWeight: FontWeight.bold),
                         ),
                       ),
-                    ],
+
+                    SizedBox(height: 16.h),
+                    Text('Client Name'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
+                    TextFormField(
+                      controller: _nameController,
+                      readOnly: true,
+                      decoration: _inputDeco(isDark ? const Color(0xFF262F3C) : Colors.grey[200]!, Icons.person),
+                    ),
+                    SizedBox(height: 16.h),
+                    Text('Client Phone No'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
+                    TextFormField(
+                      controller: _phoneResultController,
+                      readOnly: true,
+                      decoration: _inputDeco(isDark ? const Color(0xFF262F3C) : Colors.grey[200]!, Icons.phone),
+                    ),
+                    SizedBox(height: 16.h),
+                    Text('Client National ID'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
+                    TextFormField(
+                      controller: _nationalIdController,
+                      readOnly: true,
+                      decoration: _inputDeco(isDark ? const Color(0xFF262F3C) : Colors.grey[200]!, Icons.badge),
+                    ),
+
+                    if (_selectedClient != null)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () => setState(() {
+                            _selectedClient = null;
+                            _phoneController.clear();
+                            _nameController.clear();
+                            _phoneResultController.clear();
+                            _nationalIdController.clear();
+                          }), 
+                          child: Text('Change Client'.translate(), style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+                        ),
+                      ),
                     SizedBox(height: 20.h),
 
                     // Section 3: Specifications
@@ -1973,7 +2063,7 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                       width: double.infinity,
                       height: 54.h,
                       child: ElevatedButton(
-                        onPressed: _isSubmitting ? null : _submitCase,
+                        onPressed: (_isSubmitting || _selectedClient == null) ? null : _submitCase,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF001F3F),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14.r)),

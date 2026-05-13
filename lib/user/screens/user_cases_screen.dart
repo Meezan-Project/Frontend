@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
@@ -24,29 +26,35 @@ class _UserCasesScreenState extends State<UserCasesScreen>
   bool get wantKeepAlive => true;
 
   Stream<List<UserCase>> _getUserCases() {
-    // Using mock data for UI design preview
-    // To use real Firestore data, uncomment the code below and comment out the mock data
-    return Stream.value(MockCaseData.getMockCases());
-
-    // Real Firestore implementation:
-    /*
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       return Stream.value([]);
     }
 
     return FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
         .collection('cases')
-        .orderBy('createdDate', descending: true)
+        .where('clientId', isEqualTo: user.uid)
+        .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs
-              .map((doc) => UserCase.fromFirestore(doc))
-              .toList();
+          return snapshot.docs.map((doc) {
+            final data = doc.data();
+            return UserCase(
+              id: doc.id,
+              lawyerId: data['lawyerId'] ?? '',
+              caseNumber: data['caseNumber'] ?? 'N/A',
+              title: data['title'] ?? 'Untitled',
+              description: data['description'] ?? '',
+              category: data['category'] ?? 'Civil',
+              status: data['status'] ?? 'pending',
+              createdDate: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+              lawyerName: 'Lawyer', // Data structure currently doesn't store lawyerName in case doc
+              requiredDocuments: [],
+              sessions: [],
+              updates: [],
+            );
+          }).toList();
         });
-    */
   }
 
   List<UserCase> _filterCases(List<UserCase> cases) {
@@ -84,7 +92,7 @@ class _UserCasesScreenState extends State<UserCasesScreen>
                 ),
                 SizedBox(height: 16.h),
                 Text(
-                  'Error loading cases'.translate(),
+                  'Error: ${snapshot.error}',
                   style: GoogleFonts.cairo(
                     fontSize: 16.sp,
                     fontWeight: FontWeight.w600,
