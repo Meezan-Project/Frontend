@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:mezaan/shared/services/supabase_storage_service.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/models/case_model.dart';
@@ -37,18 +39,31 @@ String formatDate(DateTime date, String format) {
     'Saturday',
   ];
 
-  result = result.replaceAll('EEEE', days[date.weekday % 7]);
-  result = result.replaceAll('MMM', months[date.month - 1]);
-  result = result.replaceAll('dd', date.day.toString().padLeft(2, '0'));
-  result = result.replaceAll('yyyy', date.year.toString());
-  result = result.replaceAll(
-    'hh',
-    (date.hour % 12 == 0 ? 12 : date.hour % 12).toString().padLeft(2, '0'),
-  );
-  result = result.replaceAll('mm', date.minute.toString().padLeft(2, '0'));
-  result = result.replaceAll('a', date.hour >= 12 ? 'PM' : 'AM');
-
-  return result;
+  return format.replaceAllMapped(RegExp(r'EEEE|MMM|dd|yyyy|hh|mm|\ba\b'), (
+    match,
+  ) {
+    switch (match.group(0)) {
+      case 'EEEE':
+        return days[date.weekday % 7];
+      case 'MMM':
+        return months[date.month - 1];
+      case 'dd':
+        return date.day.toString().padLeft(2, '0');
+      case 'yyyy':
+        return date.year.toString();
+      case 'hh':
+        return (date.hour % 12 == 0 ? 12 : date.hour % 12).toString().padLeft(
+          2,
+          '0',
+        );
+      case 'mm':
+        return date.minute.toString().padLeft(2, '0');
+      case 'a':
+        return date.hour >= 12 ? 'PM' : 'AM';
+      default:
+        return match.group(0)!;
+    }
+  });
 }
 
 class CaseDetailsScreen extends StatefulWidget {
@@ -72,7 +87,10 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
 
   String _formatCurrency(double amount) {
     final parts = amount.toStringAsFixed(2).split('.');
-    final wholeNumber = parts[0].replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',');
+    final wholeNumber = parts[0].replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    );
     return '$wholeNumber.${parts[1]}';
   }
 
@@ -84,46 +102,19 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
   String get _serviceFee => 'EGP ${_formatCurrency(_calculatedServiceFee)}';
   String get _totalFee => 'EGP ${_formatCurrency(_totalAmountDue)}';
 
-  late final List<RequiredDocument> _documents;
   final Map<String, PlatformFile?> _pickedDocumentFiles = {};
   final Set<String> _expandedDocuments = {};
-  late TextEditingController _notesController;
-  final List<String> _notesList = [];
-  late double _totalFees;
-  final double _withdrawnAmount = 0.0; // Hardcoded for now. Can be tied to a Firestore field later!
-  late double _remainingAmount;
-  final List<Map<String, dynamic>> _feeTransactions = [];
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
-    _notesController = TextEditingController();
     _isPaymentPending = widget.case_.status != 'active';
-
-    _totalFees = _isPaymentPending ? 0.0 : widget.case_.legalFees;
-    _remainingAmount = _totalFees - _withdrawnAmount;
-
-    _documents = widget.case_.requiredDocuments
-        .map(
-          (doc) => RequiredDocument(
-            id: doc.id,
-            name: doc.name,
-            description: doc.description,
-            isSubmitted: doc.isSubmitted,
-            submittedDate: doc.submittedDate,
-          ),
-        )
-        .toList();
-    for (final document in _documents) {
-      _pickedDocumentFiles[document.id] = null;
-    }
   }
 
   @override
   void dispose() {
     _pageController.dispose();
-    _notesController.dispose();
     super.dispose();
   }
 
@@ -140,7 +131,11 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
           backgroundColor: bgColor,
           elevation: 0,
           leading: IconButton(
-            icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20.sp),
+            icon: Icon(
+              Icons.arrow_back_ios_new_rounded,
+              size: 20.sp,
+              color: isDark ? Colors.white : Colors.black,
+            ),
             onPressed: () => Navigator.of(context).pop(),
           ),
           title: Text(
@@ -148,6 +143,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
             style: GoogleFonts.cairo(
               fontSize: 18.sp,
               fontWeight: FontWeight.w700,
+              color: isDark ? Colors.white : Colors.black,
             ),
           ),
           centerTitle: false,
@@ -190,89 +186,137 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
   }
 
   Widget _buildHeaderCard(bool isDark) {
-    final cardBg = isDark ? const Color(0xFF1A2940) : Colors.white;
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('cases')
+          .doc(widget.case_.id)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final caseData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
+        final cardBg = isDark ? const Color(0xFF1A2940) : Colors.white;
+        final officialCaseNumber = caseData['caseNumber'] as String?;
+        final caseYear = caseData['caseYear'] as String?;
+        final hasOfficialCaseNumber =
+            officialCaseNumber != null &&
+            officialCaseNumber.isNotEmpty &&
+            caseYear != null &&
+            caseYear.isNotEmpty;
 
-    return Container(
-      margin: EdgeInsets.all(16.w),
-      padding: EdgeInsets.all(16.w),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(
-          color: isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.3 : 0.1),
-            blurRadius: 12,
-            offset: Offset(0, 4.h),
+        return Container(
+          margin: EdgeInsets.all(16.w),
+          padding: EdgeInsets.all(16.w),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(16.r),
+            border: Border.all(
+              color: isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.3 : 0.1),
+                blurRadius: 12,
+                offset: Offset(0, 4.h),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.case_.caseNumber,
-                      style: GoogleFonts.cairo(
-                        fontSize: 13.sp,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.legalGold,
-                      ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8.w,
+                          runSpacing: 4.h,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(
+                              caseData['caseId'] as String? ??
+                                  widget.case_.caseNumber,
+                              style: GoogleFonts.cairo(
+                                fontSize: 13.sp,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.legalGold,
+                              ),
+                            ),
+                            if (hasOfficialCaseNumber)
+                              Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 6.w,
+                                  vertical: 2.h,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.legalGold.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(4.r),
+                                ),
+                                child: Text(
+                                  'Official: $officialCaseNumber / $caseYear',
+                                  style: GoogleFonts.cairo(
+                                    fontSize: 11.sp,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.legalGold,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        SizedBox(height: 6.h),
+                        Text(
+                          widget.case_.title,
+                          style: GoogleFonts.cairo(
+                            fontSize: 18.sp,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
-                    SizedBox(height: 6.h),
-                    Text(
-                      widget.case_.title,
-                      style: GoogleFonts.cairo(
-                        fontSize: 18.sp,
-                        fontWeight: FontWeight.w800,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+                  ),
+                  SizedBox(width: 12.w),
+                  _buildStatusBadge(
+                    caseData['status'] as String? ?? widget.case_.status,
+                    isDark,
+                  ),
+                ],
+              ),
+              SizedBox(height: 14.h),
+              Text(
+                widget.case_.description,
+                style: GoogleFonts.cairo(
+                  fontSize: 13.sp,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  height: 1.5,
                 ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
               ),
-              SizedBox(width: 12.w),
-              _buildStatusBadge(widget.case_.status, isDark),
-            ],
-          ),
-          SizedBox(height: 14.h),
-          Text(
-            widget.case_.description,
-            style: GoogleFonts.cairo(
-              fontSize: 13.sp,
-              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-              height: 1.5,
-            ),
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-          ),
-          SizedBox(height: 12.h),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildHeaderInfo(
-                label: 'Category'.translate(),
-                value: widget.case_.category,
-                isDark: isDark,
-              ),
-              _buildHeaderInfo(
-                label: 'Created'.translate(),
-                value: formatDate(widget.case_.createdDate, 'MMM dd, yyyy'),
-                isDark: isDark,
+              SizedBox(height: 12.h),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildHeaderInfo(
+                    label: 'Category'.translate(),
+                    value:
+                        caseData['category'] as String? ??
+                        widget.case_.category,
+                    isDark: isDark,
+                  ),
+                  _buildHeaderInfo(
+                    label: 'Created'.translate(),
+                    value: formatDate(widget.case_.createdDate, 'MMM dd, yyyy'),
+                    isDark: isDark,
+                  ),
+                ],
               ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -952,6 +996,16 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                         transaction.update(caseDocRef, {
                                           'status': 'active',
                                         });
+                                        final feeDocRef = caseDocRef
+                                            .collection('fees')
+                                            .doc();
+                                        transaction.set(feeDocRef, {
+                                          'type': 'deposit',
+                                          'amount': _baseRequestedAmount,
+                                          'title': 'Initial Payment',
+                                          'createdAt':
+                                              FieldValue.serverTimestamp(),
+                                        });
                                       });
                                 } catch (e) {
                                   if (e is Exception &&
@@ -978,9 +1032,81 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                 bottomSheetNavigator.pop();
                                 setState(() {
                                   _isPaymentPending = false;
-                                  _totalFees = widget.case_.legalFees;
-                                  _remainingAmount = _totalFees - _withdrawnAmount;
                                 });
+
+                                // --- Create chat between user and lawyer after payment ---
+                                final caseData = widget.case_;
+                                final chatId = caseData
+                                    .id; // Use case ID as chat ID for uniqueness
+                                final userId = caseData.clientId;
+                                final userName = caseData.clientName;
+                                final userAvatar =
+                                    caseData.clientNationalId ?? "";
+                                final lawyerId = caseData.lawyerId;
+                                final lawyerName = caseData.lawyerName;
+                                final lawyerAvatar =
+                                    caseData.lawyerAvatar ?? "";
+
+                                final chatDoc = FirebaseFirestore.instance
+                                    .collection('chats')
+                                    .doc(chatId);
+                                final userConvoDoc = FirebaseFirestore.instance
+                                    .collection('users')
+                                    .doc(userId)
+                                    .collection('conversations')
+                                    .doc(chatId);
+                                final lawyerConvoDoc = FirebaseFirestore
+                                    .instance
+                                    .collection('lawyers')
+                                    .doc(lawyerId)
+                                    .collection('conversations')
+                                    .doc(chatId);
+
+                                // Check if chat already exists, if not, create it
+                                chatDoc.get().then((doc) async {
+                                  if (!doc.exists) {
+                                    await chatDoc.set({
+                                      'caseId': chatId,
+                                      'userId': userId,
+                                      'userName': userName,
+                                      'userAvatar': userAvatar,
+                                      'clientId': userId,
+                                      'clientName': userName,
+                                      'clientProfileImage': userAvatar,
+                                      'lawyerId': lawyerId,
+                                      'lawyerName': lawyerName,
+                                      'lawyerAvatar': lawyerAvatar,
+                                      'createdAt': FieldValue.serverTimestamp(),
+                                      'lastMessage': '',
+                                      'lastMessageTime':
+                                          FieldValue.serverTimestamp(),
+                                    });
+                                  }
+                                  // Add conversation reference for user
+                                  await userConvoDoc.set({
+                                    'chatId': chatId,
+                                    'lawyerId': lawyerId,
+                                    'lawyerName': lawyerName,
+                                    'lawyerAvatar': lawyerAvatar,
+                                    'createdAt': FieldValue.serverTimestamp(),
+                                    'lastMessage': '',
+                                    'updatedAt': FieldValue.serverTimestamp(),
+                                  }, SetOptions(merge: true));
+                                  // Add conversation reference for lawyer
+                                  await lawyerConvoDoc.set({
+                                    'chatId': chatId,
+                                    'userId': userId,
+                                    'userName': userName,
+                                    'userAvatar': userAvatar,
+                                    'clientId': userId,
+                                    'clientName': userName,
+                                    'clientProfileImage': userAvatar,
+                                    'createdAt': FieldValue.serverTimestamp(),
+                                    'lastMessage': '',
+                                    'updatedAt': FieldValue.serverTimestamp(),
+                                  }, SetOptions(merge: true));
+                                });
+
                                 showPaymentResultDialog(
                                   success: true,
                                   message:
@@ -1051,126 +1177,455 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
     final amountController = TextEditingController();
     bool isProcessing = false;
     bool isSuccess = false;
+    double enteredAmount = 0.0;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20.r),
-          ),
-          title: Text(
-            'Pay Fees'.translate(),
-            style: GoogleFonts.cairo(fontWeight: FontWeight.bold),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (isSuccess)
-                Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20.h),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.check_circle_rounded,
-                        color: Colors.green,
-                        size: 70.sp,
+        builder: (context, setDialogState) {
+          double serviceFee = enteredAmount * 0.20;
+          double totalDue = enteredAmount + serviceFee;
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20.r),
+            ),
+            title: Text(
+              'Pay Fees'.translate(),
+              style: GoogleFonts.cairo(fontWeight: FontWeight.bold),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isSuccess)
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20.h),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.check_circle_rounded,
+                          color: Colors.green,
+                          size: 70.sp,
+                        ),
+                        SizedBox(height: 16.h),
+                        Text(
+                          'Payment Successful!'.translate(),
+                          style: GoogleFonts.cairo(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16.sp,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (isProcessing)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: CircularProgressIndicator(color: Color(0xFF002147)),
+                  )
+                else ...[
+                  Text(
+                    'Enter the amount you wish to pay'.translate(),
+                    style: GoogleFonts.cairo(),
+                  ),
+                  SizedBox(height: 16.h),
+                  TextField(
+                    controller: amountController,
+                    keyboardType: TextInputType.number,
+                    style: GoogleFonts.cairo(),
+                    onChanged: (val) {
+                      setDialogState(() {
+                        enteredAmount = double.tryParse(val) ?? 0.0;
+                      });
+                    },
+                    decoration: InputDecoration(
+                      hintText: '0.00',
+                      suffixText: 'EGP',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.r),
                       ),
-                      SizedBox(height: 16.h),
+                    ),
+                  ),
+                  if (enteredAmount > 0) ...[
+                    SizedBox(height: 16.h),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Base Amount:'.translate(),
+                          style: GoogleFonts.cairo(fontSize: 13.sp),
+                        ),
+                        Text(
+                          '${_formatCurrency(enteredAmount)} EGP',
+                          style: GoogleFonts.cairo(fontSize: 13.sp),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 4.h),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Service Fee (20%):'.translate(),
+                          style: GoogleFonts.cairo(fontSize: 13.sp),
+                        ),
+                        Text(
+                          '${_formatCurrency(serviceFee)} EGP',
+                          style: GoogleFonts.cairo(fontSize: 13.sp),
+                        ),
+                      ],
+                    ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.h),
+                      child: const Divider(),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Total Due:'.translate(),
+                          style: GoogleFonts.cairo(
+                            fontSize: 14.sp,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          '${_formatCurrency(totalDue)} EGP',
+                          style: GoogleFonts.cairo(
+                            fontSize: 14.sp,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.navyBlue,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ],
+            ),
+            actions: (isProcessing || isSuccess)
+                ? []
+                : [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(
+                        'Cancel'.translate(),
+                        style: GoogleFonts.cairo(color: Colors.grey),
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: enteredAmount <= 0
+                          ? null
+                          : () async {
+                              setDialogState(() => isProcessing = true);
+
+                              final uid =
+                                  FirebaseAuth.instance.currentUser?.uid;
+                              if (uid == null) return;
+
+                              try {
+                                await FirebaseFirestore.instance.runTransaction(
+                                  (transaction) async {
+                                    final userRef = FirebaseFirestore.instance
+                                        .collection('users')
+                                        .doc(uid);
+                                    final userDoc = await transaction.get(
+                                      userRef,
+                                    );
+
+                                    double currentBalance = 0.0;
+                                    if (userDoc.exists) {
+                                      final data = userDoc.data()!;
+                                      final balanceValue =
+                                          data['balance'] ??
+                                          data['walletBalance'] ??
+                                          data['wallet_balance'] ??
+                                          0;
+                                      currentBalance = balanceValue is num
+                                          ? balanceValue.toDouble()
+                                          : double.tryParse(
+                                                  balanceValue.toString(),
+                                                ) ??
+                                                0.0;
+                                    }
+
+                                    if (currentBalance < totalDue) {
+                                      throw Exception('insufficient_balance');
+                                    }
+
+                                    transaction.update(userRef, {
+                                      'balance': currentBalance - totalDue,
+                                    });
+
+                                    final feeDocRef = FirebaseFirestore.instance
+                                        .collection('cases')
+                                        .doc(widget.case_.id)
+                                        .collection('fees')
+                                        .doc();
+                                    transaction.set(feeDocRef, {
+                                      'type': 'deposit',
+                                      'amount': enteredAmount,
+                                      'title': 'Account Funded',
+                                      'createdAt': FieldValue.serverTimestamp(),
+                                    });
+                                  },
+                                );
+
+                                if (!mounted) return;
+                                setDialogState(() {
+                                  isProcessing = false;
+                                  isSuccess = true;
+                                });
+
+                                await Future.delayed(
+                                  const Duration(milliseconds: 1500),
+                                );
+                                if (!mounted) return;
+                                Navigator.pop(context);
+                              } catch (e) {
+                                setDialogState(() => isProcessing = false);
+                                if (e.toString().contains(
+                                  'insufficient_balance',
+                                )) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Insufficient wallet balance'
+                                            .translate(),
+                                      ),
+                                    ),
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Error: $e'.translate()),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF002147),
+                      ),
+                      child: Text(
+                        'Confirm'.translate(),
+                        style: GoogleFonts.cairo(color: Colors.white),
+                      ),
+                    ),
+                  ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showPayRequestDialog(Map<String, dynamic> request, bool isDark) {
+    bool isProcessing = false;
+    bool isSuccess = false;
+    double baseAmount = (request['amount'] as num?)?.toDouble() ?? 0.0;
+    double serviceFee = baseAmount * 0.20;
+    double totalDue = baseAmount + serviceFee;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20.r),
+            ),
+            title: Text(
+              'Pay Requested Funds'.translate(),
+              style: GoogleFonts.cairo(fontWeight: FontWeight.bold),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isSuccess)
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20.h),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.check_circle_rounded,
+                          color: Colors.green,
+                          size: 70.sp,
+                        ),
+                        SizedBox(height: 16.h),
+                        Text(
+                          'Payment Successful!'.translate(),
+                          style: GoogleFonts.cairo(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16.sp,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (isProcessing)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: CircularProgressIndicator(color: Color(0xFF002147)),
+                  )
+                else ...[
+                  Text(
+                    request['title'] ?? 'Requested by Lawyer',
+                    style: GoogleFonts.cairo(fontSize: 14.sp),
+                  ),
+                  SizedBox(height: 16.h),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
                       Text(
-                        'Payment Successful!'.translate(),
+                        'Requested Amount:'.translate(),
+                        style: GoogleFonts.cairo(fontSize: 13.sp),
+                      ),
+                      Text(
+                        '${_formatCurrency(baseAmount)} EGP',
+                        style: GoogleFonts.cairo(fontSize: 13.sp),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4.h),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Service Fee (20%):'.translate(),
+                        style: GoogleFonts.cairo(fontSize: 13.sp),
+                      ),
+                      Text(
+                        '${_formatCurrency(serviceFee)} EGP',
+                        style: GoogleFonts.cairo(fontSize: 13.sp),
+                      ),
+                    ],
+                  ),
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.h),
+                    child: const Divider(),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Total Due:'.translate(),
                         style: GoogleFonts.cairo(
+                          fontSize: 14.sp,
                           fontWeight: FontWeight.bold,
-                          fontSize: 16.sp,
+                        ),
+                      ),
+                      Text(
+                        '${_formatCurrency(totalDue)} EGP',
+                        style: GoogleFonts.cairo(
+                          fontSize: 14.sp,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.navyBlue,
                         ),
                       ),
                     ],
                   ),
-                )
-              else if (isProcessing)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: CircularProgressIndicator(color: Color(0xFF002147)),
-                )
-              else ...[
-                Text(
-                  'Enter the amount you wish to pay'.translate(),
-                  style: GoogleFonts.cairo(),
-                ),
-                SizedBox(height: 16.h),
-                TextField(
-                  controller: amountController,
-                  keyboardType: TextInputType.number,
-                  style: GoogleFonts.cairo(),
-                  decoration: InputDecoration(
-                    hintText: '0.00',
-                    suffixText: 'EGP',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12.r),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          actions: (isProcessing || isSuccess)
-              ? []
-              : [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text(
-                      'Cancel'.translate(),
-                      style: GoogleFonts.cairo(color: Colors.grey),
-                    ),
-                  ),
-                  ElevatedButton(
-                    onPressed: () async {
-                      final amountValue = double.tryParse(
-                        amountController.text,
-                      );
-                      if (amountValue == null || amountValue <= 0) return;
-
-                      setDialogState(() => isProcessing = true);
-
-                      // Simulate processing delay
-                      await Future.delayed(const Duration(seconds: 2));
-
-                      if (!mounted) return;
-                      setDialogState(() {
-                        isProcessing = false;
-                        isSuccess = true;
-                      });
-
-                      // Wait a moment to show the success icon
-                      await Future.delayed(const Duration(milliseconds: 1500));
-
-                      if (!mounted) return;
-
-                      setState(() {
-                        _totalFees += amountValue;
-                        _remainingAmount = _totalFees - _withdrawnAmount;
-                        _feeTransactions.insert(0, {
-                          'date': formatDate(DateTime.now(), 'dd MMM yyyy'),
-                          'title': 'Account Funded',
-                            'amount': '+ ${_formatCurrency(amountValue)} EGP',
-                          'color': Colors.green,
-                          'icon': Icons.add_circle_outline,
-                        });
-                      });
-
-                      Navigator.pop(context);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF002147),
-                    ),
-                    child: Text(
-                      'Confirm'.translate(),
-                      style: GoogleFonts.cairo(color: Colors.white),
-                    ),
-                  ),
                 ],
-        ),
+              ],
+            ),
+            actions: (isProcessing || isSuccess)
+                ? []
+                : [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(
+                        'Cancel'.translate(),
+                        style: GoogleFonts.cairo(color: Colors.grey),
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: () async {
+                        setDialogState(() => isProcessing = true);
+
+                        final uid = FirebaseAuth.instance.currentUser?.uid;
+                        if (uid == null) return;
+
+                        try {
+                          await FirebaseFirestore.instance.runTransaction((
+                            transaction,
+                          ) async {
+                            final userRef = FirebaseFirestore.instance
+                                .collection('users')
+                                .doc(uid);
+                            final userDoc = await transaction.get(userRef);
+
+                            double currentBalance = 0.0;
+                            if (userDoc.exists) {
+                              final data = userDoc.data()!;
+                              final balanceValue =
+                                  data['balance'] ??
+                                  data['walletBalance'] ??
+                                  data['wallet_balance'] ??
+                                  0;
+                              currentBalance = balanceValue is num
+                                  ? balanceValue.toDouble()
+                                  : double.tryParse(balanceValue.toString()) ??
+                                        0.0;
+                            }
+
+                            if (currentBalance < totalDue) {
+                              throw Exception('insufficient_balance');
+                            }
+
+                            transaction.update(userRef, {
+                              'balance': currentBalance - totalDue,
+                            });
+
+                            final feeDocRef = FirebaseFirestore.instance
+                                .collection('cases')
+                                .doc(widget.case_.id)
+                                .collection('fees')
+                                .doc(request['id']);
+                            transaction.update(feeDocRef, {
+                              'status': 'paid',
+                              'paidAt': FieldValue.serverTimestamp(),
+                            });
+                          });
+
+                          if (!mounted) return;
+                          setDialogState(() {
+                            isProcessing = false;
+                            isSuccess = true;
+                          });
+                          await Future.delayed(
+                            const Duration(milliseconds: 1500),
+                          );
+                          if (!mounted) return;
+                          Navigator.pop(context);
+                        } catch (e) {
+                          setDialogState(() => isProcessing = false);
+                          if (e.toString().contains('insufficient_balance')) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Insufficient wallet balance'.translate(),
+                                ),
+                              ),
+                            );
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Error: $e'.translate())),
+                            );
+                          }
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF002147),
+                      ),
+                      child: Text(
+                        'Pay Now'.translate(),
+                        style: GoogleFonts.cairo(color: Colors.white),
+                      ),
+                    ),
+                  ],
+          );
+        },
       ),
     );
   }
@@ -1178,25 +1633,199 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
   Widget _buildOverviewTab(bool isDark) {
     final cardBg = isDark ? const Color(0xFF1A2940) : Colors.white;
 
-    return ListView(
-      padding: EdgeInsets.all(16.w),
-      children: [
-        // Lawyer Info
-        Container(
-          padding: EdgeInsets.all(14.w),
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.circular(12.r),
-            border: Border.all(
-              color: isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5),
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('cases')
+          .doc(widget.case_.id)
+          .snapshots(),
+      builder: (context, caseSnapshot) {
+        final caseData =
+            caseSnapshot.data?.data() as Map<String, dynamic>? ?? {};
+        final serviceType =
+            caseData['serviceType'] as String? ?? 'non_litigation';
+        final officialCaseNumber = caseData['caseNumber'] as String?;
+        final caseYear = caseData['caseYear'] as String?;
+        final lawyerId =
+            caseData['lawyerId'] as String? ?? caseData['lawyer_id'] as String?;
+
+        return ListView(
+          padding: EdgeInsets.all(16.w),
+          children: [
+            // Lawyer Info
+            Container(
+              padding: EdgeInsets.all(14.w),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(12.r),
+                border: Border.all(
+                  color: isDark
+                      ? const Color(0xFF304563)
+                      : const Color(0xFFDCE6F5),
+                ),
+              ),
+              child: lawyerId != null && lawyerId.isNotEmpty
+                  ? FutureBuilder<DocumentSnapshot>(
+                      future: FirebaseFirestore.instance
+                          .collection('lawyers')
+                          .doc(lawyerId)
+                          .get(),
+                      builder: (context, lawyerSnapshot) {
+                        String? photoUrl;
+                        double rating = 0.0;
+                        if (lawyerSnapshot.hasData &&
+                            lawyerSnapshot.data!.exists) {
+                          final data =
+                              lawyerSnapshot.data!.data()
+                                  as Map<String, dynamic>?;
+                          photoUrl =
+                              data?['profile_photo'] ??
+                              data?['profileImage'] ??
+                              data?['profilePhotoUrl'] ??
+                              data?['photoUrl'] ??
+                              data?['avatar'] ??
+                              data?['image'];
+                          if (photoUrl != null && photoUrl.trim().isEmpty)
+                            photoUrl = null;
+
+                          final ratingVal =
+                              data?['rating'] ??
+                              data?['averageRating'] ??
+                              data?['rate'];
+                          rating = ratingVal is num
+                              ? ratingVal.toDouble()
+                              : double.tryParse(ratingVal?.toString() ?? '0') ??
+                                    0.0;
+                        }
+                        return _buildLawyerInfoRow(photoUrl, rating, isDark);
+                      },
+                    )
+                  : _buildLawyerInfoRow(null, 0.0, isDark),
             ),
-          ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 24.r,
-                backgroundColor: AppColors.legalGold.withOpacity(0.2),
-                child: Text(
+            SizedBox(height: 16.h),
+
+            // Case Information
+            Text(
+              'Case Information'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 14.sp,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 12.h),
+            Container(
+              padding: EdgeInsets.all(14.w),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(12.r),
+                border: Border.all(
+                  color: isDark
+                      ? const Color(0xFF304563)
+                      : const Color(0xFFDCE6F5),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildInfoRow(
+                    'Service Type'.translate(),
+                    serviceType == 'litigation'
+                        ? 'Litigation'.translate()
+                        : 'Non-Litigation'.translate(),
+                    isDark,
+                  ),
+                  if (officialCaseNumber != null &&
+                      officialCaseNumber.isNotEmpty) ...[
+                    Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.h),
+                      child: const Divider(),
+                    ),
+                    _buildInfoRow(
+                      'Official Case No'.translate(),
+                      officialCaseNumber,
+                      isDark,
+                    ),
+                  ],
+                  if (caseYear != null && caseYear.isNotEmpty) ...[
+                    Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.h),
+                      child: const Divider(),
+                    ),
+                    _buildInfoRow('Case Year'.translate(), caseYear, isDark),
+                  ],
+                ],
+              ),
+            ),
+            SizedBox(height: 20.h),
+
+            // Quick Stats
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatCardStream(
+                    icon: Icons.description_outlined,
+                    label: 'Documents'.translate(),
+                    collectionPath: 'documentations',
+                    isDark: isDark,
+                  ),
+                ),
+                SizedBox(width: 12.w),
+                Expanded(
+                  child: _buildStatCardStream(
+                    icon: Icons.calendar_today_outlined,
+                    label: 'Sessions'.translate(),
+                    collectionPath: 'sessions',
+                    isDark: isDark,
+                  ),
+                ),
+                SizedBox(width: 12.w),
+                Expanded(
+                  child: _buildStatCardStream(
+                    icon: Icons.update_outlined,
+                    label: 'Updates'.translate(),
+                    collectionPath: 'updates',
+                    isDark: isDark,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 20.h),
+
+            // Case Timeline
+            Text(
+              'Case Timeline'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 14.sp,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 12.h),
+            _buildTimelineItem(
+              date: formatDate(widget.case_.createdDate, 'MMM dd, yyyy'),
+              title: 'Case Created'.translate(),
+              isDark: isDark,
+            ),
+            if (widget.case_.closedDate != null)
+              _buildTimelineItem(
+                date: formatDate(widget.case_.closedDate!, 'MMM dd, yyyy'),
+                title: 'Case Closed'.translate(),
+                isDark: isDark,
+              ),
+            SizedBox(height: 16.h),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildLawyerInfoRow(String? photoUrl, double rating, bool isDark) {
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 24.r,
+          backgroundColor: AppColors.legalGold.withOpacity(0.2),
+          backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+          child: photoUrl == null
+              ? Text(
                   widget.case_.lawyerName.isNotEmpty
                       ? widget.case_.lawyerName[0].toUpperCase()
                       : 'L',
@@ -1205,211 +1834,107 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                     fontWeight: FontWeight.w700,
                     color: AppColors.legalGold,
                   ),
+                )
+              : null,
+        ),
+        SizedBox(width: 12.w),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.case_.lawyerName,
+                style: GoogleFonts.cairo(
+                  fontSize: 15.sp,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : AppColors.navyBlue,
                 ),
               ),
-              SizedBox(width: 12.w),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Assigned Lawyer'.translate(),
-                      style: GoogleFonts.cairo(
-                        fontSize: 11.sp,
-                        fontWeight: FontWeight.w500,
-                        color: isDark
-                            ? Colors.grey.shade500
-                            : Colors.grey.shade600,
-                      ),
+              SizedBox(height: 4.h),
+              Row(
+                children: [
+                  Text(
+                    'Lawyer'.translate(),
+                    style: GoogleFonts.cairo(
+                      fontSize: 12.sp,
+                      fontWeight: FontWeight.w500,
+                      color: isDark
+                          ? Colors.grey.shade500
+                          : Colors.grey.shade600,
                     ),
-                    SizedBox(height: 4.h),
+                  ),
+                  if (rating > 0) ...[
+                    SizedBox(width: 8.w),
+                    Icon(Icons.star_rounded, color: Colors.amber, size: 14.sp),
+                    SizedBox(width: 2.w),
                     Text(
-                      widget.case_.lawyerName,
+                      rating.toStringAsFixed(1),
                       style: GoogleFonts.cairo(
-                        fontSize: 14.sp,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 12.sp,
+                        fontWeight: FontWeight.w600,
+                        color: isDark
+                            ? Colors.grey.shade300
+                            : Colors.grey.shade700,
                       ),
                     ),
                   ],
-                ),
+                ],
               ),
             ],
           ),
         ),
-        SizedBox(height: 16.h),
+      ],
+    );
+  }
 
-        // Quick Stats
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.description_outlined,
-                label: 'Documents'.translate(),
-                value: '${widget.case_.requiredDocuments.length}',
-                isDark: isDark,
-              ),
-            ),
-            SizedBox(width: 12.w),
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.calendar_today_outlined,
-                label: 'Sessions'.translate(),
-                value: '${widget.case_.sessions.length}',
-                isDark: isDark,
-              ),
-            ),
-            SizedBox(width: 12.w),
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.update_outlined,
-                label: 'Updates'.translate(),
-                value: '${widget.case_.updates.length}',
-                isDark: isDark,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 20.h),
-
-        // Case Notes
+  Widget _buildInfoRow(String label, String value, bool isDark) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
         Text(
-          'Notes'.translate(),
-          style: GoogleFonts.cairo(
-            fontSize: 14.sp,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        SizedBox(height: 8.h),
-        TextField(
-          controller: _notesController,
-          maxLines: 3,
-          textInputAction: TextInputAction.newline,
-          decoration: InputDecoration(
-            hintText: 'Add a note...'.translate(),
-            hintStyle: GoogleFonts.cairo(
-              fontSize: 13.sp,
-              color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
-            ),
-            filled: true,
-            fillColor: cardBg,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
-              borderSide: BorderSide(
-                color: isDark
-                    ? const Color(0xFF304563)
-                    : const Color(0xFFDCE6F5),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
-              borderSide: BorderSide(
-                color: isDark
-                    ? const Color(0xFF304563)
-                    : const Color(0xFFDCE6F5),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12.r),
-              borderSide: BorderSide(color: AppColors.legalGold, width: 1.5),
-            ),
-            contentPadding: EdgeInsets.symmetric(
-              horizontal: 12.w,
-              vertical: 12.h,
-            ),
-            suffixIcon: Padding(
-              padding: EdgeInsets.only(right: 8.w),
-              child: IconButton(
-                icon: Icon(Icons.send, color: AppColors.legalGold, size: 20.sp),
-                onPressed: () {
-                  final note = _notesController.text.trim();
-                  if (note.isNotEmpty) {
-                    _notesList.add(note);
-                    print('Note added: $note');
-                    _notesController.clear();
-                  }
-                },
-              ),
-            ),
-          ),
+          label,
           style: GoogleFonts.cairo(
             fontSize: 13.sp,
-            color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
           ),
         ),
-        if (_notesList.isNotEmpty) ...[
-          SizedBox(height: 12.h),
-          Container(
-            padding: EdgeInsets.all(12.w),
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(12.r),
-              border: Border.all(
-                color: isDark
-                    ? const Color(0xFF304563)
-                    : const Color(0xFFDCE6F5),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: _notesList.asMap().entries.map((entry) {
-                final index = entry.key;
-                final note = entry.value;
-                return Padding(
-                  padding: EdgeInsets.only(
-                    bottom: index < _notesList.length - 1 ? 8.h : 0,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        Icons.check_circle,
-                        size: 16.sp,
-                        color: AppColors.legalGold,
-                      ),
-                      SizedBox(width: 8.w),
-                      Expanded(
-                        child: Text(
-                          note,
-                          style: GoogleFonts.cairo(
-                            fontSize: 12.sp,
-                            color: isDark
-                                ? Colors.grey.shade300
-                                : Colors.grey.shade700,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-        SizedBox(height: 20.h),
-
-        // Case Timeline
         Text(
-          'Case Timeline'.translate(),
+          value,
           style: GoogleFonts.cairo(
-            fontSize: 14.sp,
+            fontSize: 13.sp,
             fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : AppColors.navyBlue,
           ),
         ),
-        SizedBox(height: 12.h),
-        _buildTimelineItem(
-          date: formatDate(widget.case_.createdDate, 'MMM dd, yyyy'),
-          title: 'Case Created'.translate(),
-          isDark: isDark,
-        ),
-        if (widget.case_.closedDate != null)
-          _buildTimelineItem(
-            date: formatDate(widget.case_.closedDate!, 'MMM dd, yyyy'),
-            title: 'Case Closed'.translate(),
-            isDark: isDark,
-          ),
-        SizedBox(height: 16.h),
       ],
+    );
+  }
+
+  Widget _buildStatCardStream({
+    required IconData icon,
+    required String label,
+    required String collectionPath,
+    required bool isDark,
+  }) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('cases')
+          .doc(widget.case_.id)
+          .collection(collectionPath)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final count = snapshot.data?.docs.length ?? 0;
+        final value = snapshot.connectionState == ConnectionState.waiting
+            ? '...'
+            : count.toString();
+
+        return _buildStatCard(
+          icon: icon,
+          label: label,
+          value: value,
+          isDark: isDark,
+        );
+      },
     );
   }
 
@@ -1419,142 +1944,273 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
 
     String formatVal(double val) => '${_formatCurrency(val)} EGP';
 
-    return ListView(
-      padding: EdgeInsets.all(16.w),
-      children: [
-        Card(
-          elevation: 2,
-          color: cardBg,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12.r),
-          ),
-          child: Padding(
-            padding: EdgeInsets.all(16.w),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildSummaryItem(
-                  'Total Funded'.translate(),
-                  formatVal(_totalFees),
-                  const Color(0xFF002147),
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('cases')
+          .doc(widget.case_.id)
+          .collection('fees')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+        double totalFunded = 0.0;
+        double spentByLawyer = 0.0;
+        bool hasInitialPayment = false;
+        final List<Map<String, dynamic>> pendingRequests = [];
+
+        for (var doc in docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final type = data['type'] ?? 'deposit';
+          final status = data['status'];
+          final amount = (data['amount'] as num?)?.toDouble() ?? 0.0;
+          if (type == 'deposit' || (type == 'request' && status == 'paid')) {
+            totalFunded += amount;
+            if (data['title'] == 'Initial Payment') hasInitialPayment = true;
+          } else if (type == 'withdrawal') {
+            spentByLawyer += amount;
+          } else if (type == 'request' && status == 'pending') {
+            pendingRequests.add({'id': doc.id, ...data});
+          }
+        }
+
+        if (!hasInitialPayment &&
+            (widget.case_.status == 'active' ||
+                widget.case_.status == 'closed')) {
+          totalFunded += widget.case_.legalFees;
+        }
+
+        double balanceAvailable = totalFunded - spentByLawyer;
+
+        return ListView(
+          padding: EdgeInsets.all(16.w),
+          children: [
+            Card(
+              elevation: 2,
+              color: cardBg,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12.r),
+              ),
+              child: Padding(
+                padding: EdgeInsets.all(16.w),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildSummaryItem(
+                      'Total Funded'.translate(),
+                      formatVal(totalFunded),
+                      const Color(0xFF002147),
+                    ),
+                    _buildSummaryItem(
+                      'Spent by Lawyer'.translate(),
+                      formatVal(spentByLawyer),
+                      Colors.red,
+                    ),
+                    _buildSummaryItem(
+                      'Balance Available'.translate(),
+                      formatVal(balanceAvailable),
+                      const Color(0xFFC6A243),
+                    ),
+                  ],
                 ),
-                _buildSummaryItem(
-                  'Spent by Lawyer'.translate(),
-                  formatVal(_withdrawnAmount),
-                  Colors.green,
-                ),
-                _buildSummaryItem(
-                  'Balance Available'.translate(),
-                  formatVal(_remainingAmount),
-                  const Color(0xFFC6A243),
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-        if (_feeTransactions.isNotEmpty) ...[
-          SizedBox(height: 16.h),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => _showFeePaymentDialog(isDark),
-              icon: Icon(Icons.payment, color: Colors.white, size: 20.sp),
-              label: Text(
-                'Pay Outstanding Fees'.translate(),
+            SizedBox(height: 16.h),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _showFeePaymentDialog(isDark),
+                icon: Icon(Icons.payment, color: Colors.white, size: 20.sp),
+                label: Text(
+                  'Pay Outstanding Fees'.translate(),
+                  style: GoogleFonts.cairo(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF002147),
+                  padding: EdgeInsets.symmetric(vertical: 14.h),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12.r),
+                  ),
+                  elevation: 0,
+                ),
+              ),
+            ),
+            if (pendingRequests.isNotEmpty) ...[
+              SizedBox(height: 24.h),
+              Text(
+                'Additional Fees Requested'.translate(),
                 style: GoogleFonts.cairo(
+                  fontSize: 16.sp,
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  color: textColor,
                 ),
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF002147),
-                padding: EdgeInsets.symmetric(vertical: 14.h),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12.r),
+              SizedBox(height: 12.h),
+              ...pendingRequests.map((req) {
+                final reqAmount = (req['amount'] as num?)?.toDouble() ?? 0.0;
+                final reqTitle = req['title'] ?? 'Requested by Lawyer';
+                return Card(
+                  color: isDark
+                      ? const Color(0xFF24344C)
+                      : const Color(0xFFFFF8E1),
+                  elevation: 0,
+                  margin: EdgeInsets.only(bottom: 12.h),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12.r),
+                    side: BorderSide(
+                      color: AppColors.legalGold.withOpacity(0.5),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(16.w),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                reqTitle,
+                                style: GoogleFonts.cairo(
+                                  fontSize: 14.sp,
+                                  fontWeight: FontWeight.bold,
+                                  color: textColor,
+                                ),
+                              ),
+                              SizedBox(height: 4.h),
+                              Text(
+                                '${_formatCurrency(reqAmount)} EGP',
+                                style: GoogleFonts.cairo(
+                                  fontSize: 14.sp,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.legalGold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => _showPayRequestDialog(req, isDark),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.legalGold,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8.r),
+                            ),
+                          ),
+                          child: Text(
+                            'Pay'.translate(),
+                            style: GoogleFonts.cairo(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ],
+            SizedBox(height: 24.h),
+            Text(
+              'Financial Activity'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 16.sp,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
+            ),
+            SizedBox(height: 12.h),
+            if (docs.isEmpty)
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40.h),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.account_balance_wallet_outlined,
+                        size: 80.sp,
+                        color: isDark
+                            ? Colors.grey.shade700
+                            : Colors.grey.shade300,
+                      ),
+                      SizedBox(height: 16.h),
+                      Text(
+                        "No financial activity yet",
+                        style: GoogleFonts.cairo(
+                          fontSize: 16.sp,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.grey.shade500 : Colors.grey,
+                        ),
+                      ),
+                      SizedBox(height: 8.h),
+                      Text(
+                        "Start funding your case to see details here.",
+                        style: GoogleFonts.cairo(
+                          fontSize: 12.sp,
+                          color: isDark
+                              ? Colors.grey.shade600
+                              : Colors.grey.shade400,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                elevation: 0,
-              ),
-            ),
-          ),
-        ],
-        SizedBox(height: 24.h),
-        Text(
-          'Financial Activity'.translate(),
-          style: GoogleFonts.cairo(
-            fontSize: 16.sp,
-            fontWeight: FontWeight.bold,
-            color: textColor,
-          ),
-        ),
-        SizedBox(height: 12.h),
-        if (_feeTransactions.isEmpty)
-          Center(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 40.h),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.account_balance_wallet_outlined,
-                    size: 80.sp,
-                    color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
-                  ),
-                  SizedBox(height: 16.h),
-                  Text(
-                    "No financial activity yet",
-                    style: GoogleFonts.cairo(
-                      fontSize: 16.sp,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.grey.shade500 : Colors.grey,
-                    ),
-                  ),
-                  SizedBox(height: 8.h),
-                  Text(
-                    "Start funding your case to see details here.",
-                    style: GoogleFonts.cairo(
-                      fontSize: 12.sp,
-                      color: isDark
-                          ? Colors.grey.shade600
-                          : Colors.grey.shade400,
-                    ),
-                  ),
-                  SizedBox(height: 24.h),
-                  ElevatedButton(
-                    onPressed: () => _showFeePaymentDialog(isDark),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF002147),
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 32.w,
-                        vertical: 12.h,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12.r),
-                      ),
-                    ),
-                    child: Text(
-                      "Start Funding",
-                      style: GoogleFonts.cairo(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          )
-        else
-          ..._feeTransactions.map(
-            (tx) => _buildActivityItem(
-              tx['date'],
-              tx['title'],
-              tx['amount'],
-              tx['color'],
-              isDark,
-              icon: tx['icon'],
-            ),
-          ),
-      ],
+              )
+            else
+              ...docs.map((docSnap) {
+                final data = docSnap.data() as Map<String, dynamic>;
+                final isWithdrawal = data['type'] == 'withdrawal';
+                final isRequest = data['type'] == 'request';
+                final status = data['status'];
+                final amount = (data['amount'] as num?)?.toDouble() ?? 0.0;
+                final dateStr = data['createdAt'] != null
+                    ? formatDate(
+                        (data['createdAt'] as Timestamp).toDate(),
+                        'dd MMM yyyy',
+                      )
+                    : 'Pending';
+
+                String title = data['title'] ?? 'Transaction';
+                String amountStr =
+                    '${isWithdrawal ? '-' : '+'} ${_formatCurrency(amount)} EGP';
+                Color amtColor = isWithdrawal ? Colors.red : Colors.green;
+                IconData listIcon = isWithdrawal
+                    ? Icons.remove_circle_outline
+                    : Icons.add_circle_outline;
+
+                if (isRequest) {
+                  if (status == 'pending') {
+                    title = 'Requested: $title';
+                    amountStr = '${_formatCurrency(amount)} EGP';
+                    amtColor = Colors.orange;
+                    listIcon = Icons.hourglass_empty;
+                  } else {
+                    title = 'Paid Request: $title';
+                    listIcon = Icons.check_circle_outline;
+                  }
+                }
+
+                return _buildActivityItem(
+                  dateStr,
+                  title,
+                  amountStr,
+                  amtColor,
+                  isDark,
+                  icon: listIcon,
+                  evidenceUrl: data['evidenceUrl'],
+                );
+              }),
+          ],
+        );
+      },
     );
   }
 
@@ -1584,6 +2240,7 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
     Color amountColor,
     bool isDark, {
     IconData? icon,
+    String? evidenceUrl,
   }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1649,6 +2306,35 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                   fontWeight: FontWeight.w500,
                 ),
               ),
+              if (evidenceUrl != null) ...[
+                SizedBox(height: 6.h),
+                InkWell(
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (_) => Dialog(child: Image.network(evidenceUrl)),
+                    );
+                  },
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.attachment,
+                        size: 14.sp,
+                        color: AppColors.legalGold,
+                      ),
+                      SizedBox(width: 4.w),
+                      Text(
+                        'View Evidence'.translate(),
+                        style: TextStyle(
+                          fontSize: 11.sp,
+                          color: AppColors.legalGold,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -1752,143 +2438,407 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
     );
   }
 
-  Widget _buildDocumentsTab(bool isDark) {
-    final completedCount = _documents.where((doc) => doc.isSubmitted).length;
-    final completionPercentage = _documents.isEmpty
-        ? 0
-        : ((completedCount / _documents.length) * 100).round();
+  Future<void> _uploadOrChangeDocument(String docId, String docName) async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.any,
+      withData: true,
+    );
+    if (result != null && result.files.isNotEmpty) {
+      final file = result.files.first;
+      if (file.path != null) {
+        try {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Uploading "$docName"...'),
+              duration: const Duration(seconds: 1),
+            ),
+          );
 
-    return ListView(
-      padding: EdgeInsets.all(16.w),
-      children: [
-        if (_documents.isEmpty) ...[
-          Center(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 40.h),
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.description_outlined,
-                    size: 48.sp,
-                    color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+          final storageService = const SupabaseStorageService();
+          final fileUrl = await storageService.uploadMedia(
+            file: File(file.path!),
+            folderPath: 'legal_documents/${widget.case_.id}',
+            fileName: '${DateTime.now().millisecondsSinceEpoch}_${file.name}',
+          );
+
+          await FirebaseFirestore.instance
+              .collection('cases')
+              .doc(widget.case_.id)
+              .collection('documentations')
+              .doc(docId)
+              .update({
+                'isSubmitted': true,
+                'submittedDate': FieldValue.serverTimestamp(),
+                'fileUrl': fileUrl,
+              });
+
+          setState(() {
+            _expandedDocuments.remove(docId);
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Document "$docName" uploaded successfully!'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error uploading document: $e'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      }
+    }
+  }
+
+  void _previewDocument(String fileUrl) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(left: 16.w),
+                  child: Text(
+                    'Document Preview'.translate(),
+                    style: GoogleFonts.cairo(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16.sp,
+                    ),
                   ),
-                  SizedBox(height: 12.h),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(dialogContext),
+                ),
+              ],
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: EdgeInsets.all(16.w),
+                  child: Image.network(
+                    fileUrl,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.insert_drive_file,
+                          size: 64.sp,
+                          color: Colors.grey,
+                        ),
+                        SizedBox(height: 16.h),
+                        Text(
+                          'Preview not available for this file type.\nDocument is successfully uploaded.'
+                              .translate(),
+                          style: GoogleFonts.cairo(color: Colors.grey),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: 16.h),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDocumentDetailRow(String label, String value, bool isDark) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 90.w,
+          child: Text(
+            label.translate(),
+            style: GoogleFonts.cairo(
+              fontSize: 12.sp,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: GoogleFonts.cairo(
+              fontSize: 12.sp,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : AppColors.navyBlue,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDocumentsTab(bool isDark) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('cases')
+          .doc(widget.case_.id)
+          .collection('documentations')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error loading documents'.translate()));
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+        final completedCount = docs.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          return data['isSubmitted'] == true;
+        }).length;
+        final completionPercentage = docs.isEmpty
+            ? 0
+            : ((completedCount / docs.length) * 100).round();
+
+        return ListView(
+          padding: EdgeInsets.all(16.w),
+          children: [
+            if (docs.isEmpty) ...[
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40.h),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.description_outlined,
+                        size: 48.sp,
+                        color: isDark
+                            ? Colors.grey.shade700
+                            : Colors.grey.shade300,
+                      ),
+                      SizedBox(height: 12.h),
+                      Text(
+                        'No documents required'.translate(),
+                        style: GoogleFonts.cairo(
+                          fontSize: 14.sp,
+                          color: isDark
+                              ? Colors.grey.shade500
+                              : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ] else ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
                   Text(
-                    'No documents required'.translate(),
+                    'Required Documents'.translate(),
                     style: GoogleFonts.cairo(
                       fontSize: 14.sp,
-                      color: isDark
-                          ? Colors.grey.shade500
-                          : Colors.grey.shade600,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    '$completionPercentage%',
+                    style: GoogleFonts.cairo(
+                      fontSize: 13.sp,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.legalGold,
                     ),
                   ),
                 ],
               ),
-            ),
-          ),
-        ] else ...[
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Required Documents'.translate(),
-                style: GoogleFonts.cairo(
-                  fontSize: 14.sp,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              Text(
-                '$completionPercentage%',
-                style: GoogleFonts.cairo(
-                  fontSize: 13.sp,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.legalGold,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 12.h),
-          ..._documents.map((doc) {
-            return Padding(
-              padding: EdgeInsets.only(bottom: 12.h),
-              child: DocumentCard(
-                document: doc,
-                isDark: isDark,
-                selectedFile: _pickedDocumentFiles[doc.id],
-                isExpanded: _expandedDocuments.contains(doc.id),
-                onTap: () {
-                  setState(() {
-                    if (_expandedDocuments.contains(doc.id)) {
-                      _expandedDocuments.remove(doc.id);
-                    } else {
-                      _expandedDocuments.add(doc.id);
-                    }
-                  });
-                },
-                onCancel: doc.isSubmitted
-                    ? null
-                    : () {
-                        setState(() {
-                          _expandedDocuments.remove(doc.id);
-                          _pickedDocumentFiles[doc.id] = null;
-                        });
-                      },
-                onDelete: doc.isSubmitted
-                    ? () {
-                        setState(() {
-                          _pickedDocumentFiles[doc.id] = null;
-                          final index = _documents.indexWhere(
-                            (item) => item.id == doc.id,
-                          );
-                          if (index != -1) {
-                            _documents[index] = RequiredDocument(
-                              id: doc.id,
-                              name: doc.name,
-                              description: doc.description,
-                              isSubmitted: false,
-                              submittedDate: null,
-                            );
-                          }
-                        });
-                      }
-                    : null,
-                onFileSelected: (file) {
-                  setState(() {
-                    _pickedDocumentFiles[doc.id] = file;
-                    final index = _documents.indexWhere(
-                      (item) => item.id == doc.id,
-                    );
-                    if (index != -1) {
-                      _documents[index] = RequiredDocument(
-                        id: doc.id,
-                        name: doc.name,
-                        description: doc.description,
-                        isSubmitted: true,
-                        submittedDate: DateTime.now(),
-                      );
-                    }
-                    _expandedDocuments.remove(doc.id);
-                  });
+              SizedBox(height: 12.h),
+              ...docs.map((docSnap) {
+                final data = docSnap.data() as Map<String, dynamic>;
+                final docId = docSnap.id;
+                final name = data['name'] ?? 'Untitled';
+                final description = data['description'] ?? '';
+                final isSubmitted = data['isSubmitted'] == true;
+                final fileUrl = data['fileUrl'];
+                final submittedDate = data['submittedDate'] != null
+                    ? (data['submittedDate'] as Timestamp).toDate()
+                    : null;
+                final createdAt = data['createdAt'] != null
+                    ? (data['createdAt'] as Timestamp).toDate()
+                    : null;
 
-                  // Show success message
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Document "${doc.name}" uploaded successfully!',
+                return Container(
+                  margin: EdgeInsets.only(bottom: 12.h),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1A2940) : Colors.white,
+                    borderRadius: BorderRadius.circular(12.r),
+                    border: Border.all(
+                      color: isSubmitted ? Colors.green : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      ListTile(
+                        onTap: () {
+                          setState(() {
+                            if (_expandedDocuments.contains(docId)) {
+                              _expandedDocuments.remove(docId);
+                            } else {
+                              _expandedDocuments.add(docId);
+                            }
+                          });
+                        },
+                        title: Text(
+                          name,
+                          style: GoogleFonts.cairo(fontWeight: FontWeight.bold),
                         ),
-                        backgroundColor: Colors.green,
-                        duration: const Duration(seconds: 2),
+                        subtitle: Text(
+                          description,
+                          style: GoogleFonts.cairo(fontSize: 12.sp),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isSubmitted)
+                              const Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                              ),
+                            if (!isSubmitted)
+                              const Icon(
+                                Icons.pending_actions,
+                                color: AppColors.legalGold,
+                              ),
+                            Icon(
+                              _expandedDocuments.contains(docId)
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
+                              color: Colors.grey.shade500,
+                            ),
+                          ],
+                        ),
                       ),
-                    );
-                  }
-                },
-              ),
-            );
-          }),
-          SizedBox(height: 16.h),
-        ],
-      ],
+                      if (_expandedDocuments.contains(docId))
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 16.w,
+                          ).copyWith(bottom: 16.h),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Divider(),
+                              SizedBox(height: 8.h),
+                              _buildDocumentDetailRow(
+                                'Requested:',
+                                createdAt != null
+                                    ? formatDate(
+                                        createdAt,
+                                        'MMM dd, yyyy - hh:mm a',
+                                      )
+                                    : 'N/A',
+                                isDark,
+                              ),
+                              SizedBox(height: 8.h),
+                              _buildDocumentDetailRow(
+                                'Uploaded:',
+                                submittedDate != null
+                                    ? formatDate(
+                                        submittedDate,
+                                        'MMM dd, yyyy - hh:mm a',
+                                      )
+                                    : 'Pending',
+                                isDark,
+                              ),
+                              SizedBox(height: 16.h),
+                              if (isSubmitted) ...[
+                                Row(
+                                  children: [
+                                    if (fileUrl != null) ...[
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: () =>
+                                              _previewDocument(fileUrl),
+                                          icon: const Icon(Icons.visibility),
+                                          label: Text('Preview'.translate()),
+                                        ),
+                                      ),
+                                      SizedBox(width: 12.w),
+                                    ],
+                                    Expanded(
+                                      child: ElevatedButton.icon(
+                                        onPressed: () =>
+                                            _uploadOrChangeDocument(
+                                              docId,
+                                              name,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.upload_file,
+                                          color: Colors.white,
+                                        ),
+                                        label: Text(
+                                          'Change'.translate(),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppColors.navyBlue,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ] else ...[
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () =>
+                                        _uploadOrChangeDocument(docId, name),
+                                    icon: const Icon(
+                                      Icons.upload_file,
+                                      color: Colors.white,
+                                    ),
+                                    label: Text(
+                                      'Upload Document'.translate(),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.navyBlue,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              }),
+              SizedBox(height: 16.h),
+            ],
+          ],
+        );
+      },
     );
   }
 
@@ -2327,428 +3277,5 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
       default:
         return {'color': 0xFF9C27B0, 'icon': Icons.info_outline};
     }
-  }
-}
-
-class DocumentCard extends StatelessWidget {
-  final RequiredDocument document;
-  final bool isDark;
-  final bool isExpanded;
-  final PlatformFile? selectedFile;
-  final VoidCallback onTap;
-  final VoidCallback? onCancel;
-  final VoidCallback? onDelete;
-  final ValueChanged<PlatformFile> onFileSelected;
-
-  const DocumentCard({
-    super.key,
-    required this.document,
-    required this.isDark,
-    required this.isExpanded,
-    required this.selectedFile,
-    required this.onTap,
-    required this.onCancel,
-    required this.onDelete,
-    required this.onFileSelected,
-  });
-
-  Widget _buildStatusDot(bool isSubmitted) {
-    final circleColor = isSubmitted
-        ? Colors.green
-        : (isDark ? Colors.grey.shade500 : Colors.grey.shade400);
-    return Container(
-      width: 34.w,
-      height: 34.h,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: isSubmitted
-            ? Colors.green.withOpacity(0.12)
-            : Colors.transparent,
-        border: Border.all(color: circleColor, width: 1.5),
-      ),
-      child: Icon(
-        isSubmitted ? Icons.check : Icons.radio_button_unchecked,
-        size: 18.sp,
-        color: circleColor,
-      ),
-    );
-  }
-
-  void _showDocumentPreview(BuildContext context) {
-    final hasFile = selectedFile != null;
-    final isImage =
-        hasFile &&
-        (selectedFile!.extension?.toLowerCase() == 'jpg' ||
-            selectedFile!.extension?.toLowerCase() == 'jpeg' ||
-            selectedFile!.extension?.toLowerCase() == 'png');
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16.r),
-          ),
-          child: Container(
-            padding: EdgeInsets.all(20.w),
-            constraints: BoxConstraints(
-              maxWidth: 400.w,
-              maxHeight: MediaQuery.of(context).size.height * 0.8,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.check_circle_rounded,
-                      color: Colors.green,
-                      size: 24.sp,
-                    ),
-                    SizedBox(width: 8.w),
-                    Expanded(
-                      child: Text(
-                        'Document Preview'.translate(),
-                        style: GoogleFonts.cairo(
-                          fontSize: 18.sp,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: Icon(Icons.close, size: 20.sp),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 20.h),
-                if (isImage && selectedFile!.bytes != null) ...[
-                  // Show image preview
-                  Container(
-                    constraints: BoxConstraints(
-                      maxHeight: 300.h,
-                      maxWidth: double.infinity,
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8.r),
-                      child: Image.memory(
-                        selectedFile!.bytes!,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  // Show file info for non-images or when bytes are not available
-                  Container(
-                    padding: EdgeInsets.all(20.w),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? Colors.grey.shade800
-                          : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(8.r),
-                    ),
-                    child: Column(
-                      children: [
-                        Icon(
-                          hasFile
-                              ? Icons.insert_drive_file
-                              : Icons.check_circle,
-                          size: 48.sp,
-                          color: Colors.green,
-                        ),
-                        SizedBox(height: 12.h),
-                        Text(
-                          hasFile ? selectedFile!.name : 'Document Submitted',
-                          style: GoogleFonts.cairo(
-                            fontSize: 16.sp,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        if (hasFile) ...[
-                          SizedBox(height: 8.h),
-                          Text(
-                            'Size: ${(selectedFile!.size / 1024).round()} KB',
-                            style: GoogleFonts.cairo(
-                              fontSize: 12.sp,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-                SizedBox(height: 20.h),
-                Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: 16.w,
-                    vertical: 12.h,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8.r),
-                    border: Border.all(color: Colors.green.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.check_circle_rounded,
-                        color: Colors.green,
-                        size: 20.sp,
-                      ),
-                      SizedBox(width: 8.w),
-                      Text(
-                        'Successfully Submitted'.translate(),
-                        style: GoogleFonts.cairo(
-                          fontSize: 14.sp,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.green,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showDeleteConfirmation(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12.r),
-          ),
-          title: Text(
-            'Delete Document?'.translate(),
-            style: GoogleFonts.cairo(
-              fontSize: 18.sp,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          content: Text(
-            'Are you sure you want to remove this file?'.translate(),
-            style: GoogleFonts.cairo(
-              fontSize: 14.sp,
-              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(
-                'No'.translate(),
-                style: GoogleFonts.cairo(
-                  fontSize: 14.sp,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white70 : Colors.black87,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                if (onDelete != null) {
-                  onDelete!();
-                }
-              },
-              child: Text(
-                'Yes'.translate(),
-                style: GoogleFonts.cairo(
-                  fontSize: 14.sp,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.red,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cardBg = isDark ? const Color(0xFF1A2940) : Colors.white;
-    final borderColor = document.isSubmitted
-        ? Colors.green
-        : AppColors.legalGold;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(
-          color: isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5),
-        ),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(16.r),
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
-              child: Row(
-                children: [
-                  _buildStatusDot(document.isSubmitted),
-                  SizedBox(width: 12.w),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          document.name,
-                          style: GoogleFonts.cairo(
-                            fontSize: 14.sp,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        SizedBox(height: 4.h),
-                        Text(
-                          document.description,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.cairo(
-                            fontSize: 12.sp,
-                            color: isDark
-                                ? Colors.grey.shade500
-                                : Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (document.isSubmitted && onDelete != null)
-                    IconButton(
-                      onPressed: () => _showDeleteConfirmation(context),
-                      icon: Icon(
-                        Icons.delete_outline,
-                        size: 20.sp,
-                        color: Colors.redAccent,
-                      ),
-                    ),
-                  Icon(
-                    isExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.grey.shade500,
-                    size: 22.sp,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (isExpanded)
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    document.description,
-                    style: GoogleFonts.cairo(
-                      fontSize: 13.sp,
-                      color: isDark
-                          ? Colors.grey.shade300
-                          : Colors.grey.shade700,
-                      height: 1.5,
-                    ),
-                  ),
-                  SizedBox(height: 14.h),
-                  if (selectedFile != null) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            selectedFile!.name,
-                            style: GoogleFonts.cairo(
-                              fontSize: 13.sp,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        SizedBox(width: 12.w),
-                        TextButton(
-                          onPressed: () => _showDocumentPreview(context),
-                          child: Text(
-                            'Preview'.translate(),
-                            style: GoogleFonts.cairo(
-                              fontSize: 12.sp,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ] else if (!document.isSubmitted) ...[
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.legalGold,
-                          padding: EdgeInsets.symmetric(vertical: 14.h),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14.r),
-                          ),
-                        ),
-                        onPressed: () async {
-                          final result = await FilePicker.platform.pickFiles(
-                            allowMultiple: false,
-                            type: FileType.any,
-                            withData: true,
-                          );
-                          if (result != null && result.files.isNotEmpty) {
-                            onFileSelected(result.files.first);
-                          }
-                        },
-                        child: Text(
-                          'Upload Document'.translate(),
-                          style: GoogleFonts.cairo(
-                            color: Colors.white,
-                            fontSize: 14.sp,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (onCancel != null && !document.isSubmitted) ...[
-                    SizedBox(height: 12.h),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: borderColor),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14.r),
-                          ),
-                          padding: EdgeInsets.symmetric(vertical: 14.h),
-                        ),
-                        onPressed: onCancel,
-                        child: Text(
-                          'Cancel'.translate(),
-                          style: GoogleFonts.cairo(
-                            color: borderColor,
-                            fontSize: 14.sp,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
   }
 }

@@ -22,60 +22,98 @@ class LawyerBottomNavBar extends StatelessWidget {
     final backgroundColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
     final shadowColor = isDark ? Colors.black26 : Colors.black12;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(20.r),
-          topRight: Radius.circular(20.r),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: shadowColor,
-            blurRadius: 20.r,
-            offset: const Offset(0, -5),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 8.h),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              // Left Item 1: Rescue (SOS)
-              _buildNavItem(
-                context: context,
-                index: 0,
-                icon: Icons.emergency_rounded,
-                label: 'Rescue'.translate(),
-                isSelected: currentIndex == 0,
-                iconColor: AppColors.sosRed,
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.bottomCenter,
+      children: [
+        Container(
+          margin: EdgeInsets.only(
+            top: 24.h,
+          ), // Space for floating button to overlap seamlessly
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(20.r),
+              topRight: Radius.circular(20.r),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: shadowColor,
+                blurRadius: 20.r,
+                offset: const Offset(0, -5),
               ),
-              // Left Item 2: Schedule
-              _buildNavItem(
-                context: context,
-                index: 1,
-                icon: Icons.calendar_month_rounded,
-                label: 'Schedule'.translate(),
-                isSelected: currentIndex == 1,
-              ),
-              // Center Item: Home (Prominent FAB-style)
-              _buildCenterButton(context),
-              // Right Item 1: Cases
-              _buildNavItem(
-                context: context,
-                index: 2,
-                icon: Icons.work_rounded,
-                label: 'Cases'.translate(),
-                isSelected: currentIndex == 2,
-              ),
-              // Right Item 2: Menu (Opens Drawer)
-              _buildMenuItem(context),
             ],
           ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 6.h),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  // Left Item 1: Rescue (SOS)
+                  Expanded(
+                    child: _buildNavItem(
+                      context: context,
+                      index: 0,
+                      icon: Icons.emergency_rounded,
+                      label: 'Rescue'.translate(),
+                      isSelected: currentIndex == 0,
+                      iconColor: AppColors.sosRed,
+                    ),
+                  ),
+                  // Left Item 2: Cases
+                  Expanded(
+                    child: _buildNavItem(
+                      context: context,
+                      index: 1,
+                      icon: Icons.work_rounded,
+                      label: 'Cases'.translate(),
+                      isSelected: currentIndex == 1,
+                    ),
+                  ),
+                  // Left Item 3: Office
+                  Expanded(
+                    child: _buildNavItem(
+                      context: context,
+                      index: 2,
+                      icon: Icons.business_rounded,
+                      label: 'Office'.translate(),
+                      isSelected: currentIndex == 2,
+                    ),
+                  ),
+                  // Center space for the floating home button
+                  SizedBox(width: 60.r),
+                  // Right Item 1: Messages
+                  Expanded(
+                    child: _buildNavItem(
+                      context: context,
+                      index: 4,
+                      icon: Icons.message_rounded,
+                      label: 'Messages'.translate(),
+                      isSelected: currentIndex == 4,
+                    ),
+                  ),
+                  // Right Item 2: Schedule
+                  Expanded(
+                    child: _buildNavItem(
+                      context: context,
+                      index: 5,
+                      icon: Icons.calendar_month_rounded,
+                      label: 'Schedule'.translate(),
+                      isSelected: currentIndex == 5,
+                    ),
+                  ),
+                  // Right Item 3: Menu (Opens Drawer)
+                  Expanded(child: _buildMenuItem(context)),
+                ],
+              ),
+            ),
+          ),
         ),
-      ),
+        // Floating Center Button overlapping the nav bar
+        Positioned(top: 0, child: _buildCenterButton(context, backgroundColor)),
+      ],
     );
   }
 
@@ -96,7 +134,7 @@ class LawyerBottomNavBar extends StatelessWidget {
       onTap: () => onDestinationSelected(index),
       borderRadius: BorderRadius.circular(12.r),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+        padding: EdgeInsets.symmetric(vertical: 8.h),
         decoration: BoxDecoration(
           color: isSelected
               ? AppColors.navyBlue.withValues(alpha: 0.1)
@@ -105,19 +143,26 @@ class LawyerBottomNavBar extends StatelessWidget {
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
-              size: 24.sp,
+              size: 22.sp,
               color: isSelected ? activeIconColor : unselectedColor,
             ),
             SizedBox(height: 4.h),
-            Text(
-              label,
-              style: GoogleFonts.cairo(
-                fontSize: 11.sp,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                color: isSelected ? selectedColor : unselectedColor,
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 2.w),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: GoogleFonts.cairo(
+                    fontSize: 10.sp,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                    color: isSelected ? selectedColor : unselectedColor,
+                  ),
+                ),
               ),
             ),
           ],
@@ -126,12 +171,12 @@ class LawyerBottomNavBar extends StatelessWidget {
     );
   }
 
-  Widget _buildCenterButton(BuildContext context) {
+  Widget _buildCenterButton(BuildContext context, Color bgColor) {
     return GestureDetector(
       onTap: () => onDestinationSelected(3), // Home index
       child: Container(
-        width: 60.w,
-        height: 60.h,
+        width: 60.r,
+        height: 60.r,
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
@@ -139,31 +184,21 @@ class LawyerBottomNavBar extends StatelessWidget {
             colors: [AppColors.navyBlue, Color(0xFF003366)],
           ),
           shape: BoxShape.circle,
+          border: Border.all(color: bgColor, width: 4.w),
           boxShadow: [
             BoxShadow(
-              color: AppColors.navyBlue.withValues(alpha: 0.4),
-              blurRadius: 15.r,
-              offset: const Offset(0, 5),
+              color: AppColors.navyBlue.withValues(alpha: 0.3),
+              blurRadius: 10.r,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.home_rounded,
-              color: AppColors.legalGold,
-              size: 28.sp,
-            ),
-            Text(
-              'Home'.translate(),
-              style: GoogleFonts.cairo(
-                fontSize: 10.sp,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ],
+        child: Center(
+          child: Icon(
+            Icons.home_rounded,
+            color: AppColors.legalGold,
+            size: 26.sp,
+          ),
         ),
       ),
     );
@@ -171,7 +206,7 @@ class LawyerBottomNavBar extends StatelessWidget {
 
   Widget _buildMenuItem(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isSelected = currentIndex == 4;
+    final isSelected = currentIndex == 6;
     final selectedColor = AppColors.navyBlue;
     final unselectedColor = isDark ? Colors.white70 : Colors.grey;
 
@@ -179,7 +214,7 @@ class LawyerBottomNavBar extends StatelessWidget {
       onTap: onOpenDrawer,
       borderRadius: BorderRadius.circular(12.r),
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+        padding: EdgeInsets.symmetric(vertical: 8.h),
         decoration: BoxDecoration(
           color: isSelected
               ? AppColors.navyBlue.withValues(alpha: 0.1)
@@ -188,19 +223,26 @@ class LawyerBottomNavBar extends StatelessWidget {
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               Icons.grid_view_rounded,
-              size: 24.sp,
+              size: 22.sp,
               color: isSelected ? AppColors.legalGold : unselectedColor,
             ),
             SizedBox(height: 4.h),
-            Text(
-              'Menu'.translate(),
-              style: GoogleFonts.cairo(
-                fontSize: 11.sp,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                color: isSelected ? selectedColor : unselectedColor,
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 2.w),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  'Menu'.translate(),
+                  style: GoogleFonts.cairo(
+                    fontSize: 10.sp,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                    color: isSelected ? selectedColor : unselectedColor,
+                  ),
+                ),
               ),
             ),
           ],

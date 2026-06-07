@@ -112,8 +112,15 @@ class _LoginScreenState extends State<LoginScreen> {
             final result = await FirebaseAuth.instance.signInWithCredential(
               credential,
             );
-            final role = await _resolveRoleForCurrentUser(result.user);
+            final role = await _resolveRoleForCurrentUser(
+              result.user,
+              loginIdentifier: normalizedPhone,
+            );
             authState.loginAs(role);
+            await authState.cacheRoleHint(
+              identifier: normalizedPhone,
+              role: role,
+            );
 
             if (!mounted) {
               return;
@@ -215,8 +222,12 @@ class _LoginScreenState extends State<LoginScreen> {
         final credential = await FirebaseAuth.instance
             .signInWithEmailAndPassword(email: email, password: password);
 
-        final role = await _resolveRoleForCurrentUser(credential.user);
+        final role = await _resolveRoleForCurrentUser(
+          credential.user,
+          loginIdentifier: email,
+        );
         authState.loginAs(role);
+        await authState.cacheRoleHint(identifier: email, role: role);
 
         if (!mounted) {
           return;
@@ -286,79 +297,194 @@ class _LoginScreenState extends State<LoginScreen> {
     return _emailRegex.hasMatch(input.trim().toLowerCase());
   }
 
-  Future<AppRole> _resolveRoleForCurrentUser(User? user) async {
+  Future<AppRole> _resolveRoleForCurrentUser(
+    User? user, {
+    String? loginIdentifier,
+  }) async {
     if (user == null) {
       return AppRole.user;
     }
 
     final firestore = FirebaseFirestore.instance;
     final normalizedEmail = user.email?.trim().toLowerCase();
+    final normalizedPhone = user.phoneNumber;
 
-    // 1) Fast path by UID in users collection.
-    final userDoc = await firestore.collection('users').doc(user.uid).get();
-    if (userDoc.exists) {
-      return _roleFromDocData(userDoc.data(), fallback: AppRole.user);
+    try {
+      // 1) Fast path by UID in lawyers collection.
+      final lawyerDoc = await _tryGetDoc(
+        firestore.collection('lawyers').doc(user.uid),
+      );
+      if (lawyerDoc != null && lawyerDoc.exists) {
+        final role = _roleFromDocData(lawyerDoc.data(), fallback: AppRole.lawyer);
+        if (loginIdentifier != null) {
+          await authState.cacheRoleHint(identifier: loginIdentifier, role: role);
+        }
+        return role;
+      }
+
+      // 3) Query lawyers by phone
+      if (normalizedPhone != null && normalizedPhone.isNotEmpty) {
+        final lawyerByPhone = await _tryQueryFirst(
+          firestore
+              .collection('lawyers')
+              .where('phone', isEqualTo: normalizedPhone)
+              .limit(1),
+        );
+        if (lawyerByPhone != null && lawyerByPhone.docs.isNotEmpty) {
+          final role = _roleFromDocData(
+            lawyerByPhone.docs.first.data(),
+            fallback: AppRole.lawyer,
+          );
+          if (loginIdentifier != null) {
+            await authState.cacheRoleHint(identifier: loginIdentifier, role: role);
+          }
+          return role;
+        }
+      }
+
+      if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
+        // 4) Query lawyers by emailLower first, then email.
+        final lawyerByEmailLower = await _tryQueryFirst(
+          firestore
+              .collection('lawyers')
+              .where('emailLower', isEqualTo: normalizedEmail)
+              .limit(1),
+        );
+        if (lawyerByEmailLower != null && lawyerByEmailLower.docs.isNotEmpty) {
+          final role = _roleFromDocData(
+            lawyerByEmailLower.docs.first.data(),
+            fallback: AppRole.lawyer,
+          );
+          if (loginIdentifier != null) {
+            await authState.cacheRoleHint(identifier: loginIdentifier, role: role);
+          }
+          return role;
+        }
+
+        final lawyerByEmail = await _tryQueryFirst(
+          firestore
+              .collection('lawyers')
+              .where('email', isEqualTo: user.email!.trim())
+              .limit(1),
+        );
+        if (lawyerByEmail != null && lawyerByEmail.docs.isNotEmpty) {
+          final role = _roleFromDocData(
+            lawyerByEmail.docs.first.data(),
+            fallback: AppRole.lawyer,
+          );
+          if (loginIdentifier != null) {
+            await authState.cacheRoleHint(identifier: loginIdentifier, role: role);
+          }
+          return role;
+        }
+      }
+
+      // 5) Fast path by UID in users collection.
+      final userDoc = await _tryGetDoc(
+        firestore.collection('users').doc(user.uid),
+      );
+      if (userDoc != null && userDoc.exists) {
+        final role = _roleFromDocData(userDoc.data(), fallback: AppRole.user);
+        if (loginIdentifier != null) {
+          await authState.cacheRoleHint(identifier: loginIdentifier, role: role);
+        }
+        return role;
+      }
+
+      if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
+        // 6) Query users by emailLower first, then email.
+        final userByEmailLower = await _tryQueryFirst(
+          firestore
+              .collection('users')
+              .where('emailLower', isEqualTo: normalizedEmail)
+              .limit(1),
+        );
+        if (userByEmailLower != null && userByEmailLower.docs.isNotEmpty) {
+          final role = _roleFromDocData(
+            userByEmailLower.docs.first.data(),
+            fallback: AppRole.user,
+          );
+          if (loginIdentifier != null) {
+            await authState.cacheRoleHint(identifier: loginIdentifier, role: role);
+          }
+          return role;
+        }
+
+        final userByEmail = await _tryQueryFirst(
+          firestore
+              .collection('users')
+              .where('email', isEqualTo: user.email!.trim())
+              .limit(1),
+        );
+        if (userByEmail != null && userByEmail.docs.isNotEmpty) {
+          final role = _roleFromDocData(
+            userByEmail.docs.first.data(),
+            fallback: AppRole.user,
+          );
+          if (loginIdentifier != null) {
+            await authState.cacheRoleHint(identifier: loginIdentifier, role: role);
+          }
+          return role;
+        }
+      }
+
+      // 6) Query users by phone
+      if (normalizedPhone != null && normalizedPhone.isNotEmpty) {
+        final userByPhone = await _tryQueryFirst(
+          firestore
+              .collection('users')
+              .where('phone', isEqualTo: normalizedPhone)
+              .limit(1),
+        );
+        if (userByPhone != null && userByPhone.docs.isNotEmpty) {
+          final role = _roleFromDocData(
+            userByPhone.docs.first.data(),
+            fallback: AppRole.user,
+          );
+          if (loginIdentifier != null) {
+            await authState.cacheRoleHint(identifier: loginIdentifier, role: role);
+          }
+          return role;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error querying Firestore for role: $e');
     }
 
-    // 2) Fast path by UID in lawyers collection.
-    final lawyerDoc = await firestore.collection('lawyers').doc(user.uid).get();
-    if (lawyerDoc.exists) {
-      return _roleFromDocData(lawyerDoc.data(), fallback: AppRole.lawyer);
-    }
-
-    if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
-      // 3) Query users by emailLower first, then email.
-      final userByEmailLower = await firestore
-          .collection('users')
-          .where('emailLower', isEqualTo: normalizedEmail)
-          .limit(1)
-          .get();
-      if (userByEmailLower.docs.isNotEmpty) {
-        return _roleFromDocData(
-          userByEmailLower.docs.first.data(),
-          fallback: AppRole.user,
-        );
-      }
-
-      final userByEmail = await firestore
-          .collection('users')
-          .where('email', isEqualTo: user.email!.trim())
-          .limit(1)
-          .get();
-      if (userByEmail.docs.isNotEmpty) {
-        return _roleFromDocData(
-          userByEmail.docs.first.data(),
-          fallback: AppRole.user,
-        );
-      }
-
-      // 4) Query lawyers by emailLower first, then email.
-      final lawyerByEmailLower = await firestore
-          .collection('lawyers')
-          .where('emailLower', isEqualTo: normalizedEmail)
-          .limit(1)
-          .get();
-      if (lawyerByEmailLower.docs.isNotEmpty) {
-        return _roleFromDocData(
-          lawyerByEmailLower.docs.first.data(),
-          fallback: AppRole.lawyer,
-        );
-      }
-
-      final lawyerByEmail = await firestore
-          .collection('lawyers')
-          .where('email', isEqualTo: user.email!.trim())
-          .limit(1)
-          .get();
-      if (lawyerByEmail.docs.isNotEmpty) {
-        return _roleFromDocData(
-          lawyerByEmail.docs.first.data(),
-          fallback: AppRole.lawyer,
-        );
+    if (loginIdentifier != null) {
+      final cachedRole = await authState.resolveRoleHint(loginIdentifier);
+      if (cachedRole != null) {
+        return cachedRole;
       }
     }
 
     return AppRole.user;
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _tryGetDoc(
+    DocumentReference<Map<String, dynamic>> docRef,
+  ) async {
+    try {
+      return await docRef.get();
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>?> _tryQueryFirst(
+    Query<Map<String, dynamic>> query,
+  ) async {
+    try {
+      return await query.get();
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        return null;
+      }
+      rethrow;
+    }
   }
 
   AppRole _roleFromDocData(
@@ -369,10 +495,14 @@ class _LoginScreenState extends State<LoginScreen> {
       return fallback;
     }
 
-    final rawRole = (data['role'] ?? data['accountType'] ?? data['userType'])
-        .toString()
-        .trim()
-        .toLowerCase();
+    final rawRoleValue =
+        data['role'] ?? data['accountType'] ?? data['userType'];
+
+    if (rawRoleValue == null) {
+      return fallback;
+    }
+
+    final rawRole = rawRoleValue.toString().trim().toLowerCase();
 
     if (rawRole == 'admin') {
       return AppRole.admin;
@@ -388,12 +518,19 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<bool> _isPhoneRegistered(String normalizedPhone) async {
-    final snapshot = await FirebaseFirestore.instance
+    final userSnapshot = await FirebaseFirestore.instance
         .collection('users')
         .where('phone', isEqualTo: normalizedPhone)
         .limit(1)
         .get();
-    return snapshot.docs.isNotEmpty;
+    if (userSnapshot.docs.isNotEmpty) return true;
+
+    final lawyerSnapshot = await FirebaseFirestore.instance
+        .collection('lawyers')
+        .where('phone', isEqualTo: normalizedPhone)
+        .limit(1)
+        .get();
+    return lawyerSnapshot.docs.isNotEmpty;
   }
 
   Future<void> _handleGoogleSignIn() async {
@@ -425,8 +562,13 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       final role = await _resolveRoleForCurrentUser(
         FirebaseAuth.instance.currentUser,
+        loginIdentifier: FirebaseAuth.instance.currentUser?.email,
       );
       authState.loginAs(role);
+      final currentEmail = FirebaseAuth.instance.currentUser?.email;
+      if (currentEmail != null && currentEmail.trim().isNotEmpty) {
+        await authState.cacheRoleHint(identifier: currentEmail, role: role);
+      }
       final homeRoute = switch (role) {
         AppRole.admin => AppRoutes.adminHome,
         AppRole.lawyer => AppRoutes.lawyerHome,

@@ -11,6 +11,7 @@ import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/theme/responsive_page_wrapper.dart';
 import 'package:mezaan/shared/theme/theme_controller.dart';
 import 'package:mezaan/shared/localization/localization_controller.dart';
+import 'package:mezaan/shared/auth/auth_state.dart';
 import 'firebase_options.dart';
 import 'package:video_player_media_kit/video_player_media_kit.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -36,6 +37,8 @@ Future<void> main() async {
   // Ensure localization controller is available globally.
   LocalizationController.instance;
   ThemeController.instance;
+  // Initialize auth state before running the app
+  await authState.init();
   runApp(const MezaanApp());
 }
 

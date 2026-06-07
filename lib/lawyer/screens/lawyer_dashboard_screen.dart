@@ -10,6 +10,7 @@ import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/theme/theme_controller.dart';
+import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:mezaan/user/screens/government_map_screen.dart';
 import 'package:mezaan/lawyer/widgets/lawyer_bottom_nav_bar.dart';
 import 'package:mezaan/lawyer/screens/lawyer_onboarding_screen.dart';
@@ -21,8 +22,8 @@ import 'package:mezaan/lawyer/screens/lawyer_conflict_checker_screen.dart';
 import 'package:mezaan/lawyer/screens/lawyer_case_management_screen.dart';
 import 'package:mezaan/user/models/case_model.dart';
 import 'package:mezaan/user/screens/video_call_screen.dart';
+import 'package:mezaan/lawyer/screens/lawyer_chat_screen.dart';
 import 'dart:async';
-import 'package:flutter/services.dart';
 
 class LawyerDashboardScreen extends StatefulWidget {
   const LawyerDashboardScreen({super.key});
@@ -93,12 +94,12 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
     );
   }
 
-  void _showAddCaseModal() {
+  void _showAddCaseModal(String lawyerName) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => const _AddCaseSheet(),
+      builder: (context) => _AddCaseSheet(lawyerName: lawyerName),
     );
   }
 
@@ -189,11 +190,14 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
       case 0:
         return const _RescueView();
       case 1:
-        return const _ScheduleView();
-      case 2:
         return const _CasesView();
+      case 2:
+        return Center(child: Text('Office page coming soon'));
+      case 4:
+        return const _MessagesView();
+      case 5:
+        return const _ScheduleView();
       case 3:
-        return _buildDashboardView(payload);
       default:
         return _buildDashboardView(payload);
     }
@@ -316,30 +320,36 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
                     itemBuilder: (context, index) {
                       final data = docs[index].data() as Map<String, dynamic>;
                       final docId = docs[index].id;
-                      
+
                       final title = data['title'] ?? 'Notification';
                       final body = data['body'] ?? '';
                       final isRead = data['isRead'] ?? false;
                       final type = data['type'] ?? '';
                       final referenceId = data['referenceId'] ?? '';
                       final createdAt = data['createdAt'] as Timestamp?;
-                      
+
                       String timeText = '';
                       if (createdAt != null) {
-                        final diff = DateTime.now().difference(createdAt.toDate());
+                        final diff = DateTime.now().difference(
+                          createdAt.toDate(),
+                        );
                         if (diff.inDays > 0) {
                           timeText = '${diff.inDays} ${'days ago'.translate()}';
                         } else if (diff.inHours > 0) {
-                          timeText = '${diff.inHours} ${'hours ago'.translate()}';
+                          timeText =
+                              '${diff.inHours} ${'hours ago'.translate()}';
                         } else if (diff.inMinutes > 0) {
-                          timeText = '${diff.inMinutes} ${'minutes ago'.translate()}';
+                          timeText =
+                              '${diff.inMinutes} ${'minutes ago'.translate()}';
                         } else {
                           timeText = 'Just now'.translate();
                         }
                       }
 
                       IconData icon = Icons.notifications;
-                      if (type == 'transaction') icon = Icons.account_balance_wallet;
+                      if (type == 'transaction') {
+                        icon = Icons.account_balance_wallet;
+                      }
                       if (type == 'lawyer_request') icon = Icons.event;
                       if (type == 'video_call') icon = Icons.video_call;
 
@@ -360,11 +370,20 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
                                 .update({'isRead': true});
                           }
                           Navigator.pop(context);
-                          
+
                           if (type == 'lawyer_request') {
-                            setState(() => _selectedIndex = 1); // Go to Schedule View
-                          } else if (type == 'video_call' && referenceId.isNotEmpty) {
-                             Navigator.push(context, MaterialPageRoute(builder: (_) => VideoCallScreen(meetingId: referenceId)));
+                            setState(
+                              () => _selectedIndex = 5,
+                            ); // Go to Schedule View
+                          } else if (type == 'video_call' &&
+                              referenceId.isNotEmpty) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    VideoCallScreen(meetingId: referenceId),
+                              ),
+                            );
                           }
                         },
                       );
@@ -486,40 +505,16 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
           );
         }
 
-        if (currentUser == null) {
-          return Scaffold(
-            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-            body: Center(
-              child: Padding(
-                padding: EdgeInsets.all(20.r),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.lock_outline_rounded, size: 54.sp),
-                    SizedBox(height: 10.h),
-                    Text(
-                      'You need to login first'.translate(),
-                      style: GoogleFonts.cairo(
-                        fontSize: 17.sp,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    SizedBox(height: 14.h),
-                    ElevatedButton(
-                      onPressed: () {
-                        LoadingNavigator.pushNamedAndRemoveUntil(
-                          context,
-                          AppRoutes.login,
-                          (route) => false,
-                        );
-                      },
-                      child: Text('Go to Login'.translate()),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
+        // If not logged in or role is not lawyer, redirect to login
+        if (currentUser == null || authState.role != AppRole.lawyer) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            LoadingNavigator.pushNamedAndRemoveUntil(
+              context,
+              AppRoutes.login,
+              (route) => false,
+            );
+          });
+          return const Scaffold();
         }
 
         return FutureBuilder<_LawyerDashboardPayload>(
@@ -593,14 +588,17 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
                   () => _showComingSoon('Lang: $lang'.translate()),
                 ),
               ),
-              floatingActionButton: _selectedIndex == 2
+              floatingActionButton: _selectedIndex == 1
                   ? FloatingActionButton.extended(
-                      onPressed: _showAddCaseModal,
+                      onPressed: () => _showAddCaseModal(payload.lawyerName),
                       backgroundColor: const Color(0xFF001F3F),
-                      icon: const Icon(Icons.add_rounded, color: Color(0xFFFFD700)),
+                      icon: Icon(Icons.add_rounded, color: AppColors.legalGold),
                       label: Text(
                         'Add Case'.translate(),
-                        style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: Colors.white),
+                        style: GoogleFonts.cairo(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
                     )
                   : null,
@@ -751,17 +749,27 @@ class _UpcomingScheduleSection extends StatelessWidget {
         // Get the nearest / most recent
         final doc = appointments.first;
         final data = doc.data() as Map<String, dynamic>;
-        
-        final clientName = data['userName'] as String? ?? data['clientName'] as String? ?? 'Unknown Client';
-        final appointmentTime = data['time'] as String? ?? data['appointmentTime'] as String? ?? 'Time not set';
+
+        final clientName =
+            data['userName'] as String? ??
+            data['clientName'] as String? ??
+            'Unknown Client';
+        final appointmentTime =
+            data['time'] as String? ??
+            data['appointmentTime'] as String? ??
+            'Time not set';
         final day = data['day'] as String? ?? 'Date not set';
         final type = data['consultationType'] as String? ?? 'office';
         final isOnline = type.toLowerCase() == 'online';
 
         final isDark = Theme.of(context).brightness == Brightness.dark;
         final cardColor = isDark ? const Color(0xFF162235) : Colors.white;
-        final badgeColor = isOnline ? const Color(0xFFE8F5E9) : const Color(0xFFE3F2FD);
-        final badgeTextColor = isOnline ? const Color(0xFF2E7D32) : const Color(0xFF1565C0);
+        final badgeColor = isOnline
+            ? const Color(0xFFE8F5E9)
+            : const Color(0xFFE3F2FD);
+        final badgeTextColor = isOnline
+            ? const Color(0xFF2E7D32)
+            : const Color(0xFF1565C0);
 
         return Container(
           padding: EdgeInsets.all(16.r),
@@ -785,8 +793,8 @@ class _UpcomingScheduleSection extends StatelessWidget {
               Container(
                 padding: EdgeInsets.all(12.r),
                 decoration: BoxDecoration(
-                  color: isOnline 
-                      ? Colors.green.withOpacity(0.1) 
+                  color: isOnline
+                      ? Colors.green.withOpacity(0.1)
                       : AppColors.navyBlue.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
@@ -894,6 +902,7 @@ class _LawyerDashboardRepository {
           status: 'active',
           createdDate: DateTime(2024, 2, 12),
           lawyerName: 'Client: Ahmed Aly',
+          legalFees: 75000.0,
           requiredDocuments: List.generate(
             4,
             (i) => RequiredDocument(
@@ -924,6 +933,7 @@ class _LawyerDashboardRepository {
           status: 'pending',
           createdDate: DateTime(2024, 3, 05),
           lawyerName: 'Client: Tech Nile Inc.',
+          legalFees: 45000.0,
           requiredDocuments: List.generate(
             2,
             (i) => RequiredDocument(
@@ -954,6 +964,7 @@ class _LawyerDashboardRepository {
           status: 'active',
           createdDate: DateTime(2024, 4, 18),
           lawyerName: 'Client: Modern Cairo Co.',
+          legalFees: 20000.0,
           requiredDocuments: List.generate(
             6,
             (i) => RequiredDocument(
@@ -1127,14 +1138,14 @@ class _LawyerDashboardRepository {
       final governorate = _asString(officeDetails['governorate']);
       final city = _asString(officeDetails['city']);
       final address = _asString(officeDetails['address']);
-      
+
       List<String> allPhones = [];
-      
+
       final legacyPhone = _asString(officeDetails['phone']);
       if (legacyPhone != null && legacyPhone.isNotEmpty) {
         allPhones.add(legacyPhone);
       }
-      
+
       final phonesRaw = officeDetails['phones'];
       if (phonesRaw is List) {
         for (var p in phonesRaw) {
@@ -1144,10 +1155,10 @@ class _LawyerDashboardRepository {
           }
         }
       }
-      
+
       final hasPhone = allPhones.isNotEmpty;
       final phoneDisplay = allPhones.join(', ');
-      
+
       debugPrint(
         'office_details: governorate=$governorate, city=$city, address=$address, phones=$phoneDisplay',
       );
@@ -1227,6 +1238,7 @@ class _LawyerDashboardRepository {
             return _firstNonEmpty([
               _asString(entry['title']),
               _asString(entry['caseNumber']),
+              _asString(entry['caseId']),
               _asString(entry['name']),
             ]);
           }
@@ -1254,6 +1266,7 @@ class _LawyerDashboardRepository {
           final title = _firstNonEmpty([
             _asString(data['title']),
             _asString(data['caseNumber']),
+            _asString(data['caseId']),
             _asString(data['name']),
             doc.id,
           ]);
@@ -1698,8 +1711,9 @@ class _ServiceMapCard extends StatelessWidget {
 
 class _CaseCard extends StatelessWidget {
   final UserCase case_;
+  final String? clientId;
 
-  const _CaseCard({required this.case_});
+  const _CaseCard({required this.case_, this.clientId});
 
   @override
   Widget build(BuildContext context) {
@@ -1761,18 +1775,49 @@ class _CaseCard extends StatelessWidget {
               ),
             ),
             SizedBox(height: 12.h),
-            Row(
-              children: [
-                _buildStatIcon(
-                  Icons.description_outlined,
-                  '${case_.requiredDocuments.length} Documents',
-                ),
-                SizedBox(width: 16.w),
-                _buildStatIcon(
-                  Icons.gavel_outlined,
-                  '${case_.sessions.length} Sessions',
-                ),
-              ],
+            _buildClientInfo(isDark),
+            SizedBox(height: 12.h),
+            Divider(
+              color: isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5),
+              height: 1.h,
+            ),
+            SizedBox(height: 12.h),
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('cases')
+                  .doc(case_.id)
+                  .collection('documentations')
+                  .snapshots(),
+              builder: (context, docSnap) {
+                final docCount =
+                    docSnap.data?.docs.length ?? case_.requiredDocuments.length;
+
+                return StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('cases')
+                      .doc(case_.id)
+                      .collection('sessions')
+                      .snapshots(),
+                  builder: (context, sessionSnap) {
+                    final sessionCount =
+                        sessionSnap.data?.docs.length ?? case_.sessions.length;
+
+                    return Row(
+                      children: [
+                        _buildStatIcon(
+                          Icons.description_outlined,
+                          '$docCount Requested Documents',
+                        ),
+                        SizedBox(width: 16.w),
+                        _buildStatIcon(
+                          Icons.gavel_outlined,
+                          '$sessionCount Sessions',
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
             ),
           ],
         ),
@@ -1812,6 +1857,85 @@ class _CaseCard extends StatelessWidget {
             fontSize: 12.sp,
             fontWeight: FontWeight.w500,
             color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildClientInfo(bool isDark) {
+    String clientName = case_.lawyerName;
+    if (clientName.startsWith('Client: ')) {
+      clientName = clientName.substring(8);
+    } else if (clientName.isEmpty || clientName == 'Unknown Client') {
+      clientName = 'Client'.translate();
+    }
+
+    Widget avatar = CircleAvatar(
+      radius: 14.r,
+      backgroundColor: AppColors.navyBlue.withOpacity(isDark ? 0.3 : 0.1),
+      child: Icon(
+        Icons.person_outline,
+        size: 16.sp,
+        color: AppColors.legalGold,
+      ),
+    );
+
+    if (clientId != null && clientId!.isNotEmpty) {
+      return FutureBuilder<DocumentSnapshot>(
+        future: FirebaseFirestore.instance
+            .collection('users')
+            .doc(clientId)
+            .get(),
+        builder: (context, snapshot) {
+          String? photoUrl;
+          if (snapshot.hasData && snapshot.data!.exists) {
+            final data = snapshot.data!.data() as Map<String, dynamic>?;
+            if (data != null) {
+              photoUrl =
+                  data['profileImage'] ??
+                  data['profilePhotoUrl'] ??
+                  data['photoUrl'];
+              final fName = data['first_name'] ?? '';
+              final sName = data['second_name'] ?? '';
+              final fullName = data['fullName'] ?? '$fName $sName'.trim();
+              if (fullName.isNotEmpty) clientName = fullName;
+            }
+          }
+
+          if (photoUrl != null && photoUrl.isNotEmpty) {
+            avatar = CircleAvatar(
+              radius: 14.r,
+              backgroundImage: NetworkImage(photoUrl),
+              backgroundColor: AppColors.navyBlue.withOpacity(
+                isDark ? 0.3 : 0.1,
+              ),
+            );
+          }
+
+          return _buildClientRow(avatar, clientName, isDark);
+        },
+      );
+    }
+
+    return _buildClientRow(avatar, clientName, isDark);
+  }
+
+  Widget _buildClientRow(Widget avatar, String name, bool isDark) {
+    return Row(
+      children: [
+        avatar,
+        SizedBox(width: 8.w),
+        Expanded(
+          child: Text(
+            name,
+            style: GoogleFonts.cairo(
+              fontSize: 13.sp,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white70 : Colors.grey[700],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
@@ -2041,11 +2165,19 @@ class _ScheduleItemWidget extends StatelessWidget {
   }
 }
 
-class _CasesView extends StatelessWidget {
+class _CasesView extends StatefulWidget {
   const _CasesView();
 
   @override
+  State<_CasesView> createState() => _CasesViewState();
+}
+
+class _CasesViewState extends State<_CasesView> {
+  String _filterStatus = 'all';
+
+  @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return const SizedBox.shrink();
 
@@ -2053,7 +2185,6 @@ class _CasesView extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('cases')
           .where('lawyerId', isEqualTo: currentUser.uid)
-          .orderBy('createdAt', descending: true)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -2061,45 +2192,394 @@ class _CasesView extends StatelessWidget {
         }
         if (snapshot.hasError) {
           print('Error details: ${snapshot.error}');
-          return Center(child: _DataEmptyHint(message: 'Error: ${snapshot.error}'));
+          return Center(
+            child: _DataEmptyHint(message: 'Error: ${snapshot.error}'),
+          );
         }
 
-        final docs = snapshot.data?.docs ?? [];
-        if (docs.isEmpty) {
-          return Center(child: _DataEmptyHint(message: 'No active cases.'.translate()));
-        }
+        final docs = snapshot.data?.docs.toList() ?? [];
 
-        return ListView.builder(
+        // Sort in Dart to avoid missing Composite Index error in Firestore
+        docs.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          final aTime = aData['createdAt'] as Timestamp?;
+          final bTime = bData['createdAt'] as Timestamp?;
+          if (aTime == null && bTime == null) return 0;
+          if (aTime == null) return 1;
+          if (bTime == null) return -1;
+          return bTime.compareTo(aTime);
+        });
+
+        final allCasesData = docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final caseData = UserCase(
+            id: doc.id,
+            lawyerId: data['lawyerId'] ?? '',
+            caseNumber: data['caseId'] ?? doc.id,
+            title: data['title'] ?? 'Untitled',
+            description: data['description'] ?? '',
+            category: data['category'] ?? 'Civil',
+            status: data['status'] ?? 'pending',
+            createdDate:
+                (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+            lawyerName: data['clientName'] ?? 'Unknown Client',
+            legalFees: (data['legalFees'] as num?)?.toDouble() ?? 0.0,
+            requiredDocuments: [],
+            sessions: [],
+            updates: [],
+          );
+          return {'case': caseData, 'clientId': data['clientId']};
+        }).toList();
+
+        final filteredCases = _filterStatus == 'all'
+            ? allCasesData
+            : allCasesData
+                  .where((c) => (c['case'] as UserCase).status == _filterStatus)
+                  .toList();
+
+        return ListView(
           padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
-          itemCount: docs.length,
-          itemBuilder: (context, index) {
-            final data = docs[index].data() as Map<String, dynamic>;
-            final caseData = UserCase(
-              id: docs[index].id,
-              lawyerId: data['lawyerId'] ?? '',
-              caseNumber: data['caseNumber'] ?? 'N/A',
-              title: data['title'] ?? 'Untitled',
-              description: data['description'] ?? '',
-              category: data['category'] ?? 'Civil',
-              status: data['status'] ?? 'pending',
-              createdDate: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-              lawyerName: data['clientName'] ?? 'Unknown Client',
-              requiredDocuments: [],
-              sessions: [],
-              updates: [],
-            );
-            return _CaseCard(case_: caseData);
-          },
+          children: [
+            Text(
+              'My Cases'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 24.sp,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            SizedBox(height: 12.h),
+            if (docs.isEmpty)
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.only(top: 40.h),
+                  child: _DataEmptyHint(
+                    message: 'No active cases.'.translate(),
+                  ),
+                ),
+              )
+            else ...[
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _buildFilterChip(
+                      'all',
+                      'All'.translate(),
+                      allCasesData.length,
+                      isDark,
+                    ),
+                    SizedBox(width: 8.w),
+                    _buildFilterChip(
+                      'active',
+                      'Active'.translate(),
+                      allCasesData
+                          .where(
+                            (c) => (c['case'] as UserCase).status == 'active',
+                          )
+                          .length,
+                      isDark,
+                    ),
+                    SizedBox(width: 8.w),
+                    _buildFilterChip(
+                      'closed',
+                      'Closed'.translate(),
+                      allCasesData
+                          .where(
+                            (c) => (c['case'] as UserCase).status == 'closed',
+                          )
+                          .length,
+                      isDark,
+                    ),
+                    SizedBox(width: 8.w),
+                    _buildFilterChip(
+                      'pending',
+                      'Pending'.translate(),
+                      allCasesData
+                          .where(
+                            (c) => (c['case'] as UserCase).status == 'pending',
+                          )
+                          .length,
+                      isDark,
+                    ),
+                    SizedBox(width: 8.w),
+                    _buildFilterChip(
+                      'on_hold',
+                      'On Hold'.translate(),
+                      allCasesData
+                          .where(
+                            (c) => (c['case'] as UserCase).status == 'on_hold',
+                          )
+                          .length,
+                      isDark,
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 20.h),
+              if (filteredCases.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 40.h),
+                    child: _DataEmptyHint(
+                      message: 'No cases in this category'.translate(),
+                    ),
+                  ),
+                )
+              else
+                ...filteredCases.map((caseMap) {
+                  return _CaseCard(
+                    case_: caseMap['case'] as UserCase,
+                    clientId: caseMap['clientId'] as String?,
+                  );
+                }),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterChip(String value, String label, int count, bool isDark) {
+    final isActive = _filterStatus == value;
+    return FilterChip(
+      label: Text(
+        '$label ($count)',
+        style: GoogleFonts.cairo(
+          fontSize: 12.sp,
+          fontWeight: FontWeight.w600,
+          color: isActive
+              ? Colors.white
+              : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
+        ),
+      ),
+      backgroundColor: isActive
+          ? AppColors.legalGold
+          : (isDark ? Colors.grey.shade800 : Colors.grey.shade200),
+      onSelected: (selected) {
+        setState(() {
+          _filterStatus = value;
+        });
+      },
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.r)),
+    );
+  }
+}
+
+class _MessagesView extends StatelessWidget {
+  const _MessagesView();
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('chats')
+          .where('lawyerId', isEqualTo: currentUser.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error loading messages: ${snapshot.error}'),
+          );
+        }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final docs = snapshot.data?.docs.toList() ?? [];
+        
+        // Sort in Dart to prevent Firestore Composite Index errors
+        docs.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          final aTime = aData['lastMessageTime'] as Timestamp?;
+          final bTime = bData['lastMessageTime'] as Timestamp?;
+          if (aTime == null && bTime == null) return 0;
+          if (aTime == null) return 1;
+          if (bTime == null) return -1;
+          return bTime.compareTo(aTime);
+        });
+
+        return ListView(
+          padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
+          children: [
+            Text(
+              'Messages'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 24.sp,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            SizedBox(height: 16.h),
+            if (docs.isEmpty)
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.only(top: 40.h),
+                  child: _DataEmptyHint(message: 'No messages yet.'.translate()),
+                ),
+              )
+            else
+              ...docs.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final clientName = data['clientName'] ?? 'Unknown Client';
+                final lastMessage = data['lastMessage'] ?? '';
+                final lastTime = data['lastMessageTime'] as Timestamp?;
+                final clientImage = data['clientProfileImage'] as String?;
+
+                String timeText = '';
+                if (lastTime != null) {
+                  final now = DateTime.now();
+                  final dt = lastTime.toDate();
+                  if (now.difference(dt).inDays == 0 && now.day == dt.day) {
+                    timeText = '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+                  } else {
+                    timeText = '${dt.day}/${dt.month}/${dt.year}';
+                  }
+                }
+
+                return _MessageTile(
+                  chatId: doc.id,
+                  clientName: clientName,
+                  lastMessage: lastMessage,
+                  timeText: timeText,
+                  clientImage: clientImage,
+                  clientId: data['clientId'] ?? '',
+                  isDark: isDark,
+                );
+              }),
+          ],
         );
       },
     );
   }
 }
 
-// _ChatView class removed - was unused
+class _MessageTile extends StatelessWidget {
+  final String chatId;
+  final String clientName;
+  final String lastMessage;
+  final String timeText;
+  final String? clientImage;
+  final String clientId;
+  final bool isDark;
+
+  const _MessageTile({
+    required this.chatId,
+    required this.clientName,
+    required this.lastMessage,
+    required this.timeText,
+    this.clientImage,
+    required this.clientId,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cardColor = isDark ? const Color(0xFF1A2940) : Colors.white;
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => LawyerChatScreen(
+              chatId: chatId,
+              clientName: clientName,
+              clientId: clientId,
+              clientImage: clientImage,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        margin: EdgeInsets.only(bottom: 12.h),
+        padding: EdgeInsets.all(12.r),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(16.r),
+          border: Border.all(
+            color: isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
+              blurRadius: 8,
+              offset: Offset(0, 2.h),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 24.r,
+              backgroundColor: AppColors.navyBlue.withOpacity(0.1),
+              backgroundImage: (clientImage != null && clientImage!.isNotEmpty)
+                  ? NetworkImage(clientImage!)
+                  : null,
+              child: (clientImage == null || clientImage!.isEmpty)
+                  ? Icon(Icons.person, color: AppColors.navyBlue, size: 24.sp)
+                  : null,
+            ),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          clientName,
+                          style: GoogleFonts.cairo(
+                            fontSize: 15.sp,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : AppColors.navyBlue,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      SizedBox(width: 8.w),
+                      Text(
+                        timeText,
+                        style: GoogleFonts.cairo(
+                          fontSize: 11.sp,
+                          color: Colors.grey,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4.h),
+                  Text(
+                    lastMessage.isNotEmpty
+                        ? lastMessage
+                        : 'Image or Attachment',
+                    style: GoogleFonts.cairo(
+                      fontSize: 13.sp,
+                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _AddCaseSheet extends StatefulWidget {
-  const _AddCaseSheet();
+  final String lawyerName;
+  const _AddCaseSheet({required this.lawyerName});
 
   @override
   State<_AddCaseSheet> createState() => _AddCaseSheetState();
@@ -2118,10 +2598,8 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
   final _nationalIdController = TextEditingController();
 
   String _selectedCategory = 'Civil';
+  String _selectedServiceType = 'non_litigation';
   Map<String, dynamic>? _selectedClient;
-  List<Map<String, dynamic>> _searchResults = [];
-  bool _isSearching = false;
-  bool _clientNotFound = false;
   bool _isSubmitting = false;
 
   @override
@@ -2142,63 +2620,6 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
     super.dispose();
   }
 
-  Future<void> _onSearchChanged(String value) async {
-    // Sanitize input: remove spaces and dashes as requested
-    String searchPhone = value.trim().replaceAll(RegExp(r'[\s\-]'), '');
-    
-    // Standard normalization for local numbers
-    if (searchPhone.startsWith('0')) {
-      searchPhone = '+2' + searchPhone;
-    }
-
-    // Clear selection if typing again to force re-verification
-    if (_selectedClient != null && searchPhone != _selectedClient!['phone']) {
-      setState(() {
-        _selectedClient = null;
-        _clientNotFound = false;
-      });
-      _nameController.clear();
-      _phoneResultController.clear();
-      _nationalIdController.clear();
-    }
-
-    if (value.trim().isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _clientNotFound = false;
-      });
-      return;
-    }
-
-    setState(() => _isSearching = true);
-    try {
-      print('Searching for: $searchPhone');
-      final querySnap = await FirebaseFirestore.instance
-          .collection('users')
-          .where('role', isEqualTo: 'user')
-          .where('phone', isEqualTo: searchPhone)
-          .limit(5)
-          .get();
-
-      final results = querySnap.docs.map((doc) => {...doc.data(), 'uid': doc.id}).toList();
-
-      setState(() {
-        _searchResults = results;
-        // Show error if input exists but no user was found
-        _clientNotFound = searchPhone.isNotEmpty && results.isEmpty;
-      });
-
-      // Auto-fetch Trigger: If exactly one match is found, auto-fill regardless of length
-      if (results.length == 1) {
-        _selectUser(results.first);
-      }
-    } catch (e) {
-      debugPrint('Search error: $e');
-    } finally {
-      setState(() => _isSearching = false);
-    }
-  }
-
   void _selectUser(Map<String, dynamic> user) {
     String rawPhone = user['phone'] ?? '';
     // If it starts with +20, we display the 0... version to the lawyer in the search bar
@@ -2211,13 +2632,12 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
       _selectedClient = user;
       _phoneController.text = displayPhone;
       // Fill controllers with data from Firestore (FullName or parts)
-      _nameController.text = user['fullName'] ?? 
+      _nameController.text =
+          user['fullName'] ??
           '${user['first_name'] ?? ''} ${user['second_name'] ?? ''}'.trim();
       _phoneResultController.text = user['phone'] ?? '';
-      _nationalIdController.text = user['nationalId'] ?? 
-          user['national_id'] ?? 'N/A';
-      _searchResults = [];
-      _clientNotFound = false;
+      _nationalIdController.text =
+          user['nationalId'] ?? user['national_id'] ?? 'N/A';
     });
   }
 
@@ -2226,18 +2646,22 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
     if (_isSubmitting) return;
 
     setState(() => _isSubmitting = true);
-    
+
     try {
       final user = FirebaseAuth.instance.currentUser;
-      
+
       // Prepare data map for Firestore
       final Map<String, dynamic> mapData = {
-        'caseNumber': _caseNumber,
+        'caseId': _caseNumber,
+        'caseNumber': '',
+        'caseYear': '',
         'clientId': _selectedClient!['uid'], // Button is disabled if null
         'lawyerId': user?.uid ?? 'unknown_lawyer',
+        'lawyerName': widget.lawyerName,
         'title': _titleController.text.trim(),
         'status': 'pending_payment',
         'category': _selectedCategory,
+        'serviceType': _selectedServiceType,
         'description': _descController.text.trim(),
         'legalFees': double.tryParse(_feesController.text) ?? 0.0,
         'createdAt': FieldValue.serverTimestamp(),
@@ -2254,11 +2678,11 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
       await FirebaseFirestore.instance.collection('cases').add(mapData);
 
       if (!mounted) return;
-      
+
       // Task: Success SnackBar
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Case Syncing...'.translate())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Case Syncing...'.translate())));
 
       // Task: Force Close & Navigate
       Navigator.pop(context);
@@ -2266,9 +2690,9 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
       // Task: Global Error Catching
       print("Firebase Error: $e");
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'.translate())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e'.translate())));
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -2294,12 +2718,23 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
         children: [
           Padding(
             padding: EdgeInsets.symmetric(vertical: 16.h),
-            child: Text('Add New Case'.translate(), style: GoogleFonts.cairo(fontSize: 18.sp, fontWeight: FontWeight.w800)),
+            child: Text(
+              'Add New Case'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 18.sp,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
           const Divider(height: 1),
           Expanded(
             child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(20.w, 10.h, 20.w, MediaQuery.of(context).viewInsets.bottom + 20.h),
+              padding: EdgeInsets.fromLTRB(
+                20.w,
+                10.h,
+                20.w,
+                MediaQuery.of(context).viewInsets.bottom + 20.h,
+              ),
               child: Form(
                 key: _formKey,
                 child: Column(
@@ -2311,57 +2746,162 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                     TextFormField(
                       initialValue: _caseNumber,
                       readOnly: true,
-                      decoration: _inputDeco(inputBg, Icons.confirmation_number_outlined),
-                      style: GoogleFonts.cairo(color: Colors.grey, fontWeight: FontWeight.bold),
+                      decoration: _inputDeco(
+                        inputBg,
+                        Icons.confirmation_number_outlined,
+                      ),
+                      style: GoogleFonts.cairo(
+                        color: Colors.grey,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     SizedBox(height: 20.h),
 
                     // Section 2: Client Search
-                    Text('Search Client by Phone'.translate(), style: labelStyle),
-                    SizedBox(height: 6.h),
-                    TextFormField(
-                      controller: _phoneController,
-                      onChanged: _onSearchChanged,
-                      keyboardType: TextInputType.phone,
-                      maxLengthEnforcement: MaxLengthEnforcement.none,
-                      decoration: _inputDeco(inputBg, Icons.person_search_outlined).copyWith(
-                        hintText: 'Search by phone number...'.translate(),
-                        counterText: "",
-                        suffixIcon: _isSearching 
-                            ? Padding(padding: EdgeInsets.all(12.r), child: const CircularProgressIndicator(strokeWidth: 2)) 
-                            : null,
-                      ),
+                    Text(
+                      'Search Client by Phone'.translate(),
+                      style: labelStyle,
                     ),
-
-                    // Search Results List (Dynamic Dropdown)
-                    if (_searchResults.isNotEmpty && _selectedClient == null)
-                      Container(
-                        margin: EdgeInsets.only(top: 8.h),
-                        decoration: BoxDecoration(
-                          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                    SizedBox(height: 6.h),
+                    TypeAheadField<Map<String, dynamic>>(
+                      controller: _phoneController,
+                      builder: (context, controller, focusNode) {
+                        return TextFormField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          keyboardType: TextInputType.phone,
+                          onChanged: (val) {
+                            String searchPhone = val.trim().replaceAll(
+                              RegExp(r'[\s\-]'),
+                              '',
+                            );
+                            if (searchPhone.startsWith('0')) {
+                              searchPhone = '+2$searchPhone';
+                            }
+                            if (_selectedClient != null &&
+                                searchPhone != _selectedClient!['phone']) {
+                              setState(() {
+                                _selectedClient = null;
+                              });
+                              _nameController.clear();
+                              _phoneResultController.clear();
+                              _nationalIdController.clear();
+                            }
+                          },
+                          decoration:
+                              _inputDeco(
+                                inputBg,
+                                Icons.person_search_outlined,
+                              ).copyWith(
+                                hintText: 'Search by phone number...'
+                                    .translate(),
+                              ),
+                        );
+                      },
+                      // Safely styles the dropdown box with a border and elevation
+                      decorationBuilder: (context, child) {
+                        return Material(
+                          color: isDark
+                              ? const Color(0xFF1E293B)
+                              : Colors.white,
+                          elevation: 6,
                           borderRadius: BorderRadius.circular(12.r),
-                          border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.5)),
-                          boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                        ),
-                        child: Column(
-                          children: _searchResults.map((user) => ListTile(
-                            dense: true,
-                            leading: Icon(Icons.person_outline, size: 20.sp, color: const Color(0xFFFFD700)),
-                            title: Text('${user['first_name'] ?? ''} ${user['second_name'] ?? ''}', style: GoogleFonts.cairo(fontSize: 14.sp, fontWeight: FontWeight.bold)),
-                            subtitle: Text(user['phone'] ?? '', style: GoogleFonts.cairo(fontSize: 12.sp)),
-                            onTap: () => _selectUser(user),
-                          )).toList(),
-                        ),
-                      ),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12.r),
+                              border: Border.all(
+                                color: AppColors.legalGold.withOpacity(0.5),
+                              ),
+                            ),
+                            child: child,
+                          ),
+                        );
+                      },
+                      suggestionsCallback: (pattern) async {
+                        String searchPhone = pattern.trim().replaceAll(
+                          RegExp(r'[\s\-]'),
+                          '',
+                        );
+                        if (searchPhone.startsWith('0')) {
+                          searchPhone = '+2$searchPhone';
+                        }
+                        if (searchPhone.isEmpty) {
+                          return [];
+                        }
+                        final querySnapshot = await FirebaseFirestore.instance
+                            .collection('users')
+                            .where('role', isEqualTo: 'user')
+                            .where('phone', isGreaterThanOrEqualTo: searchPhone)
+                            .where('phone', isLessThan: '$searchPhone\uf8ff')
+                            .limit(5)
+                            .get();
+                        return querySnapshot.docs
+                            .map((doc) => {...doc.data(), 'uid': doc.id})
+                            .toList();
+                      },
+                      itemBuilder: (context, suggestion) {
+                        final firstName = suggestion['first_name'] ?? '';
+                        final secondName = suggestion['second_name'] ?? '';
+                        final fullName =
+                            suggestion['fullName'] ??
+                            '$firstName $secondName'.trim();
+                        final phone = suggestion['phone'] ?? '';
+                        final profileImageUrl =
+                            suggestion['profileImage'] ??
+                            suggestion['profilePhotoUrl'] ??
+                            suggestion['photoUrl'];
 
-                    if (_clientNotFound && _phoneController.text.trim().isNotEmpty)
-                      Padding(
-                        padding: EdgeInsets.only(top: 8.h),
+                        return ListTile(
+                          dense: true,
+                          leading: CircleAvatar(
+                            radius: 18.r,
+                            backgroundColor: AppColors.navyBlue.withOpacity(
+                              0.1,
+                            ),
+                            backgroundImage:
+                                (profileImageUrl != null &&
+                                    profileImageUrl.toString().isNotEmpty)
+                                ? NetworkImage(profileImageUrl.toString())
+                                : null,
+                            child:
+                                (profileImageUrl == null ||
+                                    profileImageUrl.toString().isEmpty)
+                                ? Icon(
+                                    Icons.person_outline,
+                                    size: 20.sp,
+                                    color: AppColors.legalGold,
+                                  )
+                                : null,
+                          ),
+                          title: Text(
+                            fullName.isNotEmpty ? fullName : 'Unknown User',
+                            style: GoogleFonts.cairo(
+                              fontSize: 14.sp,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          subtitle: Text(
+                            phone,
+                            style: GoogleFonts.cairo(fontSize: 12.sp),
+                          ),
+                        );
+                      },
+                      onSelected: (suggestion) {
+                        _selectUser(suggestion);
+                      },
+                      emptyBuilder: (context) => Padding(
+                        padding: EdgeInsets.all(16.w),
                         child: Text(
                           'Client not registered'.translate(),
-                          style: GoogleFonts.cairo(color: Colors.red, fontSize: 12.sp, fontWeight: FontWeight.bold),
+                          style: GoogleFonts.cairo(
+                            color: Colors.red,
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
                       ),
+                    ),
 
                     SizedBox(height: 16.h),
                     Text('Client Name'.translate(), style: labelStyle),
@@ -2369,7 +2909,10 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                     TextFormField(
                       controller: _nameController,
                       readOnly: true,
-                      decoration: _inputDeco(isDark ? const Color(0xFF262F3C) : Colors.grey[200]!, Icons.person),
+                      decoration: _inputDeco(
+                        isDark ? const Color(0xFF262F3C) : Colors.grey[200]!,
+                        Icons.person,
+                      ),
                     ),
                     SizedBox(height: 16.h),
                     Text('Client Phone No'.translate(), style: labelStyle),
@@ -2377,7 +2920,10 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                     TextFormField(
                       controller: _phoneResultController,
                       readOnly: true,
-                      decoration: _inputDeco(isDark ? const Color(0xFF262F3C) : Colors.grey[200]!, Icons.phone),
+                      decoration: _inputDeco(
+                        isDark ? const Color(0xFF262F3C) : Colors.grey[200]!,
+                        Icons.phone,
+                      ),
                     ),
                     SizedBox(height: 16.h),
                     Text('Client National ID'.translate(), style: labelStyle),
@@ -2385,7 +2931,10 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                     TextFormField(
                       controller: _nationalIdController,
                       readOnly: true,
-                      decoration: _inputDeco(isDark ? const Color(0xFF262F3C) : Colors.grey[200]!, Icons.badge),
+                      decoration: _inputDeco(
+                        isDark ? const Color(0xFF262F3C) : Colors.grey[200]!,
+                        Icons.badge,
+                      ),
                     ),
 
                     if (_selectedClient != null)
@@ -2398,8 +2947,14 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                             _nameController.clear();
                             _phoneResultController.clear();
                             _nationalIdController.clear();
-                          }), 
-                          child: Text('Change Client'.translate(), style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+                          }),
+                          child: Text(
+                            'Change Client'.translate(),
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
                     SizedBox(height: 20.h),
@@ -2410,7 +2965,8 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                     TextFormField(
                       controller: _titleController,
                       decoration: _inputDeco(inputBg, Icons.title_rounded),
-                      validator: (v) => v!.isEmpty ? 'Required'.translate() : null,
+                      validator: (v) =>
+                          v!.isEmpty ? 'Required'.translate() : null,
                     ),
                     SizedBox(height: 16.h),
                     Text('Status'.translate(), style: labelStyle),
@@ -2418,18 +2974,90 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                     TextFormField(
                       initialValue: 'pending_payment'.translate(),
                       readOnly: true,
-                      decoration: _inputDeco(inputBg, Icons.hourglass_empty_rounded),
+                      decoration: _inputDeco(
+                        inputBg,
+                        Icons.hourglass_empty_rounded,
+                      ),
                     ),
                     SizedBox(height: 16.h),
                     Text('Category'.translate(), style: labelStyle),
                     SizedBox(height: 6.h),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('lawyer_specialization')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        List<String> categories = [
+                          'Civil',
+                          'Criminal',
+                          'Family',
+                          'Commercial',
+                          'Labor',
+                          'Real Estate',
+                        ];
+                        if (snapshot.hasData &&
+                            snapshot.data!.docs.isNotEmpty) {
+                          categories = snapshot.data!.docs.map((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            return (data['name'] ?? doc.id).toString();
+                          }).toList();
+                        }
+
+                        String dropdownValue =
+                            categories.contains(_selectedCategory)
+                            ? _selectedCategory
+                            : (categories.isNotEmpty
+                                  ? categories.first
+                                  : 'Civil');
+
+                        if (_selectedCategory != dropdownValue) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted)
+                              setState(() => _selectedCategory = dropdownValue);
+                          });
+                        }
+
+                        return DropdownButtonFormField<String>(
+                          initialValue: dropdownValue,
+                          items: categories
+                              .map(
+                                (e) => DropdownMenuItem(
+                                  value: e,
+                                  child: Text(e.translate()),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) =>
+                              setState(() => _selectedCategory = v!),
+                          decoration: _inputDeco(
+                            inputBg,
+                            Icons.list_alt_rounded,
+                          ),
+                        );
+                      },
+                    ),
+                    SizedBox(height: 20.h),
+
+                    Text('Service Type'.translate(), style: labelStyle),
+                    SizedBox(height: 6.h),
                     DropdownButtonFormField<String>(
-                      value: _selectedCategory,
-                      items: ['Civil', 'Criminal', 'Family', 'Commercial', 'Labor', 'Real Estate']
-                          .map((e) => DropdownMenuItem(value: e, child: Text(e.translate())))
-                          .toList(),
-                      onChanged: (v) => setState(() => _selectedCategory = v!),
-                      decoration: _inputDeco(inputBg, Icons.list_alt_rounded),
+                      initialValue: _selectedServiceType,
+                      items: [
+                        DropdownMenuItem(
+                          value: 'litigation',
+                          child: Text('Litigation'.translate()),
+                        ),
+                        DropdownMenuItem(
+                          value: 'non_litigation',
+                          child: Text('Non-Litigation'.translate()),
+                        ),
+                      ],
+                      onChanged: (v) =>
+                          setState(() => _selectedServiceType = v!),
+                      decoration: _inputDeco(
+                        inputBg,
+                        Icons.work_outline_rounded,
+                      ),
                     ),
                     SizedBox(height: 20.h),
 
@@ -2439,7 +3067,10 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                     TextFormField(
                       controller: _descController,
                       maxLines: 4,
-                      decoration: _inputDeco(inputBg, Icons.description_outlined),
+                      decoration: _inputDeco(
+                        inputBg,
+                        Icons.description_outlined,
+                      ),
                     ),
                     SizedBox(height: 16.h),
                     Text('Legal Fees (EGP)'.translate(), style: labelStyle),
@@ -2447,8 +3078,12 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                     TextFormField(
                       controller: _feesController,
                       keyboardType: TextInputType.number,
-                      decoration: _inputDeco(inputBg, Icons.account_balance_wallet_outlined),
-                      validator: (v) => v!.isEmpty ? 'Required'.translate() : null,
+                      decoration: _inputDeco(
+                        inputBg,
+                        Icons.account_balance_wallet_outlined,
+                      ),
+                      validator: (v) =>
+                          v!.isEmpty ? 'Required'.translate() : null,
                     ),
                     SizedBox(height: 32.h),
 
@@ -2456,14 +3091,26 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
                       width: double.infinity,
                       height: 54.h,
                       child: ElevatedButton(
-                        onPressed: (_isSubmitting || _selectedClient == null) ? null : _submitCase,
+                        onPressed: (_isSubmitting || _selectedClient == null)
+                            ? null
+                            : _submitCase,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF001F3F),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14.r)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14.r),
+                          ),
                         ),
-                        child: _isSubmitting 
-                            ? const CircularProgressIndicator(color: Colors.white)
-                            : Text('Create Case'.translate(), style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: Colors.white)),
+                        child: _isSubmitting
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
+                            : Text(
+                                'Create Case'.translate(),
+                                style: GoogleFonts.cairo(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
                       ),
                     ),
                   ],
@@ -2480,11 +3127,20 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
     return InputDecoration(
       filled: true,
       fillColor: bg,
-      prefixIcon: Icon(icon, color: const Color(0xFFFFD700), size: 20.sp),
+      prefixIcon: Icon(icon, color: AppColors.legalGold, size: 20.sp),
       contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: BorderSide(color: Colors.grey.withOpacity(0.1))),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r), borderSide: const BorderSide(color: Color(0xFFFFD700))),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.r),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.r),
+        borderSide: BorderSide(color: Colors.grey.withOpacity(0.1)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.r),
+        borderSide: BorderSide(color: AppColors.legalGold),
+      ),
     );
   }
 
@@ -2495,8 +3151,20 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
         children: [
           Icon(icon, size: 16.sp, color: const Color(0xFF001F3F)),
           SizedBox(width: 8.w),
-          Text('$label: ', style: GoogleFonts.cairo(fontWeight: FontWeight.bold, fontSize: 13.sp)),
-          Expanded(child: Text(value, style: GoogleFonts.cairo(fontSize: 13.sp), overflow: TextOverflow.ellipsis)),
+          Text(
+            '$label: ',
+            style: GoogleFonts.cairo(
+              fontWeight: FontWeight.bold,
+              fontSize: 13.sp,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: GoogleFonts.cairo(fontSize: 13.sp),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );

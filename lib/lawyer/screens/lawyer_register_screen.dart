@@ -8,6 +8,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:mezaan/shared/auth/auth_state.dart';
 import 'package:mezaan/shared/localization/localization_controller.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
@@ -327,7 +328,9 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
                               label: Text(item.translate()),
                               selected: selected,
                               showCheckmark: false,
-                              selectedColor: AppColors.legalGold.withOpacity(0.22),
+                              selectedColor: AppColors.legalGold.withOpacity(
+                                0.22,
+                              ),
                               side: BorderSide(
                                 color: selected
                                     ? AppColors.legalGold
@@ -505,30 +508,56 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
     final phone = _phoneController.text.trim();
     final nationalId = _nationalIdController.text.trim();
 
-    final lawyersCollection = FirebaseFirestore.instance.collection('lawyers');
+    final firestore = FirebaseFirestore.instance;
 
-    final existingEmail = await lawyersCollection
-        .where('emailLower', isEqualTo: emailLower)
-        .limit(1)
-        .get(const GetOptions(source: Source.serverAndCache))
-        .timeout(const Duration(seconds: 10));
-    if (existingEmail.docs.isNotEmpty) {
-      return false;
+    final results = await Future.wait([
+      firestore
+          .collection('lawyers')
+          .where('emailLower', isEqualTo: emailLower)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('lawyers')
+          .where('phone', isEqualTo: phone)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('lawyers')
+          .where('national_ID', isEqualTo: nationalId)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('users')
+          .where('emailLower', isEqualTo: emailLower)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('users')
+          .where('phone', isEqualTo: phone)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('users')
+          .where('nationalId', isEqualTo: nationalId)
+          .limit(1)
+          .get(),
+    ]);
+
+    final emailExists = (results[0]).docs.isNotEmpty || (results[3]).docs.isNotEmpty;
+    final phoneExists = (results[1]).docs.isNotEmpty || (results[4]).docs.isNotEmpty;
+    final nationalIdExists = (results[2]).docs.isNotEmpty || (results[5]).docs.isNotEmpty;
+
+    if (emailExists) {
+      setState(() => _emailError = 'This email is already registered.');
+    }
+    if (phoneExists) {
+      setState(() => _phoneError = 'This phone number is already registered.');
+    }
+    if (nationalIdExists) {
+      setState(() => _nationalIdError = 'This national ID is already registered.');
     }
 
-    final existingPhone = await lawyersCollection
-        .where('phone', isEqualTo: phone)
-        .limit(1)
-        .get();
-    if (existingPhone.docs.isNotEmpty) {
-      return false;
-    }
-
-    final existingNationalId = await lawyersCollection
-        .where('national_ID', isEqualTo: nationalId)
-        .limit(1)
-        .get();
-    return existingNationalId.docs.isEmpty;
+    return !emailExists && !phoneExists && !nationalIdExists;
   }
 
   Future<String?> _uploadImageToStorage({
@@ -560,8 +589,26 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
       );
     }
 
-    final credential = await FirebaseAuth.instance
-        .createUserWithEmailAndPassword(email: email, password: password);
+    UserCredential credential;
+    try {
+      credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        try {
+          credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+        } on FirebaseAuthException catch (_) {
+          throw e; // Rethrow original 'email-already-in-use' error if sign-in fails
+        }
+      } else {
+        rethrow;
+      }
+    }
 
     final firebaseUser = credential.user ?? FirebaseAuth.instance.currentUser;
     if (firebaseUser == null) {
@@ -638,6 +685,14 @@ class _LawyerRegisterScreenState extends State<LawyerRegisterScreen> {
           'source': 'lawyer_register_screen',
         }, SetOptions(merge: true))
         .timeout(const Duration(seconds: 20));
+
+    await authState.cacheRoleHint(identifier: email, role: AppRole.lawyer);
+    if (_phoneController.text.trim().isNotEmpty) {
+      await authState.cacheRoleHint(
+        identifier: _phoneController.text.trim(),
+        role: AppRole.lawyer,
+      );
+    }
 
     final savedSnapshot = await lawyerDocRef.get().timeout(
       const Duration(seconds: 20),
@@ -1779,15 +1834,12 @@ class _SpecializationPickerField extends StatelessWidget {
                               horizontal: 10.w,
                               vertical: 5.h,
                             ),
-                            decoration: BoxDecoration( // No change needed here, it's already withOpacity
-                              color: AppColors.legalGold.withOpacity(
-                                0.18,
-                              ),
+                            decoration: BoxDecoration(
+                              // No change needed here, it's already withOpacity
+                              color: AppColors.legalGold.withOpacity(0.18),
                               borderRadius: BorderRadius.circular(999.r),
                               border: Border.all(
-                                color: AppColors.legalGold.withOpacity(
-                                  0.5,
-                                ),
+                                color: AppColors.legalGold.withOpacity(0.5),
                               ),
                             ),
                             child: Text(

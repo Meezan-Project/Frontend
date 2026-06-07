@@ -13,30 +13,31 @@ class AuthGuard {
       AppRoutes.otp,
     };
 
-    final roleHome = _homeRouteForRole(authState.role);
+    if (publicRoutes.contains(requested)) {
+      if (!authState.isLoggedIn || authState.role == null) {
+        return requested;
+      }
 
-    if (!authState.isLoggedIn && !publicRoutes.contains(requested)) {
-      return AppRoutes.login;
+      return _homeRouteForRole(authState.role);
     }
 
-    // When logged in, always keep user in their role space and avoid returning
-    // to auth/onboarding screens unless they explicitly log out.
-    if (authState.isLoggedIn && publicRoutes.contains(requested)) {
-      return roleHome;
+    // If not logged in or role is missing, send private routes to login.
+    if (!authState.isLoggedIn || authState.role == null) {
+      return AppRoutes.login;
     }
 
     final role = authState.role;
 
     if (requested == AppRoutes.adminHome && role != AppRole.admin) {
-      return roleHome;
+      return AppRoutes.login;
     }
 
     if (requested == AppRoutes.lawyerHome && role != AppRole.lawyer) {
-      return roleHome;
+      return AppRoutes.login;
     }
 
     if (requested == AppRoutes.userHome && role != AppRole.user) {
-      return roleHome;
+      return AppRoutes.login;
     }
 
     return requested;

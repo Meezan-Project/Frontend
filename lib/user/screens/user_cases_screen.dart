@@ -2,8 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
@@ -267,7 +265,6 @@ class _CaseCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1A2940) : Colors.white;
-    final completionPercent = case_.getCompletionPercentage();
 
     return GestureDetector(
       onTap: onTap,
@@ -300,13 +297,25 @@ class _CaseCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        case_.caseNumber,
-                        style: GoogleFonts.cairo(
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.legalGold,
-                        ),
+                      StreamBuilder<DocumentSnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('cases')
+                            .doc(case_.id)
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          final data =
+                              snapshot.data?.data() as Map<String, dynamic>?;
+                          final displayId =
+                              data?['caseId'] as String? ?? case_.caseNumber;
+                          return Text(
+                            displayId,
+                            style: GoogleFonts.cairo(
+                              fontSize: 12.sp,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.legalGold,
+                            ),
+                          );
+                        },
                       ),
                       SizedBox(height: 4.h),
                       Text(
@@ -330,20 +339,54 @@ class _CaseCard extends StatelessWidget {
             // Lawyer info
             Row(
               children: [
-                CircleAvatar(
-                  radius: 18.r,
-                  backgroundColor: AppColors.legalGold.withOpacity(
-                    0.2,
-                  ), // Fixed: withValues to withOpacity
-                  child: Text(
-                    case_.lawyerName.isNotEmpty
-                        ? case_.lawyerName[0].toUpperCase()
-                        : 'L',
-                    style: GoogleFonts.cairo(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.legalGold,
-                    ),
-                  ),
+                StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('cases')
+                      .doc(case_.id)
+                      .snapshots(),
+                  builder: (context, caseSnap) {
+                    final caseData =
+                        caseSnap.data?.data() as Map<String, dynamic>?;
+                    final lawyerId = caseData?['lawyerId'] as String?;
+
+                    Widget defaultAvatar = CircleAvatar(
+                      radius: 18.r,
+                      backgroundColor: AppColors.legalGold.withOpacity(0.2),
+                      child: Text(
+                        case_.lawyerName.trim().isNotEmpty
+                            ? case_.lawyerName.trim()[0].toUpperCase()
+                            : 'L',
+                        style: GoogleFonts.cairo(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.legalGold,
+                        ),
+                      ),
+                    );
+
+                    if (lawyerId != null && lawyerId.isNotEmpty) {
+                      return FutureBuilder<DocumentSnapshot>(
+                        future: FirebaseFirestore.instance
+                            .collection('lawyers')
+                            .doc(lawyerId)
+                            .get(),
+                        builder: (context, lawyerSnap) {
+                          final lawyerData =
+                              lawyerSnap.data?.data() as Map<String, dynamic>?;
+                          final profilePhoto =
+                              lawyerData?['profile_photo'] as String?;
+
+                          if (profilePhoto != null && profilePhoto.isNotEmpty) {
+                            return CircleAvatar(
+                              radius: 18.r,
+                              backgroundImage: NetworkImage(profilePhoto),
+                            );
+                          }
+                          return defaultAvatar;
+                        },
+                      );
+                    }
+                    return defaultAvatar;
+                  },
                 ),
                 SizedBox(width: 12.w),
                 Expanded(
@@ -376,64 +419,46 @@ class _CaseCard extends StatelessWidget {
             ),
             SizedBox(height: 14.h),
 
-            // Progress bar
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Documents'.translate(),
-                      style: GoogleFonts.cairo(
-                        fontSize: 12.sp,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      '$completionPercent%',
-                      style: GoogleFonts.cairo(
-                        fontSize: 12.sp,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.legalGold,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 6.h),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4.r),
-                  child: LinearProgressIndicator(
-                    value: completionPercent / 100,
-                    minHeight: 6.h,
-                    backgroundColor: isDark
-                        ? Colors.grey.shade700
-                        : Colors.grey.shade300,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      AppColors.legalGold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 12.h),
-
             // Footer info
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildInfoChip(
-                  icon: Icons.calendar_today_outlined,
-                  label: '${case_.sessions.length} ${'sessions'.translate()}',
-                  isDark: isDark,
-                ),
-                _buildInfoChip(
-                  icon: Icons.description_outlined,
-                  label:
-                      '${case_.requiredDocuments.length} ${'tasks'.translate()}',
-                  isDark: isDark,
-                ),
-              ],
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('cases')
+                  .doc(case_.id)
+                  .collection('sessions')
+                  .snapshots(),
+              builder: (context, sessionSnap) {
+                final sessionCount =
+                    sessionSnap.data?.docs.length ?? case_.sessions.length;
+
+                return StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('cases')
+                      .doc(case_.id)
+                      .collection('documentations')
+                      .snapshots(),
+                  builder: (context, docSnap) {
+                    final docCount =
+                        docSnap.data?.docs.length ??
+                        case_.requiredDocuments.length;
+
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _buildInfoChip(
+                          icon: Icons.calendar_today_outlined,
+                          label: '$sessionCount ${'sessions'.translate()}',
+                          isDark: isDark,
+                        ),
+                        _buildInfoChip(
+                          icon: Icons.description_outlined,
+                          label: '$docCount ${'documents'.translate()}',
+                          isDark: isDark,
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
             ),
           ],
         ),
@@ -447,7 +472,10 @@ class _CaseCard extends StatelessWidget {
       'closed': {'bg': 0xFF1976D2, 'label': 'Closed'.translate()},
       'pending': {'bg': 0xFFFF9800, 'label': 'Pending'.translate()},
       'on_hold': {'bg': 0xFFF44336, 'label': 'On Hold'.translate()},
-      'pending_payment': {'bg': 0xFFFF9800, 'label': 'Pending Payment'.translate()},
+      'pending_payment': {
+        'bg': 0xFFFF9800,
+        'label': 'Pending Payment'.translate(),
+      },
     };
 
     final config =

@@ -13,6 +13,7 @@ import 'package:get/get.dart';
 import 'package:google_mlkit_translation/google_mlkit_translation.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart' as image_picker;
+import 'package:mezaan/shared/auth/auth_state.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/navigation/loading_navigator.dart';
 import 'package:mezaan/shared/services/supabase_storage_service.dart';
@@ -795,12 +796,32 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
           .where('nationalId', isEqualTo: nationalId)
           .limit(1)
           .get(),
+      firestore
+          .collection('lawyers')
+          .where('emailLower', isEqualTo: emailLower)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('lawyers')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('lawyers')
+          .where('phone', isEqualTo: phone)
+          .limit(1)
+          .get(),
+      firestore
+          .collection('lawyers')
+          .where('national_ID', isEqualTo: nationalId)
+          .limit(1)
+          .get(),
     ]);
 
-    final emailLowerExists = (results[0]).docs.isNotEmpty;
-    final emailExists = (results[1]).docs.isNotEmpty;
-    final phoneExists = (results[2]).docs.isNotEmpty;
-    final nationalIdExists = (results[3]).docs.isNotEmpty;
+    final emailLowerExists = (results[0]).docs.isNotEmpty || (results[4]).docs.isNotEmpty;
+    final emailExists = (results[1]).docs.isNotEmpty || (results[5]).docs.isNotEmpty;
+    final phoneExists = (results[2]).docs.isNotEmpty || (results[6]).docs.isNotEmpty;
+    final nationalIdExists = (results[3]).docs.isNotEmpty || (results[7]).docs.isNotEmpty;
 
     String? emailError;
     String? phoneError;
@@ -944,8 +965,19 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
         email: email,
         password: password,
       );
-    } on FirebaseAuthException {
-      rethrow;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        try {
+          credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+        } on FirebaseAuthException catch (_) {
+          throw e; // Rethrow original 'email-already-in-use' error if sign-in fails
+        }
+      } else {
+        rethrow;
+      }
     }
 
     final firebaseUser = credential.user ?? FirebaseAuth.instance.currentUser;
@@ -1007,6 +1039,11 @@ class _UserRegisterScreenState extends State<UserRegisterScreen> {
       'createdAt': FieldValue.serverTimestamp(),
       'source': 'user_register_screen',
     }, SetOptions(merge: true));
+
+    await authState.cacheRoleHint(identifier: email, role: AppRole.user);
+    if (phone.isNotEmpty) {
+      await authState.cacheRoleHint(identifier: phone, role: AppRole.user);
+    }
   }
 
   String _firebaseRegisterErrorMessage(FirebaseAuthException error) {

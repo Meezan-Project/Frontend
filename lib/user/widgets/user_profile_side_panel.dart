@@ -28,7 +28,7 @@ class UserProfileSidePanel extends StatelessWidget {
   const UserProfileSidePanel({
     super.key,
     required this.userName,
-    required this.profileImageBytes,
+    this.profileImageBytes,
     this.profileImageUrl,
     required this.isDarkMode,
     required this.onDarkModeChanged,

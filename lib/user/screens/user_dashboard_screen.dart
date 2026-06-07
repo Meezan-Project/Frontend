@@ -22,7 +22,6 @@ import 'package:mezaan/user/screens/user_emergency_contacts_screen.dart';
 import 'package:mezaan/user/screens/transaction_history_screen.dart';
 import 'package:mezaan/user/screens/sos_screen.dart';
 import 'package:mezaan/user/screens/privacy_security_screen.dart';
-import 'package:mezaan/user/screens/sos_requests_screen.dart';
 import 'package:mezaan/user/screens/appointments_screen.dart';
 import 'package:mezaan/user/screens/search_screen.dart';
 import 'package:mezaan/user/screens/lawyer_profile_screen.dart';
@@ -46,8 +45,8 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
   String? _payloadUserUid;
   Future<_UserDashboardPayload>? _payloadFuture;
   late final AnimationController _sosPulseController;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 2;
-  OverlayEntry? _profilePanelOverlayEntry;
 
   @override
   void initState() {
@@ -60,144 +59,27 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
 
   @override
   void dispose() {
-    _profilePanelOverlayEntry?.remove();
-    _profilePanelOverlayEntry = null;
     _sosPulseController.dispose();
     super.dispose();
   }
 
-  void _showComingSoon(String label) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$label ${'coming soon'.translate()}')),
-    );
-  }
-
-  Future<void> _runPanelAction(FutureOr<void> Function() action) async {
-    _closeProfilePanel();
-    await action();
-  }
-
-  void _openProfilePanel({required String userName, String? profileImageUrl}) {
-    if (_profilePanelOverlayEntry != null) {
-      return;
+  void _showComingSoon(String feature) {
+    if (_scaffoldKey.currentState?.isEndDrawerOpen ?? false) {
+      Navigator.of(context).pop();
     }
-
-    final overlay = Overlay.of(context, rootOverlay: true);
-
-    _profilePanelOverlayEntry = OverlayEntry(
-      builder: (_) {
-        return Material(
-          color: Colors.transparent,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: GestureDetector(
-                  onTap: _closeProfilePanel,
-                  child: Container(color: Colors.black.withValues(alpha: 0.35)),
-                ),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: SafeArea(
-                  child: UserProfileSidePanel(
-                    userName: userName,
-                    profileImageBytes: null,
-                    profileImageUrl: profileImageUrl,
-                    isDarkMode: ThemeController.instance.isDarkMode.value,
-                    onDarkModeChanged: (value) {
-                      ThemeController.instance.setDarkMode(value);
-                      _profilePanelOverlayEntry?.markNeedsBuild();
-                    },
-                    onClose: _closeProfilePanel,
-                    onEditProfile: () => _runPanelAction(() async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (context) => const UserEditProfileScreen(),
-                        ),
-                      );
-                      if (!mounted) {
-                        return;
-                      }
-                      setState(() {
-                        _payloadFuture = null;
-                      });
-                    }),
-                    onLanguage: () => _runPanelAction(() {
-                      LocalizationController.instance.toggleLanguage();
-                      if (mounted) setState(() {});
-                    }),
-                    onSavedCards: () => _runPanelAction(() async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (context) => const SavedCardsScreen(),
-                        ),
-                      );
-                    }),
-                    onTransactionHistory: () => _runPanelAction(() async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (context) =>
-                              const TransactionHistoryScreen(),
-                        ),
-                      );
-                    }),
-                    onMyAppointments: () => _runPanelAction(() async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (context) => const AppointmentsScreen(),
-                        ),
-                      );
-                    }),
-                    onMyEvidence: () => _runPanelAction(() async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (context) => const SosRequestsScreen(),
-                        ),
-                      );
-                    }),
-                    onSettings: () => _runPanelAction(
-                      () => _showComingSoon('Settings'.translate()),
-                    ),
-                    onEmergencyContacts: () => _runPanelAction(() async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (context) =>
-                              const UserEmergencyContactsScreen(),
-                        ),
-                      );
-                      if (!mounted) {
-                        return;
-                      }
-                      setState(() {
-                        _payloadFuture = null;
-                      });
-                    }),
-                    onPrivacy: () => _runPanelAction(() async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (context) => const PrivacySecurityScreen(),
-                        ),
-                      );
-                    }),
-                    onHelp: () => _runPanelAction(
-                      () => _showComingSoon('Help center'.translate()),
-                    ),
-                    onLogout: () => _runPanelAction(_handleLogout),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$feature ${'coming soon'.translate()}')),
     );
-
-    overlay.insert(_profilePanelOverlayEntry!);
   }
 
-  void _closeProfilePanel() {
-    _profilePanelOverlayEntry?.remove();
-    _profilePanelOverlayEntry = null;
+  void _navigateToPage(Widget page) {
+    if (_scaffoldKey.currentState?.isEndDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
+    // A small delay can make the transition smoother as the drawer closes.
+    Future.delayed(const Duration(milliseconds: 50), () {
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+    });
   }
 
   void _openGovernmentMap() {
@@ -296,18 +178,6 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
     );
   }
 
-  Widget _buildCurrentView(_UserDashboardPayload payload) {
-    switch (_selectedIndex) {
-      case 1:
-        return const UserCasesScreen(embedded: true);
-      case 3:
-        return const MessagesScreen(embedded: true);
-      case 2:
-      default:
-        return _buildDashboardView(payload);
-    }
-  }
-
   Future<_UserDashboardPayload> _loadPayloadForCurrentUser(User user) {
     if (_payloadFuture == null || _payloadUserUid != user.uid) {
       _payloadUserUid = user.uid;
@@ -319,6 +189,8 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final themeController = ThemeController.instance;
+    final localizationController = LocalizationController.instance;
 
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
@@ -377,6 +249,35 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                 );
 
             return Scaffold(
+              key: _scaffoldKey,
+              endDrawer: UserProfileSidePanel(
+                userName: payload.userName,
+                profileImageUrl: payload.profilePhotoUrl,
+                profileImageBytes: null,
+                isDarkMode: themeController.isDarkMode.value,
+                onDarkModeChanged: themeController.setDarkMode,
+                onClose: () => Navigator.of(context).pop(),
+                onEditProfile: () =>
+                    _navigateToPage(const UserEditProfileScreen()),
+                onLanguage: localizationController.toggleLanguage,
+                onSavedCards: () => _navigateToPage(const SavedCardsScreen()),
+                onTransactionHistory: () =>
+                    _navigateToPage(const TransactionHistoryScreen()),
+                onMyAppointments: () =>
+                    _navigateToPage(const AppointmentsScreen()),
+                onMyEvidence: () => _showComingSoon('My Evidence'),
+                onSettings: () => _showComingSoon('Settings'),
+                onEmergencyContacts: () =>
+                    _navigateToPage(const UserEmergencyContactsScreen()),
+                onPrivacy: () => _navigateToPage(const PrivacySecurityScreen()),
+                onHelp: () => _showComingSoon('Help'),
+                onLogout: () {
+                  if (_scaffoldKey.currentState?.isEndDrawerOpen ?? false) {
+                    Navigator.of(context).pop();
+                  }
+                  _handleLogout();
+                },
+              ),
               backgroundColor: Theme.of(context).scaffoldBackgroundColor,
               body: Container(
                 decoration: BoxDecoration(
@@ -411,12 +312,17 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                               ),
                             ),
                             Expanded(
-                              child: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 240),
-                                child: KeyedSubtree(
-                                  key: ValueKey(_selectedIndex),
-                                  child: _buildCurrentView(payload),
-                                ),
+                              child: IndexedStack(
+                                index: _selectedIndex,
+                                children: [
+                                  const SizedBox.shrink(), // Index 0: Lawyer Request (navigates, not a tab)
+                                  const UserCasesScreen(), // Index 1: Cases
+                                  _buildDashboardView(
+                                    payload,
+                                  ), // Index 2: Home Dashboard
+                                  const MessagesScreen(), // Index 3: Messages
+                                  const SizedBox.shrink(), // Index 4: Profile (opens panel, not a tab view)
+                                ],
                               ),
                             ),
                           ],
@@ -445,47 +351,25 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
               bottomNavigationBar: UserBottomNavBar(
                 currentIndex: _selectedIndex,
                 onDestinationSelected: (index) {
-                  if (index != 4 && _profilePanelOverlayEntry != null) {
-                    _closeProfilePanel();
-                  }
-
+                  // Handle non-tab actions first
                   if (index == 4) {
-                    if (_selectedIndex != 2) {
-                      setState(() => _selectedIndex = 2);
-                    }
-                    _openProfilePanel(
-                      userName: payload.userName,
-                      profileImageUrl: payload.profilePhotoUrl,
-                    );
+                    _scaffoldKey.currentState?.openEndDrawer();
                     return;
                   }
-
-                  if (index == 2) {
-                    if (_selectedIndex != 2) {
-                      setState(() => _selectedIndex = 2);
-                    }
-                    return;
-                  }
-
                   if (index == 0) {
                     LoadingNavigator.pushNamed(
                       context,
                       AppRoutes.lawyerRequest,
                     );
-                  } else if (index == 1) {
-                    if (_selectedIndex != 1) {
-                      setState(() => _selectedIndex = 1);
-                    }
-                  } else if (index == 3) {
-                    if (_selectedIndex != 3) {
-                      setState(() => _selectedIndex = 3);
-                    }
+                    return;
+                  }
+
+                  // Handle tab switching for the IndexedStack
+                  if (_selectedIndex != index && [1, 2, 3].contains(index)) {
+                    setState(() => _selectedIndex = index);
                   }
                 },
                 onCenterButtonTap: () {
-                  if (_profilePanelOverlayEntry != null) {
-                    _closeProfilePanel();
-                  }
                   if (_selectedIndex != 2) {
                     setState(() => _selectedIndex = 2);
                   }
@@ -568,31 +452,37 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                     itemBuilder: (context, index) {
                       final data = docs[index].data() as Map<String, dynamic>;
                       final docId = docs[index].id;
-                      
+
                       final title = data['title'] ?? 'Notification';
                       final body = data['body'] ?? '';
                       final isRead = data['isRead'] ?? false;
                       final type = data['type'] ?? '';
                       final referenceId = data['referenceId'] ?? '';
                       final createdAt = data['createdAt'] as Timestamp?;
-                      
+
                       // Format time (simple relative time)
                       String timeText = '';
                       if (createdAt != null) {
-                        final diff = DateTime.now().difference(createdAt.toDate());
+                        final diff = DateTime.now().difference(
+                          createdAt.toDate(),
+                        );
                         if (diff.inDays > 0) {
                           timeText = '${diff.inDays} ${'days ago'.translate()}';
                         } else if (diff.inHours > 0) {
-                          timeText = '${diff.inHours} ${'hours ago'.translate()}';
+                          timeText =
+                              '${diff.inHours} ${'hours ago'.translate()}';
                         } else if (diff.inMinutes > 0) {
-                          timeText = '${diff.inMinutes} ${'minutes ago'.translate()}';
+                          timeText =
+                              '${diff.inMinutes} ${'minutes ago'.translate()}';
                         } else {
                           timeText = 'Just now'.translate();
                         }
                       }
 
                       IconData icon = Icons.notifications;
-                      if (type == 'transaction') icon = Icons.account_balance_wallet;
+                      if (type == 'transaction') {
+                        icon = Icons.account_balance_wallet;
+                      }
                       if (type == 'appointment') icon = Icons.event;
                       if (type == 'video_call') icon = Icons.video_call;
                       if (type == 'lawyer_request') icon = Icons.gavel;
@@ -614,16 +504,35 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                                 .doc(docId)
                                 .update({'isRead': true});
                           }
-                          
+
                           Navigator.pop(context); // Close sheet
 
                           // Navigate based on type
                           if (type == 'transaction') {
-                            Navigator.push(context, MaterialPageRoute(builder: (_) => const TransactionHistoryScreen()));
-                          } else if (type == 'appointment' || type == 'lawyer_request') {
-                            Navigator.push(context, MaterialPageRoute(builder: (_) => const AppointmentsScreen()));
-                          } else if (type == 'video_call' && referenceId.isNotEmpty) {
-                            Navigator.push(context, MaterialPageRoute(builder: (_) => VideoCallScreen(meetingId: referenceId)));
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const TransactionHistoryScreen(),
+                              ),
+                            );
+                          } else if (type == 'appointment' ||
+                              type == 'lawyer_request') {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const AppointmentsScreen(),
+                              ),
+                            );
+                          } else if (type == 'video_call' &&
+                              referenceId.isNotEmpty) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    VideoCallScreen(meetingId: referenceId),
+                              ),
+                            );
                           }
                         },
                       );
@@ -664,69 +573,69 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
           ),
         ),
         child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 20.r,
-            backgroundColor: AppColors.navyBlue.withValues(
-              alpha: isDark ? 0.3 : 0.05,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 20.r,
+              backgroundColor: AppColors.navyBlue.withValues(
+                alpha: isDark ? 0.3 : 0.05,
+              ),
+              child: Icon(
+                icon,
+                color: isDark ? AppColors.legalGold : AppColors.navyBlue,
+                size: 20.sp,
+              ),
             ),
-            child: Icon(
-              icon,
-              color: isDark ? AppColors.legalGold : AppColors.navyBlue,
-              size: 20.sp,
-            ),
-          ),
-          SizedBox(width: 12.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: GoogleFonts.cairo(
+                            fontSize: 14.sp,
+                            fontWeight: isUnread
+                                ? FontWeight.bold
+                                : FontWeight.w600,
+                            color: isDark ? Colors.white : AppColors.navyBlue,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      SizedBox(width: 8.w),
+                      Text(
+                        time,
                         style: GoogleFonts.cairo(
-                          fontSize: 14.sp,
+                          fontSize: 10.sp,
+                          color: Colors.grey,
                           fontWeight: isUnread
                               ? FontWeight.bold
-                              : FontWeight.w600,
-                          color: isDark ? Colors.white : AppColors.navyBlue,
+                              : FontWeight.normal,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    SizedBox(width: 8.w),
-                    Text(
-                      time,
-                      style: GoogleFonts.cairo(
-                        fontSize: 10.sp,
-                        color: Colors.grey,
-                        fontWeight: isUnread
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 4.h),
-                Text(
-                  body,
-                  style: GoogleFonts.cairo(
-                    fontSize: 12.sp,
-                    color: isDark ? Colors.grey[400] : Colors.grey[600],
-                    height: 1.4,
+                    ],
                   ),
-                ),
-              ],
+                  SizedBox(height: 4.h),
+                  Text(
+                    body,
+                    style: GoogleFonts.cairo(
+                      fontSize: 12.sp,
+                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 }
@@ -1526,7 +1435,9 @@ class _UserDashboardRepository {
           userData = byEmail.docs.first.data();
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error loading user data in repository: $e');
+    }
 
     final categories = await _loadCategories(firestore);
     final topLawyers = await _loadTopLawyers(firestore);
@@ -1606,7 +1517,9 @@ class _UserDashboardRepository {
       if (loaded.isNotEmpty) {
         return loaded;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error loading categories in repository: $e');
+    }
 
     return const <_UserCategory>[];
   }
@@ -1733,7 +1646,9 @@ class _UserDashboardRepository {
       if (loaded.isNotEmpty) {
         return loaded;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error loading services in repository: $e');
+    }
 
     return const <_ServiceItem>[];
   }

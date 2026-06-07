@@ -1361,6 +1361,8 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                   final data = reviews[index].data() as Map<String, dynamic>;
                   final rating = (data['rating'] ?? 0).toDouble();
                   final comment = data['comment'] ?? '';
+                  final userName = data['userName'] ?? data['authorName'] ?? 
+                      data['name'] ?? 'Mezaan Client';
                   
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1370,7 +1372,7 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                           Icon(Icons.account_circle, size: 24.sp, color: Colors.grey),
                           SizedBox(width: 8.w),
                           Text(
-                            'Mezaan Client',
+                            userName,
                             style: GoogleFonts.cairo(
                               fontWeight: FontWeight.w700,
                               fontSize: 14.sp,
