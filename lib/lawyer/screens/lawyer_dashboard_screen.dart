@@ -27,6 +27,7 @@ import 'package:mezaan/lawyer/screens/lawyer_calendar_schedule_screen.dart';
 import 'package:mezaan/lawyer/screens/freelancer_join_screen.dart';
 import 'package:mezaan/lawyer/screens/employee_office_view.dart';
 import 'package:mezaan/lawyer/screens/owner_office_management_screen.dart';
+import 'package:mezaan/lawyer/screens/lawyer_rescue_screen.dart';
 import 'dart:async';
 
 class LawyerDashboardScreen extends StatefulWidget {
@@ -192,7 +193,7 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
   Widget _buildCurrentView(_LawyerDashboardPayload payload) {
     switch (_selectedIndex) {
       case 0:
-        return const _RescueView();
+        return const LawyerRescueScreen();
       case 1:
         return const _CasesView();
       case 2:
@@ -702,38 +703,7 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
   }
 }
 
-class _RescueView extends StatelessWidget {
-  const _RescueView();
 
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.radar_rounded, size: 64.sp, color: Colors.redAccent),
-          SizedBox(height: 16.h),
-          Text(
-            'Rescue Mode'.translate(),
-            style: GoogleFonts.cairo(
-              fontSize: 18.sp,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          SizedBox(height: 8.h),
-          Text(
-            'Waiting for emergency requests...'.translate(),
-            style: GoogleFonts.cairo(
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 // Data Models
 class _LawyerDashboardPayload {
@@ -2472,14 +2442,15 @@ class _CasesViewState extends State<_CasesView> {
             final allDocs = snapshot.data?.docs.toList() ?? [];
 
             // Filter in-memory:
-            // If Owner: officeId == officeId OR lawyerId == ownerId (currentUser.uid)
+            // If Owner: Only show their own cases OR cases that are office-assigned
             // If not Owner: lawyerId == currentUser.uid
             final docs = allDocs.where((doc) {
               final data = doc.data() as Map<String, dynamic>;
               if (isOwner && officeId != null) {
                 final String? caseOfficeId = data['officeId'];
                 final String? caseLawyerId = data['lawyerId'];
-                return caseOfficeId == officeId || caseLawyerId == currentUser.uid;
+                final bool isOfficeAssigned = data['isOfficeAssigned'] == true;
+                return caseLawyerId == currentUser.uid || (isOfficeAssigned && caseOfficeId == officeId);
               } else {
                 return data['lawyerId'] == currentUser.uid;
               }

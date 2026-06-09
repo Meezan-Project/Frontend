@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -621,6 +622,181 @@ class _OwnerOfficeManagementScreenState extends State<OwnerOfficeManagementScree
     }
   }
 
+  void _editOfficeDetails(Map<String, dynamic> officeData) {
+    final nameController = TextEditingController(text: officeData['name']);
+    final addressController = TextEditingController(text: officeData['address']);
+    final formKey = GlobalKey<FormState>();
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+              title: Text(
+                'Edit Office Details'.translate(),
+                style: GoogleFonts.cairo(
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : AppColors.navyBlue,
+                ),
+              ),
+              content: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: nameController,
+                      style: GoogleFonts.cairo(color: isDark ? Colors.white : AppColors.textDark),
+                      decoration: InputDecoration(
+                        labelText: 'Office Name'.translate(),
+                        labelStyle: GoogleFonts.cairo(color: Colors.grey),
+                        border: const OutlineInputBorder(),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Name cannot be empty'.translate();
+                        }
+                        return null;
+                      },
+                    ),
+                    SizedBox(height: 16.h),
+                    TextFormField(
+                      controller: addressController,
+                      style: GoogleFonts.cairo(color: isDark ? Colors.white : AppColors.textDark),
+                      decoration: InputDecoration(
+                        labelText: 'Office Address'.translate(),
+                        labelStyle: GoogleFonts.cairo(color: Colors.grey),
+                        border: const OutlineInputBorder(),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Address cannot be empty'.translate();
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.pop(dialogContext),
+                  child: Text(
+                    'Cancel'.translate(),
+                    style: GoogleFonts.cairo(color: Colors.grey),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          if (formKey.currentState!.validate()) {
+                            setDialogState(() => isSaving = true);
+                            try {
+                              await FirebaseFirestore.instance
+                                  .collection('offices')
+                                  .doc(officeData['officeId'])
+                                  .update({
+                                'name': nameController.text.trim(),
+                                'address': addressController.text.trim(),
+                              });
+                              if (mounted) {
+                                Navigator.pop(dialogContext);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Office details updated successfully'.translate()),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              setDialogState(() => isSaving = false);
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Failed to update office details: $e'.translate()),
+                                    backgroundColor: AppColors.sosRed,
+                                  ),
+                                );
+                              }
+                            }
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.navyBlue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+                  ),
+                  child: isSaving
+                      ? SizedBox(
+                          width: 16.w,
+                          height: 16.h,
+                          child: const CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : Text(
+                          'Save'.translate(),
+                          style: GoogleFonts.cairo(fontWeight: FontWeight.bold),
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildCredentialRow(String label, String value, bool isDark) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4.h),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.cairo(
+              fontSize: 13.sp,
+              color: Colors.grey,
+            ),
+          ),
+          Row(
+            children: [
+              Text(
+                value.length > 20 ? '${value.substring(0, 18)}...' : value,
+                style: GoogleFonts.cairo(
+                  fontSize: 13.sp,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : AppColors.navyBlue,
+                ),
+              ),
+              SizedBox(width: 8.w),
+              InkWell(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: value));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Copied to clipboard!'.translate()),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+                child: const Icon(
+                  Icons.copy_rounded,
+                  size: 16,
+                  color: AppColors.legalGold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   // Create a Secretary account programmatically using a secondary Firebase App instance
   void _createSecretaryAccount() async {
     if (!_secFormKey.currentState!.validate() || _currentUserId == null) return;
@@ -920,11 +1096,11 @@ class _OwnerOfficeManagementScreenState extends State<OwnerOfficeManagementScree
               unselectedLabelColor: Colors.grey,
               indicatorColor: AppColors.legalGold,
               tabs: [
-                Tab(text: 'Members'.translate()),
                 Tab(text: 'Office Cases'.translate()),
+                Tab(text: 'Office Chats'.translate()),
+                Tab(text: 'Members'.translate()),
                 Tab(text: 'Recruitment'.translate()),
                 Tab(text: 'Add Secretary'.translate()),
-                Tab(text: 'Office Chats'.translate()),
                 Tab(text: 'Settings'.translate()),
               ],
             ),
@@ -932,12 +1108,12 @@ class _OwnerOfficeManagementScreenState extends State<OwnerOfficeManagementScree
           body: TabBarView(
             controller: _tabController,
             children: [
-              _buildMembersTab(officeId, isDark),
               _buildOfficeCasesTab(officeId, isDark),
+              _buildChatsTab(officeId, isDark),
+              _buildMembersTab(officeId, isDark),
               _buildRecruitmentTab(officeId, isDark),
               _buildAddSecretaryTab(isDark),
-              _buildChatsTab(officeId, isDark),
-              _buildSettingsTab(officeId, isDark),
+              _buildSettingsTab(officeId, isDark, office),
             ],
           ),
         );
@@ -1430,17 +1606,118 @@ class _OwnerOfficeManagementScreenState extends State<OwnerOfficeManagementScree
   }
 
   // Widget for Tab 5: Settings
-  Widget _buildSettingsTab(String officeId, bool isDark) {
+  Widget _buildSettingsTab(String officeId, bool isDark, Map<String, dynamic> officeData) {
+    final cardBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final textThemeColor = isDark ? Colors.white : AppColors.navyBlue;
+
     return ListView(
       padding: EdgeInsets.all(24.r),
       children: [
+        // Office ID Copy Card
+        Container(
+          padding: EdgeInsets.all(16.r),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1A2235) : const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(12.r),
+            border: Border.all(
+              color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Office Credentials'.translate(),
+                style: GoogleFonts.cairo(
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.legalGold,
+                ),
+              ),
+              SizedBox(height: 12.h),
+              _buildCredentialRow(
+                'Office ID'.translate(),
+                officeId,
+                isDark,
+              ),
+              const Divider(),
+              _buildCredentialRow(
+                'License ID'.translate(),
+                officeData['ownerLicenseId'] ?? 'N/A',
+                isDark,
+              ),
+              SizedBox(height: 8.h),
+              Text(
+                'Share these credentials with freelancers so they can join your office.'.translate(),
+                style: GoogleFonts.cairo(
+                  fontSize: 11.sp,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 24.h),
+
         Text(
-          'Office Operations'.translate(),
-          style: GoogleFonts.cairo(fontSize: 16.sp, fontWeight: FontWeight.bold, color: isDark ? Colors.white : AppColors.navyBlue),
+          'Office Settings'.translate(),
+          style: GoogleFonts.cairo(
+            fontSize: 16.sp,
+            fontWeight: FontWeight.bold,
+            color: textThemeColor,
+          ),
         ),
         SizedBox(height: 12.h),
         Card(
-          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+          color: cardBg,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.edit_outlined, color: AppColors.legalGold),
+                title: Text(
+                  'Edit Office Details'.translate(),
+                  style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: textThemeColor),
+                ),
+                subtitle: Text(
+                  'Update office name and address information'.translate(),
+                  style: GoogleFonts.cairo(fontSize: 12.sp),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () => _editOfficeDetails(officeData),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.people_outline_rounded, color: AppColors.legalGold),
+                title: Text(
+                  'Manage Members'.translate(),
+                  style: GoogleFonts.cairo(fontWeight: FontWeight.bold, color: textThemeColor),
+                ),
+                subtitle: Text(
+                  'View staff list, adjust commission rates, or delete members'.translate(),
+                  style: GoogleFonts.cairo(fontSize: 12.sp),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () {
+                  _tabController.animateTo(2); // Switch to Members tab
+                },
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 24.h),
+
+        Text(
+          'Office Operations'.translate(),
+          style: GoogleFonts.cairo(
+            fontSize: 16.sp,
+            fontWeight: FontWeight.bold,
+            color: textThemeColor,
+          ),
+        ),
+        SizedBox(height: 12.h),
+        Card(
+          color: cardBg,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
           child: ListTile(
             leading: const Icon(Icons.delete_forever, color: AppColors.sosRed),
@@ -1452,7 +1729,7 @@ class _OwnerOfficeManagementScreenState extends State<OwnerOfficeManagementScree
               'Disconnect all staff members and permanently delete office files'.translate(),
               style: GoogleFonts.cairo(fontSize: 12.sp),
             ),
-            trailing: const Icon(Icons.arrow_forward_ios, color: AppColors.sosRed),
+            trailing: const Icon(Icons.arrow_forward_ios, color: AppColors.sosRed, size: 16),
             onTap: _deleteOffice,
           ),
         ),
@@ -1622,12 +1899,16 @@ class _OwnerOfficeManagementScreenState extends State<OwnerOfficeManagementScree
 
         final allCasesDocs = snapshot.data?.docs ?? [];
         
-        // Filter in-memory for officeId == officeId OR lawyerId == ownerId (_currentUserId)
+        // Filter in-memory:
+        // Show case if:
+        // 1. Created/Owned by the Owner (caseLawyerId == officeId)
+        // 2. OR it was assigned by the office (isOfficeAssigned == true) and belongs to this office (caseOfficeId == officeId)
         final officeCases = allCasesDocs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
           final String? caseOfficeId = data['officeId'];
           final String? caseLawyerId = data['lawyerId'];
-          return caseOfficeId == officeId || caseLawyerId == _currentUserId;
+          final bool isOfficeAssigned = data['isOfficeAssigned'] == true;
+          return caseLawyerId == officeId || (isOfficeAssigned && caseOfficeId == officeId);
         }).toList();
 
         if (officeCases.isEmpty) {

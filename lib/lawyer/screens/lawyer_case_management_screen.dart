@@ -98,6 +98,8 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
   late List<CaseSession> _sessions;
   late List<CaseUpdate> _updates;
 
+  StreamSubscription<DocumentSnapshot>? _caseSubscription;
+
   // Controller for manual updates
   final TextEditingController _manualUpdateController = TextEditingController();
 
@@ -145,10 +147,34 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
     _selectedStatus = widget.case_.status;
     _sessions = List.from(widget.case_.sessions);
     _updates = List.from(widget.case_.updates);
+
+    _caseSubscription = FirebaseFirestore.instance
+        .collection('cases')
+        .doc(widget.case_.id)
+        .snapshots()
+        .listen((snapshot) {
+      if (snapshot.exists) {
+        final data = snapshot.data() as Map<String, dynamic>? ?? {};
+        final dbStatus = data['status'] as String?;
+        final dbCategory = data['category'] as String?;
+        final dbTitle = data['title'] as String?;
+        final dbDescription = data['description'] as String?;
+
+        if (mounted) {
+          setState(() {
+            if (dbStatus != null) _selectedStatus = dbStatus;
+            if (dbCategory != null) _selectedCategory = dbCategory;
+            if (dbTitle != null) _titleController.text = dbTitle;
+            if (dbDescription != null) _descriptionController.text = dbDescription;
+          });
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
+    _caseSubscription?.cancel();
     _pageController.dispose();
     _titleController.dispose();
     _descriptionController.dispose();
@@ -209,88 +235,179 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF0F1419) : const Color(0xFFFCFDFF);
 
-    return Scaffold(
-      backgroundColor: bgColor,
-      appBar: AppBar(
-        backgroundColor: bgColor,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back_ios_new_rounded,
-            size: 20.sp,
-            color: isDark ? Colors.white : primaryBlue,
-          ),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          widget.isLawyer
-              ? 'Manage Case'.translate()
-              : 'Case Details'.translate(),
-          style: GoogleFonts.cairo(
-            fontSize: 18.sp,
-            fontWeight: FontWeight.w700,
-            color: isDark ? Colors.white : primaryBlue,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        actions: [
-          if (widget.isLawyer)
-            _isSaving
-                ? const Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : TextButton(
-                    onPressed: _saveOverviewChanges,
-                    child: Text(
-                      'Save'.translate(),
-                      style: GoogleFonts.cairo(
-                        color: AppColors.legalGold,
-                        fontWeight: FontWeight.bold,
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('cases')
+          .doc(widget.case_.id)
+          .snapshots(),
+      builder: (context, caseSnapshot) {
+        final caseData =
+            caseSnapshot.data?.data() as Map<String, dynamic>? ?? {};
+
+        final String status = caseData['status'] ?? widget.case_.status;
+        final bool isPendingPayment = status == 'pending_payment';
+
+        return Scaffold(
+          backgroundColor: bgColor,
+          appBar: AppBar(
+            backgroundColor: bgColor,
+            elevation: 0,
+            leading: IconButton(
+              icon: Icon(
+                Icons.arrow_back_ios_new_rounded,
+                size: 20.sp,
+                color: isDark ? Colors.white : primaryBlue,
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            title: Text(
+              widget.isLawyer
+                  ? 'Manage Case'.translate()
+                  : 'Case Details'.translate(),
+              style: GoogleFonts.cairo(
+                fontSize: 18.sp,
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : primaryBlue,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            actions: [
+              if (widget.isLawyer && !isPendingPayment)
+                _isSaving
+                    ? const Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : TextButton(
+                        onPressed: _saveOverviewChanges,
+                        child: Text(
+                          'Save'.translate(),
+                          style: GoogleFonts.cairo(
+                            color: AppColors.legalGold,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
+            ],
+          ),
+          body: isPendingPayment
+              ? Center(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(24.r),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(24.r),
+                          decoration: BoxDecoration(
+                            color: AppColors.legalGold.withOpacity(0.08),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: AppColors.legalGold.withOpacity(0.3),
+                              width: 2.w,
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.lock_outline_rounded,
+                            size: 80.sp,
+                            color: AppColors.legalGold,
+                          ),
+                        ),
+                        SizedBox(height: 24.h),
+                        Text(
+                          'Payment Pending'.translate(),
+                          style: GoogleFonts.cairo(
+                            fontSize: 22.sp,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : AppColors.navyBlue,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: 12.h),
+                        Text(
+                          'Access to case details is locked because the client hasn\'t paid yet. The case details will be unlocked automatically once payment is completed.'
+                              .translate(),
+                          style: GoogleFonts.cairo(
+                            fontSize: 14.sp,
+                            color: isDark ? Colors.grey[400] : Colors.grey[600],
+                            height: 1.5,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: 32.h),
+                        Container(
+                          padding: EdgeInsets.all(16.r),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                            borderRadius: BorderRadius.circular(16.r),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.04),
+                                blurRadius: 10,
+                              ),
+                            ],
+                            border: Border.all(
+                              color: isDark ? const Color(0xFF334766) : const Color(0xFFE5E7EB),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _buildDetailRow(
+                                'Case Number'.translate(),
+                                widget.case_.caseNumber.isNotEmpty ? widget.case_.caseNumber : 'N/A',
+                                isDark,
+                              ),
+                              const Divider(),
+                              _buildDetailRow(
+                                'Client Name'.translate(),
+                                widget.case_.clientName.isNotEmpty ? widget.case_.clientName : widget.case_.lawyerName,
+                                isDark,
+                              ),
+                              const Divider(),
+                              _buildDetailRow(
+                                'Category'.translate(),
+                                widget.case_.category.translate(),
+                                isDark,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-        ],
-      ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('cases')
-            .doc(widget.case_.id)
-            .snapshots(),
-        builder: (context, caseSnapshot) {
-          final caseData =
-              caseSnapshot.data?.data() as Map<String, dynamic>? ?? {};
-
-          return SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildHeaderCard(isDark, caseData),
-                _buildTabBar(isDark),
-                SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.7,
-                  child: PageView(
-                    controller: _pageController,
-                    onPageChanged: (index) =>
-                        setState(() => _currentTabIndex = index),
+                )
+              : SingleChildScrollView(
+                  child: Column(
                     children: [
-                      _buildOverviewTab(isDark, caseData),
-                      _buildDocumentsTab(isDark),
-                      _buildSessionsTab(isDark, caseData),
-                      _buildUpdatesTab(isDark, caseData),
-                      _buildFeesTab(isDark, caseData),
+                      _buildHeaderCard(isDark, caseData),
+                      _buildTabBar(isDark),
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.7,
+                        child: PageView(
+                          controller: _pageController,
+                          onPageChanged: (index) =>
+                              setState(() => _currentTabIndex = index),
+                          children: [
+                            _buildOverviewTab(isDark, caseData),
+                            _buildDocumentsTab(isDark),
+                            _buildSessionsTab(isDark, caseData),
+                            _buildUpdatesTab(isDark, caseData),
+                            _buildFeesTab(isDark, caseData),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          );
-        },
-      ),
+        );
+      },
     );
   }
 
@@ -504,6 +621,32 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
     );
   }
 
+  Widget _buildDetailRow(String label, String value, bool isDark) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4.h),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.cairo(
+              fontSize: 13.sp,
+              color: Colors.grey,
+            ),
+          ),
+          Text(
+            value,
+            style: GoogleFonts.cairo(
+              fontSize: 13.sp,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : AppColors.navyBlue,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // --- OVERVIEW TAB ---
   Widget _buildOverviewTab(bool isDark, Map<String, dynamic> caseData) {
     String currentServiceType =
@@ -663,18 +806,26 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
         ],
         _buildLabel('Case Status'.translate()),
         widget.isLawyer
-            ? DropdownButtonFormField<String>(
-                initialValue: _selectedStatus,
-                items: ['active', 'closed', 'on_hold', 'pending']
-                    .map(
-                      (s) => DropdownMenuItem(
-                        value: s,
-                        child: Text(s.toUpperCase()),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (val) => setState(() => _selectedStatus = val),
-                decoration: _inputDecoration(isDark),
+            ? Builder(
+                builder: (context) {
+                  final items = ['active', 'closed', 'on_hold', 'pending'];
+                  if (_selectedStatus != null && !items.contains(_selectedStatus)) {
+                    items.add(_selectedStatus!);
+                  }
+                  return DropdownButtonFormField<String>(
+                    initialValue: _selectedStatus,
+                    items: items
+                        .map(
+                          (s) => DropdownMenuItem(
+                            value: s,
+                            child: Text(s.toUpperCase().translate()),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (val) => setState(() => _selectedStatus = val),
+                    decoration: _inputDecoration(isDark),
+                  );
+                },
               )
             : _readOnlyField(isDark, _selectedStatus?.toUpperCase() ?? 'N/A'),
         SizedBox(height: 16.h),
@@ -762,19 +913,38 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
 
   Future<void> _saveOverviewChanges() async {
     setState(() => _isSaving = true);
-    // Simulate API call
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
-    await _addCaseUpdate(
-      type: 'process',
-      title: 'Details Updated',
-      description: 'Case metadata was modified by the lawyer.',
-    );
-    if (!mounted) return;
-    setState(() => _isSaving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Changes saved successfully'.translate())),
-    );
+    try {
+      await FirebaseFirestore.instance
+          .collection('cases')
+          .doc(widget.case_.id)
+          .update({
+        'title': _titleController.text.trim(),
+        'description': _descriptionController.text.trim(),
+        'status': _selectedStatus,
+        'category': _selectedCategory,
+      });
+
+      await _addCaseUpdate(
+        type: 'process',
+        title: 'Details Updated',
+        description: 'Case metadata was modified by the lawyer.',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Changes saved successfully'.translate())),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save changes: $e'.translate())),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   void _showAddTimelineDialog() {

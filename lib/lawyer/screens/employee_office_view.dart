@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/lawyer/screens/office_chat_screen.dart';
 
 class EmployeeOfficeView extends StatefulWidget {
   final String officeId;
@@ -307,6 +308,83 @@ class _EmployeeOfficeViewState extends State<EmployeeOfficeView> {
                     ),
                   ),
 
+                  SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.only(bottom: 12.h),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Office Conversations'.translate(),
+                                style: GoogleFonts.cairo(
+                                  fontSize: 18.sp,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white : AppColors.navyBlue,
+                                ),
+                              ),
+                              const Icon(Icons.chat_rounded, color: AppColors.legalGold),
+                            ],
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildChatCard(
+                                title: 'Global Chat'.translate(),
+                                subtitle: 'All Members'.translate(),
+                                icon: Icons.groups_rounded,
+                                isDark: isDark,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => OfficeChatScreen(
+                                        officeId: widget.officeId,
+                                        chatTitle: 'Global Office Chat'.translate(),
+                                        isGroupChat: true,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            SizedBox(width: 12.w),
+                            Expanded(
+                              child: _buildChatCard(
+                                title: 'Owner Chat'.translate(),
+                                subtitle: (office['ownerName'] ?? 'Owner').toString(),
+                                icon: Icons.support_agent_rounded,
+                                isDark: isDark,
+                                onTap: () {
+                                  final ownerId = office['ownerId'] ?? widget.officeId;
+                                  final sortedIds = [_currentUserId!, ownerId]..sort();
+                                  final chatId = 'office_1on1_${sortedIds[0]}_${sortedIds[1]}';
+
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => OfficeChatScreen(
+                                        officeId: widget.officeId,
+                                        chatId: chatId,
+                                        chatTitle: office['ownerName'] ?? 'Owner'.translate(),
+                                        isGroupChat: false,
+                                        targetUserId: ownerId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 20.h),
+                      ],
+                    ),
+                  ),
+
                   // Case list title
                   SliverToBoxAdapter(
                     child: Padding(
@@ -504,6 +582,75 @@ class _EmployeeOfficeViewState extends State<EmployeeOfficeView> {
           },
         );
       },
+    );
+  }
+
+  Widget _buildChatCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16.r),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+          borderRadius: BorderRadius.circular(16.r),
+          border: Border.all(
+            color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+            width: 1.w,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: EdgeInsets.all(10.r),
+              decoration: BoxDecoration(
+                color: AppColors.legalGold.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: AppColors.legalGold,
+                size: 24.sp,
+              ),
+            ),
+            SizedBox(height: 12.h),
+            Text(
+              title,
+              style: GoogleFonts.cairo(
+                fontSize: 15.sp,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : AppColors.navyBlue,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            SizedBox(height: 2.h),
+            Text(
+              subtitle,
+              style: GoogleFonts.cairo(
+                fontSize: 12.sp,
+                color: isDark ? Colors.white70 : AppColors.textDark.withOpacity(0.7),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
@@ -10,6 +11,7 @@ import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/models/case_model.dart';
 import 'package:mezaan/user/screens/deposit_screen.dart';
+import 'package:mezaan/user/screens/saved_cards_screen.dart';
 import 'package:mezaan/shared/services/notification_service.dart';
 
 // Date formatting helper function
@@ -572,12 +574,33 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
     if (balanceValue is num) {
       return balanceValue.toDouble();
     }
-
     return double.tryParse(balanceValue.toString()) ?? 0.0;
+  }
+
+  Future<List<SavedPaymentCard>> _getSavedCards() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return [];
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      final data = doc.data() ?? {};
+      final rawCards = data['savedCards'];
+      if (rawCards is List) {
+        return rawCards
+            .map((raw) => SavedPaymentCard.fromMap(Map<String, dynamic>.from(raw)))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('Error loading saved cards: $e');
+    }
+    return [];
   }
 
   Future<void> _showPaymentDialog(BuildContext context, bool isDark) async {
     final currentBalance = await _resolveCurrentBalance();
+    final savedCardsResult = await _getSavedCards();
     final borderColor = AppColors.legalGold;
     final surfaceColor = isDark ? const Color(0xFF12203A) : Colors.white;
     final titleColor = isDark ? Colors.white : Colors.black87;
@@ -596,6 +619,95 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
       builder: (BuildContext bottomSheetContext) {
         int selectedOption = 0;
         bool isProcessing = false;
+        List<SavedPaymentCard> localCards = List.from(savedCardsResult);
+        SavedPaymentCard? selectedCard = localCards.isNotEmpty
+            ? (localCards.firstWhere((c) => c.isDefault, orElse: () => localCards.first))
+            : null;
+        final smartWalletPhoneController = TextEditingController();
+
+        Future<bool> showWalletPinDialog() async {
+          final pinController = TextEditingController();
+          final pinFormKey = GlobalKey<FormState>();
+          final confirmPin = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) {
+              return AlertDialog(
+                backgroundColor: isDark ? const Color(0xFF12203A) : Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+                title: Text(
+                  'Enter Wallet PIN'.translate(),
+                  style: GoogleFonts.cairo(
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : AppColors.navyBlue,
+                  ),
+                ),
+                content: Form(
+                  key: pinFormKey,
+                  child: TextFormField(
+                    controller: pinController,
+                    keyboardType: TextInputType.number,
+                    obscureText: true,
+                    style: GoogleFonts.cairo(color: isDark ? Colors.white : AppColors.textDark),
+                    decoration: InputDecoration(
+                      hintText: 'Enter PIN'.translate(),
+                      border: const OutlineInputBorder(),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'PIN is required'.translate();
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: Text('Cancel'.translate(), style: GoogleFonts.cairo(color: Colors.grey)),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      if (pinFormKey.currentState!.validate()) {
+                        final uid = FirebaseAuth.instance.currentUser?.uid;
+                        if (uid == null) {
+                          Navigator.pop(dialogContext, false);
+                          return;
+                        }
+                        try {
+                          final doc = await FirebaseFirestore.instance
+                              .collection('users')
+                              .doc(uid)
+                              .get();
+                          final savedPin = doc.data()?['walletPasscode'];
+                          if (savedPin != null && pinController.text == savedPin) {
+                            Navigator.pop(dialogContext, true);
+                          } else {
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              SnackBar(
+                                content: Text('Invalid PIN!'.translate()),
+                                backgroundColor: AppColors.sosRed,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          debugPrint('Error validating PIN: $e');
+                          Navigator.pop(dialogContext, false);
+                        }
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.navyBlue,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: Text('Confirm'.translate(), style: GoogleFonts.cairo(fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              );
+            },
+          );
+          return confirmPin == true;
+        }
 
         void showPaymentResultDialog({
           required bool success,
@@ -674,10 +786,10 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                             if (!success) {
                               Navigator.of(bottomSheetContext).pop();
                               Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => const DepositScreen(),
-                                ),
-                              );
+                                  MaterialPageRoute(
+                                    builder: (_) => const DepositScreen(),
+                                  ),
+                                );
                             }
                           },
                           child: Text(
@@ -702,6 +814,13 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
 
         return StatefulBuilder(
           builder: (context, setModalState) {
+            bool canConfirm = true;
+            if (selectedOption == 0) {
+              canConfirm = selectedCard != null;
+            } else if (selectedOption == 2) {
+              canConfirm = smartWalletPhoneController.text.length == 11;
+            }
+
             return Padding(
               padding: EdgeInsets.only(
                 left: 20.w,
@@ -750,12 +869,8 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                       decoration: BoxDecoration(
                         color: isDark
                             ? const Color(0xFF0B182F)
-                            : const Color(
-                                0xFFFDF6E8,
-                              ), // Fixed: withValues to withOpacity
-                        borderRadius: BorderRadius.circular(
-                          16.r,
-                        ), // Fixed: withValues to withOpacity
+                            : const Color(0xFFFDF6E8),
+                        borderRadius: BorderRadius.circular(16.r),
                         border: Border.all(
                           color: borderColor.withOpacity(0.16),
                         ),
@@ -788,14 +903,6 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                     ),
                     SizedBox(height: 14.h),
                     Text(
-                      'Wallet balance: $walletBalanceText'.translate(),
-                      style: GoogleFonts.cairo(
-                        fontSize: 13.sp,
-                        color: descriptionColor,
-                      ),
-                    ),
-                    SizedBox(height: 22.h),
-                    Text(
                       'Select a payment method'.translate(),
                       style: GoogleFonts.cairo(
                         fontSize: 14.sp,
@@ -805,102 +912,269 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                     ),
                     SizedBox(height: 14.h),
                     Column(
-                      children: List.generate(2, (index) {
+                      children: List.generate(3, (index) {
                         final optionTitle = index == 0
-                            ? 'Credit Card'.translate()
-                            : 'PayPal'.translate();
+                            ? 'Credit / Debit Card'.translate()
+                            : index == 1
+                                ? 'App Wallet'.translate()
+                                : 'Smart Wallet'.translate();
                         final optionSubtitle = index == 0
                             ? 'Visa, MasterCard, Amex'.translate()
-                            : 'Pay with your PayPal account'.translate();
+                            : index == 1
+                                ? 'Pay with your app balance'.translate()
+                                : 'Vodafone Cash, Orange Cash, etc.'.translate();
                         final optionIcon = index == 0
                             ? Icons.credit_card_rounded
-                            : Icons.account_balance_wallet;
+                            : index == 1
+                                ? Icons.account_balance_wallet
+                                : Icons.phone_android_rounded;
                         final selected = selectedOption == index;
 
                         return Padding(
                           padding: EdgeInsets.only(bottom: 12.h),
-                          child: InkWell(
-                            onTap: () {
-                              setModalState(() {
-                                selectedOption = index;
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(16.r),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color:
-                                    selected // Fixed: withValues to withOpacity
-                                    ? borderColor.withOpacity(0.12)
-                                    : (isDark
-                                          ? const Color(0xFF0B182F)
-                                          : const Color(0xFFF7F2E5)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              InkWell(
+                                onTap: () {
+                                  setModalState(() {
+                                    selectedOption = index;
+                                  });
+                                },
                                 borderRadius: BorderRadius.circular(16.r),
-                                border: Border.all(
-                                  color: selected
-                                      ? borderColor
-                                      : Colors.transparent,
-                                  width: 1.5,
-                                ),
-                              ),
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 14.w,
-                                vertical: 14.h,
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 40.w,
-                                    height: 40.w,
-                                    decoration: BoxDecoration(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: selected
+                                        ? borderColor.withOpacity(0.12)
+                                        : (isDark
+                                              ? const Color(0xFF0B182F)
+                                              : const Color(0xFFF7F2E5)),
+                                    borderRadius: BorderRadius.circular(16.r),
+                                    border: Border.all(
                                       color: selected
                                           ? borderColor
-                                          : Colors.grey.shade300,
-                                      borderRadius: BorderRadius.circular(12.r),
-                                    ),
-                                    child: Icon(
-                                      optionIcon,
-                                      size: 20.sp,
-                                      color: Colors.white,
+                                          : Colors.transparent,
+                                      width: 1.5,
                                     ),
                                   ),
-                                  SizedBox(width: 12.w),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          optionTitle,
-                                          style: GoogleFonts.cairo(
-                                            fontSize: 14.sp,
-                                            fontWeight: FontWeight.w700,
-                                            color: titleColor,
-                                          ),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 14.w,
+                                    vertical: 14.h,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 40.w,
+                                        height: 40.w,
+                                        decoration: BoxDecoration(
+                                          color: selected
+                                              ? borderColor
+                                              : Colors.grey.shade300,
+                                          borderRadius: BorderRadius.circular(12.r),
                                         ),
-                                        SizedBox(height: 4.h),
+                                        child: Icon(
+                                          optionIcon,
+                                          size: 20.sp,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      SizedBox(width: 12.w),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              optionTitle,
+                                              style: GoogleFonts.cairo(
+                                                fontSize: 14.sp,
+                                                fontWeight: FontWeight.w700,
+                                                color: titleColor,
+                                              ),
+                                            ),
+                                            SizedBox(height: 4.h),
+                                            Text(
+                                              optionSubtitle,
+                                              style: GoogleFonts.cairo(
+                                                fontSize: 12.sp,
+                                                color: descriptionColor,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Radio<int>(
+                                        value: index,
+                                        groupValue: selectedOption,
+                                        activeColor: borderColor,
+                                        onChanged: (value) {
+                                          setModalState(() {
+                                            selectedOption = value ?? 0;
+                                          });
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              if (selected && index == 0) ...[
+                                SizedBox(height: 10.h),
+                                Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 4.w),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text(
+                                        'Select Card'.translate(),
+                                        style: GoogleFonts.cairo(
+                                          fontSize: 13.sp,
+                                          fontWeight: FontWeight.bold,
+                                          color: titleColor,
+                                        ),
+                                      ),
+                                      SizedBox(height: 8.h),
+                                      if (localCards.isEmpty) ...[
                                         Text(
-                                          optionSubtitle,
-                                          style: GoogleFonts.cairo(
-                                            fontSize: 12.sp,
-                                            color: descriptionColor,
+                                          'No saved cards found.'.translate(),
+                                          style: GoogleFonts.cairo(fontSize: 12.sp, color: Colors.grey),
+                                        ),
+                                      ] else ...[
+                                        Container(
+                                          padding: EdgeInsets.symmetric(vertical: 4.h),
+                                          child: DropdownButtonFormField<SavedPaymentCard>(
+                                            value: selectedCard,
+                                            style: GoogleFonts.cairo(color: isDark ? Colors.white : AppColors.textDark),
+                                            decoration: InputDecoration(
+                                              contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+                                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.r)),
+                                              fillColor: isDark ? const Color(0xFF0F182F) : Colors.white,
+                                              filled: true,
+                                            ),
+                                            items: localCards.map((card) {
+                                              return DropdownMenuItem<SavedPaymentCard>(
+                                                value: card,
+                                                child: Row(
+                                                  children: [
+                                                    Icon(
+                                                      card.network == CardNetwork.visa
+                                                          ? Icons.credit_card_rounded
+                                                          : Icons.credit_card_outlined,
+                                                      color: AppColors.legalGold,
+                                                    ),
+                                                    SizedBox(width: 8.w),
+                                                    Text(
+                                                      '${card.network.name.toUpperCase()} ${card.maskedNumber}',
+                                                      style: GoogleFonts.cairo(fontSize: 13.sp),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            }).toList(),
+                                            onChanged: (card) {
+                                              setModalState(() {
+                                                selectedCard = card;
+                                              });
+                                            },
                                           ),
                                         ),
                                       ],
+                                      SizedBox(height: 8.h),
+                                      OutlinedButton.icon(
+                                        onPressed: () async {
+                                          await Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) => const SavedCardsScreen(),
+                                            ),
+                                          );
+                                          final newCards = await _getSavedCards();
+                                          setModalState(() {
+                                            localCards = newCards;
+                                            selectedCard = localCards.isNotEmpty
+                                                ? (localCards.firstWhere((c) => c.isDefault, orElse: () => localCards.first))
+                                                : null;
+                                          });
+                                        },
+                                        style: OutlinedButton.styleFrom(
+                                          side: const BorderSide(color: AppColors.legalGold),
+                                          foregroundColor: AppColors.legalGold,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12.r),
+                                          ),
+                                        ),
+                                        icon: const Icon(Icons.add_rounded, size: 18),
+                                        label: Text(
+                                          'Add Card'.translate(),
+                                          style: GoogleFonts.cairo(fontSize: 12.sp, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              if (selected && index == 1) ...[
+                                SizedBox(height: 10.h),
+                                Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 4.w),
+                                  child: Text(
+                                    '${'Wallet Balance:'.translate()} $walletBalanceText',
+                                    style: GoogleFonts.cairo(
+                                      fontSize: 14.sp,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.legalGold,
                                     ),
                                   ),
-                                  Radio<int>(
-                                    value: index,
-                                    groupValue: selectedOption,
-                                    activeColor: borderColor,
-                                    onChanged: (value) {
-                                      setModalState(() {
-                                        selectedOption = value ?? 0;
-                                      });
-                                    },
+                                ),
+                              ],
+                              if (selected && index == 2) ...[
+                                SizedBox(height: 10.h),
+                                Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 4.w),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text(
+                                        'Smart Wallet Mobile Number'.translate(),
+                                        style: GoogleFonts.cairo(
+                                          fontSize: 13.sp,
+                                          fontWeight: FontWeight.bold,
+                                          color: titleColor,
+                                        ),
+                                      ),
+                                      SizedBox(height: 8.h),
+                                      TextFormField(
+                                        controller: smartWalletPhoneController,
+                                        keyboardType: TextInputType.phone,
+                                        style: GoogleFonts.cairo(
+                                          color: isDark ? Colors.white : AppColors.textDark,
+                                          fontSize: 14.sp,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter.digitsOnly,
+                                          LengthLimitingTextInputFormatter(11),
+                                        ],
+                                        decoration: InputDecoration(
+                                          hintText: '01xxxxxxxxx',
+                                          prefixText: '+2 ',
+                                          prefixStyle: GoogleFonts.cairo(
+                                            color: isDark ? Colors.grey : Colors.grey.shade700,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          errorText: (smartWalletPhoneController.text.isNotEmpty &&
+                                                  smartWalletPhoneController.text.length != 11)
+                                              ? 'Must be exactly 11 digits'.translate()
+                                              : null,
+                                          border: const OutlineInputBorder(),
+                                        ),
+                                        onChanged: (val) {
+                                          setModalState(() {});
+                                        },
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                            ),
+                                ),
+                              ],
+                            ],
                           ),
                         );
                       }),
@@ -910,13 +1184,13 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                       width: double.infinity,
                       child: FilledButton(
                         style: FilledButton.styleFrom(
-                          backgroundColor: borderColor,
+                          backgroundColor: canConfirm ? borderColor : Colors.grey,
                           padding: EdgeInsets.symmetric(vertical: 16.h),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16.r),
                           ),
                         ),
-                        onPressed: isProcessing
+                        onPressed: (!canConfirm || isProcessing)
                             ? null
                             : () async {
                                 setModalState(() {
@@ -925,16 +1199,8 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                 final bottomSheetNavigator = Navigator.of(
                                   bottomSheetContext,
                                 );
-                                await Future.delayed(
-                                  const Duration(milliseconds: 1500),
-                                );
-                                if (!mounted) return;
-                                setModalState(() {
-                                  isProcessing = false;
-                                });
 
-                                final uid =
-                                    FirebaseAuth.instance.currentUser?.uid;
+                                final uid = FirebaseAuth.instance.currentUser?.uid;
                                 if (uid == null) {
                                   showPaymentResultDialog(
                                     success: false,
@@ -945,14 +1211,25 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                   return;
                                 }
 
-                                if (currentBalance < _totalAmountDue) {
-                                  showPaymentResultDialog(
-                                    success: false,
-                                    message:
-                                        'You only have $walletBalanceText. Please top up your wallet.'
-                                            .translate(),
-                                  );
-                                  return;
+                                if (selectedOption == 1) {
+                                  // Wallet PIN verification
+                                  final pinConfirmed = await showWalletPinDialog();
+                                  if (!pinConfirmed) {
+                                    setModalState(() {
+                                      isProcessing = false;
+                                    });
+                                    return;
+                                  }
+
+                                  if (currentBalance < _totalAmountDue) {
+                                    showPaymentResultDialog(
+                                      success: false,
+                                      message:
+                                          'You only have $walletBalanceText. Please top up your wallet.'
+                                              .translate(),
+                                    );
+                                    return;
+                                  }
                                 }
 
                                 final userDocRef = FirebaseFirestore.instance
@@ -962,52 +1239,72 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                     .collection('cases')
                                     .doc(widget.case_.id);
                                 try {
-                                  await FirebaseFirestore.instance
-                                      .runTransaction((transaction) async {
-                                        final snapshot = await transaction.get(
-                                          userDocRef,
-                                        );
-                                        final data = snapshot.data();
-                                        final balanceValue = data == null
-                                            ? 0
-                                            : data['balance'] ??
-                                                  data['walletBalance'] ??
-                                                  data['wallet_balance'] ??
-                                                  0;
-                                        final currentStoredBalance =
-                                            balanceValue is num
-                                            ? balanceValue.toDouble()
-                                            : double.tryParse(
-                                                    balanceValue.toString(),
-                                                  ) ??
-                                                  0.0;
-
-                                        if (currentStoredBalance <
-                                            _totalAmountDue) {
-                                          throw Exception(
-                                            'insufficient_balance',
+                                  if (selectedOption == 1) {
+                                    // Deduct from wallet balance
+                                    await FirebaseFirestore.instance
+                                        .runTransaction((transaction) async {
+                                          final snapshot = await transaction.get(
+                                            userDocRef,
                                           );
-                                        }
+                                          final data = snapshot.data();
+                                          final balanceValue = data == null
+                                              ? 0
+                                              : data['balance'] ??
+                                                    data['walletBalance'] ??
+                                                    data['wallet_balance'] ??
+                                                    0;
+                                          final currentStoredBalance =
+                                              balanceValue is num
+                                              ? balanceValue.toDouble()
+                                              : double.tryParse(
+                                                      balanceValue.toString(),
+                                                    ) ??
+                                                    0.0;
 
-                                        transaction.update(userDocRef, {
-                                          'balance':
-                                              currentStoredBalance -
-                                              _totalAmountDue,
+                                          if (currentStoredBalance <
+                                              _totalAmountDue) {
+                                            throw Exception(
+                                              'insufficient_balance',
+                                            );
+                                          }
+
+                                          transaction.update(userDocRef, {
+                                            'balance':
+                                                currentStoredBalance -
+                                                _totalAmountDue,
+                                          });
+                                          transaction.update(caseDocRef, {
+                                            'status': 'active',
+                                          });
+                                          final feeDocRef = caseDocRef
+                                              .collection('fees')
+                                              .doc();
+                                          transaction.set(feeDocRef, {
+                                            'type': 'deposit',
+                                            'amount': _baseRequestedAmount,
+                                            'title': 'Initial Payment',
+                                            'createdAt':
+                                                FieldValue.serverTimestamp(),
+                                          });
                                         });
-                                        transaction.update(caseDocRef, {
-                                          'status': 'active',
-                                        });
-                                        final feeDocRef = caseDocRef
-                                            .collection('fees')
-                                            .doc();
-                                        transaction.set(feeDocRef, {
-                                          'type': 'deposit',
-                                          'amount': _baseRequestedAmount,
-                                          'title': 'Initial Payment',
-                                          'createdAt':
-                                              FieldValue.serverTimestamp(),
-                                        });
-                                      });
+                                  } else {
+                                    // Credit Card or Smart Wallet: External Payment
+                                    // Just update case status and create a fee record
+                                    final batch = FirebaseFirestore.instance.batch();
+                                    batch.update(caseDocRef, {
+                                      'status': 'active',
+                                    });
+                                    final feeDocRef = caseDocRef
+                                        .collection('fees')
+                                        .doc();
+                                    batch.set(feeDocRef, {
+                                      'type': 'deposit',
+                                      'amount': _baseRequestedAmount,
+                                      'title': selectedOption == 0 ? 'Card Payment' : 'Smart Wallet Payment',
+                                      'createdAt': FieldValue.serverTimestamp(),
+                                    });
+                                    await batch.commit();
+                                  }
                                 } catch (e) {
                                   if (e is Exception &&
                                       e.toString().contains(

@@ -45,7 +45,12 @@ class LawyerCasesTrackerScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final casesDocs = snapshot.data?.docs ?? [];
+          final allDocs = snapshot.data?.docs ?? [];
+          final casesDocs = allDocs.where((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return data['isOfficeAssigned'] == true;
+          }).toList();
+
           if (casesDocs.isEmpty) {
             return Center(
               child: Padding(

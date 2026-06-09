@@ -382,12 +382,16 @@ class _SecretaryDashboardScreenState extends State<SecretaryDashboardScreen> {
 
         final allCasesDocs = snapshot.data?.docs ?? [];
         
-        // Filter in-memory for officeId == _officeId OR lawyerId == _ownerId
+        // Filter in-memory:
+        // Show case if:
+        // 1. Created/Owned by the Owner (caseLawyerId == _ownerId)
+        // 2. OR it was assigned by the office (isOfficeAssigned == true) and belongs to this office (caseOfficeId == _officeId)
         final officeCases = allCasesDocs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
           final String? caseOfficeId = data['officeId'];
           final String? caseLawyerId = data['lawyerId'];
-          return caseOfficeId == _officeId || caseLawyerId == _ownerId;
+          final bool isOfficeAssigned = data['isOfficeAssigned'] == true;
+          return caseLawyerId == _ownerId || (isOfficeAssigned && caseOfficeId == _officeId);
         }).toList();
 
         if (officeCases.isEmpty) {
