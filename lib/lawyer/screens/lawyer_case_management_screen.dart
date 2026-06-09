@@ -12,6 +12,7 @@ import 'package:mezaan/shared/services/supabase_storage_service.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/models/case_model.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:mezaan/shared/services/notification_service.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -202,7 +203,6 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
 
   // Theme Constants based on requirements
   static const Color primaryBlue = Color(0xFF001F3F); // Dark Blue
-  static const Color bgColorLight = Color(0xFFFCFDFF);
 
   @override
   Widget build(BuildContext context) {
@@ -1400,17 +1400,39 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
                       selectedTime.hour,
                       selectedTime.minute,
                     );
+                    final newSession = CaseSession(
+                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      scheduledDate: fullDateTime,
+                      status: 'scheduled',
+                      location: locController.text.trim().isEmpty
+                          ? 'Court Room'.translate()
+                          : locController.text.trim(),
+                      notes: notesController.text.trim(),
+                    );
                     setState(() {
-                      _sessions.add(
-                        CaseSession(
-                          id: DateTime.now().millisecondsSinceEpoch.toString(),
-                          scheduledDate: fullDateTime,
-                          status: 'scheduled',
-                          location: locController.text,
-                          notes: notesController.text,
-                        ),
-                      );
+                      _sessions.add(newSession);
                     });
+                    
+                    // Persist to subcollection
+                    await FirebaseFirestore.instance
+                        .collection('cases')
+                        .doc(widget.case_.id)
+                        .collection('sessions')
+                        .doc(newSession.id)
+                        .set(newSession.toMap())
+                        .catchError((e) => debugPrint('Error saving session subcollection: $e'));
+
+                    // Append to case array field 'sessions'
+                    await FirebaseFirestore.instance
+                        .collection('cases')
+                        .doc(widget.case_.id)
+                        .update({
+                      'sessions': FieldValue.arrayUnion([newSession.toMap()]),
+                    }).catchError((e) => debugPrint('Error updating case sessions array: $e'));
+
+                    // Trigger reminders schedule refresh
+                    NotificationService().scheduleAllUpcomingReminders();
+
                     if (!mounted) return;
                     await _addCaseUpdate(
                       type: 'process',
@@ -2627,6 +2649,39 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
             'createdAt': FieldValue.serverTimestamp(),
           });
         });
+
+        // Trigger notifications to client and lawyer
+        // Fetch lawyer name
+        String lawyerName = 'Lawyer'.translate();
+        try {
+          final lawyerDoc = await FirebaseFirestore.instance
+              .collection('lawyers')
+              .doc(lawyerId)
+              .get();
+          if (lawyerDoc.exists) {
+            lawyerName = lawyerDoc.data()?['name'] ?? lawyerDoc.data()?['fullName'] ?? 'Lawyer'.translate();
+          }
+        } catch (_) {}
+
+        // Notify Client
+        if (widget.case_.clientId.isNotEmpty) {
+          NotificationService().createAndSendNotification(
+            targetUserId: widget.case_.clientId,
+            title: 'Case Funds Withdrawn'.translate(),
+            body: '${'Lawyer'.translate()} $lawyerName ${'withdrew'.translate()} $amount ${'EGP from case'.translate()} ${widget.case_.caseNumber}.',
+            type: 'transaction',
+            referenceId: widget.case_.id,
+          ).catchError((e) => debugPrint('Error sending client withdrawal notification: $e'));
+        }
+
+        // Notify Lawyer
+        NotificationService().createAndSendNotification(
+          targetUserId: lawyerId,
+          title: 'Withdrawal Successful'.translate(),
+          body: '${'You have successfully withdrawn'.translate()} $amount ${'EGP from case'.translate()} ${widget.case_.caseNumber} ${'to your wallet.'.translate()}',
+          type: 'transaction',
+          referenceId: widget.case_.id,
+        ).catchError((e) => debugPrint('Error sending lawyer withdrawal notification: $e'));
       }
 
       if (!mounted) return;
@@ -2893,7 +2948,6 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
   }
 
   Widget _statusBadge(String status) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final statusColors = {
       'active': {'bg': 0xFF4CAF50, 'label': 'Active'.translate()},
       'closed': {'bg': 0xFF1976D2, 'label': 'Closed'.translate()},
@@ -2935,10 +2989,6 @@ class _LawyerCaseDetailsScreenState extends State<LawyerCaseDetailsScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('$label coming soon...')));
-  }
-
-  void _showUploadSimulation(String docName) {
-    _showComingSoon('Upload for $docName');
   }
 }
 

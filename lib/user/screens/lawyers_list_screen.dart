@@ -291,25 +291,22 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
 
   static String _extractWorkStatus(Map<String, dynamic> data) {
     final raw = _readString(data, ['work_status', 'workStatus']);
-    switch (_normalizeText(raw)) {
-      case 'owns an office':
-      case 'owns office':
-        return 'Owns an Office';
-      case 'works in an office':
-      case 'working in office':
-        return 'Working in an Office';
-      case 'freelancer':
-        return 'Freelancer';
-      default:
-        return raw;
+    final normalized = raw.trim().toLowerCase();
+    if (normalized.contains('owns') || normalized.contains('owner') || normalized == 'own office') {
+      return 'Owns an Office';
+    } else if (normalized.contains('work') || normalized.contains('employee')) {
+      return 'Works in an Office';
+    } else if (normalized.contains('freelancer') || normalized.isEmpty) {
+      return 'Freelancer';
     }
+    return raw;
   }
 
   static String _extractOfficeName(
     Map<String, dynamic> data,
     String workStatus,
   ) {
-    if (workStatus == 'Working in an Office') {
+    if (workStatus == 'Works in an Office') {
       return _readString(data, ['employer_lawyer_name', 'employerLawyerName']);
     }
 
@@ -370,7 +367,7 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
       }
     }
 
-    if (workStatus == 'Working in an Office' ||
+    if (workStatus == 'Works in an Office' ||
         workStatus == 'Owns an Office') {
       final officeDetails = data['office_details'];
       if (officeDetails is Map) {
@@ -423,7 +420,7 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
       }
     }
 
-    if (workStatus == 'Working in an Office' ||
+    if (workStatus == 'Works in an Office' ||
         workStatus == 'Owns an Office') {
       final officeDetails = data['office_details'];
       if (officeDetails is Map) {
@@ -906,7 +903,7 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                                                         'Owns an Office'
                                                     ? 'Owns an Office'
                                                     : (lawyer.workStatus ==
-                                                              'Working in an Office'
+                                                              'Works in an Office'
                                                           ? 'Works in an Office'
                                                           : lawyer.workStatus)),
                                           style: GoogleFonts.cairo(
@@ -918,7 +915,7 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                                         if (lawyer.workStatus ==
                                                 'Owns an Office' ||
                                             lawyer.workStatus ==
-                                                'Working in an Office')
+                                                'Works in an Office')
                                           Padding(
                                             padding: EdgeInsets.only(top: 2.h),
                                             child: Text(

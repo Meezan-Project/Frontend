@@ -121,9 +121,18 @@ class LawyerModel {
         data['name'] ?? data['firstName'] ?? 'Unknown Name',
       ),
       specialization: safeParseString(data['specialization'] ?? 'Lawyer'),
-      workStatus: safeParseString(
-        data['work_status'] ?? data['workStatus'] ?? 'Freelancer',
-      ),
+      workStatus: () {
+        final raw = safeParseString(data['work_status'] ?? data['workStatus'] ?? 'Freelancer');
+        final normalized = raw.trim().toLowerCase();
+        if (normalized.contains('owns') || normalized.contains('owner') || normalized == 'own office') {
+          return 'Owns an Office';
+        } else if (normalized.contains('work') || normalized.contains('employee')) {
+          return 'Works in an Office';
+        } else if (normalized.contains('freelancer') || normalized.isEmpty) {
+          return 'Freelancer';
+        }
+        return raw;
+      }(),
       officeName: safeParseString(
         data['employer_office_name'] ??
             (data['office_details'] is Map

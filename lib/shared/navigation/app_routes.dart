@@ -11,4 +11,5 @@ class AppRoutes {
   static const String adminHome = '/admin-home';
   static const String otp = '/otp';
   static const String lawyerRequest = '/lawyer-request';
+  static const String secretaryHome = '/secretary-home';
 }

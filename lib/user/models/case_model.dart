@@ -164,6 +164,8 @@ class UserCase {
   final String clientName;
   final String? clientNationalId;
   final String? clientPhone;
+  final bool isOfficeAssigned;
+  final double commissionRate;
 
   const UserCase({
     required this.id,
@@ -186,6 +188,8 @@ class UserCase {
     this.clientName = '',
     this.clientNationalId,
     this.clientPhone,
+    this.isOfficeAssigned = false,
+    this.commissionRate = 15.0,
   });
 
   factory UserCase.fromFirestore(DocumentSnapshot doc) {
@@ -227,6 +231,8 @@ class UserCase {
       clientName: data['clientName'] as String? ?? '',
       clientNationalId: data['clientNationalId'] as String?,
       clientPhone: data['clientPhone'] as String?,
+      isOfficeAssigned: data['isOfficeAssigned'] as bool? ?? false,
+      commissionRate: (data['commissionRate'] ?? 15.0).toDouble(),
     );
   }
 
@@ -267,6 +273,8 @@ class UserCase {
       clientName: data['clientName'] as String? ?? '',
       clientNationalId: data['clientNationalId'] as String?,
       clientPhone: data['clientPhone'] as String?,
+      isOfficeAssigned: data['isOfficeAssigned'] as bool? ?? false,
+      commissionRate: (data['commissionRate'] ?? 15.0).toDouble(),
     );
   }
 
@@ -291,6 +299,8 @@ class UserCase {
       'clientName': clientName,
       'clientNationalId': clientNationalId,
       'clientPhone': clientPhone,
+      'isOfficeAssigned': isOfficeAssigned,
+      'commissionRate': commissionRate,
     };
   }
 

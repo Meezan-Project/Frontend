@@ -348,31 +348,51 @@ class _UserDashboardScreenState extends State<UserDashboardScreen>
                   ],
                 ),
               ),
-              bottomNavigationBar: UserBottomNavBar(
-                currentIndex: _selectedIndex,
-                onDestinationSelected: (index) {
-                  // Handle non-tab actions first
-                  if (index == 4) {
-                    _scaffoldKey.currentState?.openEndDrawer();
-                    return;
-                  }
-                  if (index == 0) {
-                    LoadingNavigator.pushNamed(
-                      context,
-                      AppRoutes.lawyerRequest,
-                    );
-                    return;
+              bottomNavigationBar: StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(currentUser.uid)
+                    .collection('conversations')
+                    .snapshots(),
+                builder: (context, convoSnapshot) {
+                  int totalUnread = 0;
+                  if (convoSnapshot.hasData) {
+                    for (var doc in convoSnapshot.data!.docs) {
+                      final data = doc.data() as Map<String, dynamic>?;
+                      if (data != null) {
+                        totalUnread += (data['unreadCount'] as num?)?.toInt() ?? 0;
+                      }
+                    }
                   }
 
-                  // Handle tab switching for the IndexedStack
-                  if (_selectedIndex != index && [1, 2, 3].contains(index)) {
-                    setState(() => _selectedIndex = index);
-                  }
-                },
-                onCenterButtonTap: () {
-                  if (_selectedIndex != 2) {
-                    setState(() => _selectedIndex = 2);
-                  }
+                  return UserBottomNavBar(
+                    currentIndex: _selectedIndex,
+                    unreadCount: totalUnread,
+                    onDestinationSelected: (index) {
+                      // Handle non-tab actions first
+                      if (index == 4) {
+                        _scaffoldKey.currentState?.openEndDrawer();
+                        return;
+                      }
+                      if (index == 0) {
+                        LoadingNavigator.pushNamed(
+                          context,
+                          AppRoutes.lawyerRequest,
+                        );
+                        return;
+                      }
+
+                      // Handle tab switching for the IndexedStack
+                      if (_selectedIndex != index && [1, 2, 3].contains(index)) {
+                        setState(() => _selectedIndex = index);
+                      }
+                    },
+                    onCenterButtonTap: () {
+                      if (_selectedIndex != 2) {
+                        setState(() => _selectedIndex = 2);
+                      }
+                    },
+                  );
                 },
               ),
             );

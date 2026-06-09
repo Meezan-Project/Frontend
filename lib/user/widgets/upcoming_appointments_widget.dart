@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/user/screens/video_call_screen.dart';
+import 'package:mezaan/shared/localization/translate_extension.dart';
 
 class _SectionHeader extends StatelessWidget {
   final String title;
@@ -216,10 +217,43 @@ class UpcomingAppointmentsWidget extends StatelessWidget {
           }
         });
 
+        final now = DateTime.now();
+        final activeAppointments = appointments.where((doc) {
+          final data = doc.data();
+          final appointmentDay = data['day'] ?? '';
+          final appointmentTime = data['time'] ?? '';
+          if (appointmentDay.isEmpty || appointmentTime.isEmpty) return false;
+          final dateTime = _parseAppointmentDateTime(appointmentDay, appointmentTime);
+          if (dateTime == null) return false;
+          return dateTime.isAfter(now);
+        }).toList();
+
+        if (activeAppointments.isEmpty) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              sectionHeader,
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Center(
+                  child: Text(
+                    "No upcoming appointments".translate(),
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+
         // Sort appointments by nearest date/time ascending
         final sortedAppointments =
             List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-              appointments,
+              activeAppointments,
             );
         sortedAppointments.sort((a, b) {
           final aData = a.data();
@@ -442,33 +476,4 @@ class UpcomingAppointmentsWidget extends StatelessWidget {
     );
   }
 
-  static String _formatDate(DateTime date) {
-    return "${_monthName(date.month)} ${date.day}, ${date.year}";
-  }
-
-  static String _formatTime(DateTime date) {
-    final hour = date.hour > 12 ? date.hour - 12 : date.hour;
-    final minute = date.minute.toString().padLeft(2, '0');
-    final period = date.hour >= 12 ? 'PM' : 'AM';
-    return "$hour:$minute $period";
-  }
-
-  static String _monthName(int month) {
-    const months = [
-      '',
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return months[month];
-  }
 }

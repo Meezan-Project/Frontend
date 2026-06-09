@@ -109,6 +109,7 @@ class _OtpScreenState extends State<OtpScreen> {
       final targetRoute = switch (role) {
         AppRole.admin => AppRoutes.adminHome,
         AppRole.lawyer => AppRoutes.lawyerHome,
+        AppRole.secretary => AppRoutes.secretaryHome,
         AppRole.user => AppRoutes.userHome,
       };
 
@@ -180,6 +181,7 @@ class _OtpScreenState extends State<OtpScreen> {
           final targetRoute = switch (role) {
             AppRole.admin => AppRoutes.adminHome,
             AppRole.lawyer => AppRoutes.lawyerHome,
+            AppRole.secretary => AppRoutes.secretaryHome,
             AppRole.user => AppRoutes.userHome,
           };
           LoadingNavigator.pushNamedAndRemoveUntil(
@@ -446,6 +448,9 @@ class _OtpScreenState extends State<OtpScreen> {
     }
     if (rawRole == 'lawyer') {
       return AppRole.lawyer;
+    }
+    if (rawRole == 'secretary') {
+      return AppRole.secretary;
     }
     if (rawRole == 'user') {
       return AppRole.user;

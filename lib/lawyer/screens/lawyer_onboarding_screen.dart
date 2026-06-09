@@ -290,12 +290,15 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('lawyers')
-          .where('work_status', isEqualTo: 'Owns an Office')
           .get();
 
       final results = snapshot.docs
           .where((doc) {
             final data = doc.data();
+            final workStatusRaw = (data['work_status'] ?? '').toString().trim().toLowerCase();
+            final isOwner = workStatusRaw.contains('owns') || workStatusRaw.contains('owner') || workStatusRaw == 'own office';
+            if (!isOwner) return false;
+
             final name = (data['name'] ?? '').toString().toLowerCase();
             final officeName = (data['office_details']?['office_name'] ?? '')
                 .toString()
@@ -437,9 +440,13 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null) throw Exception("User not authenticated.");
 
-      final lawyersRef = FirebaseFirestore.instance
-          .collection('lawyers')
-          .doc(uid);
+      final firestore = FirebaseFirestore.instance;
+      final lawyerDoc = await firestore.collection('lawyers').doc(uid).get();
+      final lawyerName = lawyerDoc.data()?['name'] ?? FirebaseAuth.instance.currentUser?.displayName ?? 'Lawyer';
+      final lawyerSpecs = lawyerDoc.data()?['specialization'] ?? [];
+      final lawyerLicense = lawyerDoc.data()?['license_ID'] ?? '';
+
+      final lawyersRef = firestore.collection('lawyers').doc(uid);
 
       final updateData = <String, dynamic>{
         'uid': uid,
@@ -463,14 +470,19 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
 
       // Include Conditional Data
       if (_workStatus == 'Works in an Office') {
-        updateData['employer_lawyer_id'] = _selectedEmployer!['id'];
+        final employerId = _selectedEmployer!['id'];
+        updateData['employer_lawyer_id'] = employerId;
         updateData['employer_lawyer_name'] = _selectedEmployer!['name'];
         updateData['employer_office_name'] =
             _selectedEmployer!['office_details']?['office_name'] ?? '';
+        updateData['officeId'] = employerId;
+        updateData['officeRole'] = 'employee';
         if (_selectedEmployer!['office_details'] != null) {
           updateData['office_details'] = _selectedEmployer!['office_details'];
         }
       } else if (_workStatus == 'Owns an Office') {
+        updateData['officeId'] = uid;
+        updateData['officeRole'] = 'owner';
         updateData['office_details'] = {
           'office_name': _officeNameController.text.trim(),
           'governorate': _officeGovernorateController.text.trim(),
@@ -493,6 +505,8 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
                 },
         };
       } else if (_workStatus == 'Freelancer') {
+        updateData['officeId'] = null;
+        updateData['officeRole'] = 'freelancer';
         updateData['freelancer_locations'] = _freelancerLocations
             .where(
               (entry) =>
@@ -511,32 +525,59 @@ class _LawyerOnboardingScreenState extends State<LawyerOnboardingScreen> {
       }
 
       // Use a batch to update both 'lawyers' and 'offices' collections atomically
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firestore.batch();
       batch.set(lawyersRef, updateData, SetOptions(merge: true));
 
       if (_workStatus == 'Owns an Office') {
-        final officeRef = FirebaseFirestore.instance.collection('offices').doc(uid);
+        final officeRef = firestore.collection('offices').doc(uid);
         batch.set(officeRef, {
+          'officeId': uid,
+          'ownerId': uid,
+          'ownerName': lawyerName,
+          'ownerLicenseId': lawyerLicense,
+          'name': _officeNameController.text.trim(),
+          'address': _officeAddressController.text.trim(),
+          'createdAt': FieldValue.serverTimestamp(),
           'office_id': uid,
           'owner_id': uid,
           'office_name': _officeNameController.text.trim(),
           'governorate': _officeGovernorateController.text.trim(),
           'city': _officeCityController.text.trim(),
-          'address': _officeAddressController.text.trim(),
           'phones': updateData['office_details']['phones'],
           'location': updateData['office_details']['location'],
           'schedule': firestoreSchedule,
           'lawyers_in_office': FieldValue.arrayUnion([uid]),
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+
+        // Add owner as member in subcollection
+        final memberRef = firestore.collection('offices').doc(uid).collection('members').doc(uid);
+        batch.set(memberRef, {
+          'memberId': uid,
+          'name': lawyerName,
+          'role': 'owner',
+          'specialization': lawyerSpecs,
+          'joinedAt': FieldValue.serverTimestamp(),
+        });
       } else if (_workStatus == 'Works in an Office') {
         final employerId = _selectedEmployer!['id'];
         if (employerId != null) {
-          final officeRef = FirebaseFirestore.instance.collection('offices').doc(employerId);
+          final officeRef = firestore.collection('offices').doc(employerId);
           batch.set(officeRef, {
             'lawyers_in_office': FieldValue.arrayUnion([uid]),
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
+
+          // Add employee to employer's office members subcollection
+          final memberRef = firestore.collection('offices').doc(employerId).collection('members').doc(uid);
+          batch.set(memberRef, {
+            'memberId': uid,
+            'name': lawyerName,
+            'role': 'employee',
+            'specialization': lawyerSpecs,
+            'joinedAt': FieldValue.serverTimestamp(),
+            'commissionRate': 15.0,
+          });
         }
       }
 

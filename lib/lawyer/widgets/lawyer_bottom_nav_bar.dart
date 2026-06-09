@@ -8,12 +8,14 @@ class LawyerBottomNavBar extends StatelessWidget {
   final int currentIndex;
   final void Function(int) onDestinationSelected;
   final VoidCallback? onOpenDrawer;
+  final int unreadCount;
 
   const LawyerBottomNavBar({
     super.key,
     required this.currentIndex,
     required this.onDestinationSelected,
     this.onOpenDrawer,
+    this.unreadCount = 0,
   });
 
   @override
@@ -130,6 +132,27 @@ class LawyerBottomNavBar extends StatelessWidget {
     final unselectedColor = isDark ? Colors.white70 : Colors.grey;
     final activeIconColor = iconColor ?? AppColors.legalGold;
 
+    Widget iconWidget = Icon(
+      icon,
+      size: 22.sp,
+      color: isSelected ? activeIconColor : unselectedColor,
+    );
+
+    if (index == 4 && unreadCount > 0) {
+      iconWidget = Badge(
+        backgroundColor: Colors.red,
+        label: Text(
+          '$unreadCount',
+          style: GoogleFonts.cairo(
+            color: Colors.white,
+            fontSize: 9.sp,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        child: iconWidget,
+      );
+    }
+
     return InkWell(
       onTap: () => onDestinationSelected(index),
       borderRadius: BorderRadius.circular(12.r),
@@ -145,11 +168,7 @@ class LawyerBottomNavBar extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: 22.sp,
-              color: isSelected ? activeIconColor : unselectedColor,
-            ),
+            iconWidget,
             SizedBox(height: 4.h),
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 2.w),

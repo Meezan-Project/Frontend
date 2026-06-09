@@ -15,6 +15,8 @@ class LawyerChat {
   final String lastMessage;
   final String time;
   final String avatar;
+  final String lawyerId;
+  final int unreadCount;
 
   const LawyerChat({
     required this.id,
@@ -22,6 +24,8 @@ class LawyerChat {
     required this.lastMessage,
     required this.time,
     required this.avatar,
+    required this.lawyerId,
+    required this.unreadCount,
   });
 }
 
@@ -58,6 +62,9 @@ class MessagesScreen extends StatelessWidget {
                 final avatar = avatarRaw.isNotEmpty
                     ? avatarRaw
                     : (name.isNotEmpty ? name[0].toUpperCase() : 'L');
+                
+                final lawyerId = data['lawyerId']?.toString() ?? '';
+                final unreadCount = (data['unreadCount'] as num?)?.toInt() ?? 0;
 
                 return LawyerChat(
                   id: doc.id,
@@ -65,6 +72,8 @@ class MessagesScreen extends StatelessWidget {
                   lastMessage: lastMessage,
                   time: timeLabel,
                   avatar: avatar,
+                  lawyerId: lawyerId,
+                  unreadCount: unreadCount,
                 );
               })
               .toList(growable: false);
@@ -209,111 +218,170 @@ class _MessageTile extends StatelessWidget {
   final LawyerChat chat;
   final bool isDark;
 
-  const _MessageTile({super.key, required this.chat, required this.isDark});
+  const _MessageTile({required this.chat, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
-    final cardColor = isDark ? const Color(0xFF1A2940) : Colors.white;
+    final cardColor = chat.unreadCount > 0 
+        ? (isDark ? const Color(0xFF1E3A5F) : const Color(0xFFE8F4FE)) 
+        : (isDark ? const Color(0xFF1A2940) : Colors.white);
+        
+    final borderColor = chat.unreadCount > 0
+        ? AppColors.legalGold.withOpacity(0.6)
+        : (isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5));
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => UserLawyerChatScreen(
-              chatId: chat.id,
-              lawyerName: chat.name,
-              lawyerId: '',
-              lawyerAvatar: chat.avatar,
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('lawyers')
+          .doc(chat.lawyerId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        String lawyerName = chat.name;
+        String lawyerAvatar = chat.avatar;
+
+        if (snapshot.hasData && snapshot.data!.exists) {
+          final data = snapshot.data!.data() as Map<String, dynamic>?;
+          if (data != null) {
+            final fName = data['fullName'] ?? data['name'] ?? '';
+            if (fName.toString().trim().isNotEmpty) {
+              lawyerName = fName.toString().trim();
+            }
+            final avatarRaw = (data['profilePhotoUrl'] ?? data['profile_photo'] ?? data['photoUrl'] ?? '').toString().trim();
+            if (avatarRaw.isNotEmpty) {
+              lawyerAvatar = avatarRaw;
+            } else {
+              lawyerAvatar = lawyerName.isNotEmpty ? lawyerName[0].toUpperCase() : 'L';
+            }
+          }
+        }
+
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => UserLawyerChatScreen(
+                  chatId: chat.id,
+                  lawyerName: lawyerName,
+                  lawyerId: chat.lawyerId,
+                  lawyerAvatar: lawyerAvatar,
+                ),
+              ),
+            );
+          },
+          child: Container(
+            margin: EdgeInsets.only(bottom: 12.h),
+            padding: EdgeInsets.all(12.r),
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(16.r),
+              border: Border.all(color: borderColor),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
+                  blurRadius: 8,
+                  offset: Offset(0, 2.h),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 24.r,
+                  backgroundColor: AppColors.legalGold.withOpacity(0.2),
+                  backgroundImage: (lawyerAvatar.startsWith('http'))
+                      ? NetworkImage(lawyerAvatar)
+                      : null,
+                  child: (!lawyerAvatar.startsWith('http'))
+                      ? Text(
+                          lawyerAvatar,
+                          style: GoogleFonts.cairo(
+                            fontSize: 18.sp,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.legalGold,
+                          ),
+                        )
+                      : null,
+                ),
+                SizedBox(width: 12.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              lawyerName,
+                              style: GoogleFonts.cairo(
+                                fontSize: 15.sp,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : AppColors.navyBlue,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          SizedBox(width: 8.w),
+                          Text(
+                            chat.time,
+                            style: GoogleFonts.cairo(
+                              fontSize: 11.sp,
+                              color: chat.unreadCount > 0 ? AppColors.legalGold : Colors.grey,
+                              fontWeight: chat.unreadCount > 0 ? FontWeight.bold : FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 4.h),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              chat.lastMessage.isNotEmpty
+                                  ? chat.lastMessage
+                                  : 'Image or Attachment'.translate(),
+                              style: GoogleFonts.cairo(
+                                fontSize: 13.sp,
+                                color: chat.unreadCount > 0 
+                                    ? (isDark ? Colors.white : Colors.black87) 
+                                    : (isDark ? Colors.grey[400] : Colors.grey[600]),
+                                fontWeight: chat.unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (chat.unreadCount > 0) ...[
+                            SizedBox(width: 8.w),
+                            Container(
+                              padding: EdgeInsets.all(6.r),
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                '${chat.unreadCount}',
+                                style: GoogleFonts.cairo(
+                                  color: Colors.white,
+                                  fontSize: 10.sp,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         );
       },
-      child: Container(
-        margin: EdgeInsets.only(bottom: 12.h),
-        padding: EdgeInsets.all(12.r),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(16.r),
-          border: Border.all(
-            color: isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
-              blurRadius: 8,
-              offset: Offset(0, 2.h),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 24.r,
-              backgroundColor: AppColors.legalGold.withOpacity(0.2),
-              backgroundImage: (chat.avatar.startsWith('http'))
-                  ? NetworkImage(chat.avatar)
-                  : null,
-              child: (!chat.avatar.startsWith('http'))
-                  ? Text(
-                      chat.avatar,
-                      style: GoogleFonts.cairo(
-                        fontSize: 18.sp,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.legalGold,
-                      ),
-                    )
-                  : null,
-            ),
-            SizedBox(width: 12.w),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          chat.name,
-                          style: GoogleFonts.cairo(
-                            fontSize: 15.sp,
-                            fontWeight: FontWeight.bold,
-                            color: isDark ? Colors.white : AppColors.navyBlue,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      SizedBox(width: 8.w),
-                      Text(
-                        chat.time,
-                        style: GoogleFonts.cairo(
-                          fontSize: 11.sp,
-                          color: Colors.grey,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 4.h),
-                  Text(
-                    chat.lastMessage.isNotEmpty
-                        ? chat.lastMessage
-                        : 'Image or Attachment'.translate(),
-                    style: GoogleFonts.cairo(
-                      fontSize: 13.sp,
-                      color: isDark ? Colors.grey[400] : Colors.grey[600],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

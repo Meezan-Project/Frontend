@@ -8,6 +8,7 @@ import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/shared/theme/app_typography.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:mezaan/user/screens/video_call_screen.dart';
+import 'package:mezaan/shared/services/notification_service.dart';
 
 class AppointmentsScreen extends StatelessWidget {
   const AppointmentsScreen({super.key});
@@ -25,16 +26,7 @@ class AppointmentsScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _launchUrl(BuildContext context, String urlString) async {
-    final uri = Uri.parse(urlString);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open link'.translate())),
-      );
-    }
-  }
+
 
   Future<void> _cancelAppointment(
     BuildContext context,
@@ -117,7 +109,6 @@ class AppointmentsScreen extends StatelessWidget {
               'balance': FieldValue.increment(refundAmount),
             });
 
-            final transRef = firestore.collection('transactions').doc();
             final userTransRef = firestore
                 .collection('users')
                 .doc(currentUser.uid)
@@ -136,6 +127,36 @@ class AppointmentsScreen extends StatelessWidget {
         }
 
         await batch.commit();
+
+        // Trigger notifications
+        // Notify Client
+        NotificationService().createAndSendNotification(
+          targetUserId: data['userId'] ?? '',
+          title: 'Appointment Cancelled'.translate(),
+          body: '${'Your appointment with'.translate()} ${data['lawyerName']} ${'has been cancelled.'.translate()}',
+          type: 'appointment',
+          referenceId: docId,
+        ).catchError((e) => debugPrint('Error sending client cancel notification: $e'));
+
+        // Notify Lawyer
+        NotificationService().createAndSendNotification(
+          targetUserId: data['lawyerId'] ?? '',
+          title: 'Appointment Cancelled'.translate(),
+          body: '${'Client'.translate()} ${data['userName']} ${'has cancelled their appointment.'.translate()}',
+          type: 'lawyer_request',
+          referenceId: docId,
+        ).catchError((e) => debugPrint('Error sending lawyer cancel notification: $e'));
+
+        // If refund processed, notify client about refund
+        if (isPaid && refundAmount > 0) {
+          NotificationService().createAndSendNotification(
+            targetUserId: data['userId'] ?? '',
+            title: 'Refund Processed'.translate(),
+            body: '$refundAmount ${'EGP has been refunded to your wallet.'.translate()}',
+            type: 'transaction',
+            referenceId: docId,
+          ).catchError((e) => debugPrint('Error sending client refund notification: $e'));
+        }
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -144,6 +165,90 @@ class AppointmentsScreen extends StatelessWidget {
         }
       }
     }
+  }
+
+  DateTime? _parseAppointmentDateTime(String day, String time) {
+    try {
+      final dayParts = day.split(',');
+      if (dayParts.length < 2) return null;
+      final datePart = dayParts[1].trim(); // "16 May 2026"
+      final date = DateTime.parse(_convertToIsoDate(datePart));
+      final timeRange = time.split('-');
+      final startTime = timeRange[0].trim(); // "06:25 PM"
+      final timeOfDay = _parseTimeOfDay(startTime);
+      if (timeOfDay == null) return null;
+      return DateTime(
+        date.year,
+        date.month,
+        date.day,
+        timeOfDay.hour,
+        timeOfDay.minute,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _convertToIsoDate(String datePart) {
+    final parts = datePart.split(' ');
+    if (parts.length != 3) return '';
+    final day = parts[0].padLeft(2, '0');
+    final month = _monthToNumber(parts[1]);
+    final year = parts[2];
+    return "$year-$month-$day";
+  }
+
+  String _monthToNumber(String month) {
+    switch (month.toLowerCase()) {
+      case 'jan':
+      case 'january':
+        return '01';
+      case 'feb':
+      case 'february':
+        return '02';
+      case 'mar':
+      case 'march':
+        return '03';
+      case 'apr':
+      case 'april':
+        return '04';
+      case 'may':
+        return '05';
+      case 'jun':
+      case 'june':
+        return '06';
+      case 'jul':
+      case 'july':
+        return '07';
+      case 'aug':
+      case 'august':
+        return '08';
+      case 'sep':
+      case 'september':
+        return '09';
+      case 'oct':
+      case 'october':
+        return '10';
+      case 'nov':
+      case 'november':
+        return '11';
+      case 'dec':
+      case 'december':
+        return '12';
+      default:
+        return '01';
+    }
+  }
+
+  TimeOfDay? _parseTimeOfDay(String time) {
+    final match = RegExp(r'^(\d{1,2}):(\d{2})\s*([AP]M)').firstMatch(time);
+    if (match == null) return null;
+    int hour = int.parse(match.group(1)!);
+    final int minute = int.parse(match.group(2)!);
+    final String period = match.group(3)!;
+    if (period == 'PM' && hour != 12) hour += 12;
+    if (period == 'AM' && hour == 12) hour = 0;
+    return TimeOfDay(hour: hour, minute: minute);
   }
 
   @override
@@ -358,6 +463,9 @@ class AppointmentsScreen extends StatelessWidget {
             final timeStr = data['timeRange'] ?? data['time'] ?? 'Pending Time';
             final paymentMethod = data['paymentMethod'] ?? 'Cash/Wallet';
 
+            final apptDateTime = _parseAppointmentDateTime(dayStr, timeStr);
+            final isEnded = status == 'done' || status == 'completed' || (apptDateTime != null && DateTime.now().isAfter(apptDateTime));
+
             final hasImage =
                 lawyerImage.isNotEmpty &&
                 Uri.tryParse(lawyerImage)?.hasAbsolutePath == true;
@@ -434,7 +542,7 @@ class AppointmentsScreen extends StatelessWidget {
                         ),
                       ),
                       SizedBox(width: 8.w),
-                      _buildStatusBadge(context, status),
+                      _buildStatusBadge(context, status, isEnded),
                     ],
                   ),
                   Padding(
@@ -470,6 +578,7 @@ class AppointmentsScreen extends StatelessWidget {
                       'Location'.translate(),
                       address,
                       isActionable:
+                          !isEnded &&
                           address.isNotEmpty &&
                           address != 'Location not specified'.translate() &&
                           address != 'Not available'.translate(),
@@ -485,7 +594,7 @@ class AppointmentsScreen extends StatelessWidget {
                       Icons.video_camera_front_rounded,
                       'Meeting Link'.translate(),
                       meetingStatusText,
-                      isActionable: !isCancelled,
+                      isActionable: !isCancelled && !isEnded,
                       actionText: 'Join Meeting'.translate(),
                       onActionTap: () {
                         Navigator.push(
@@ -498,7 +607,7 @@ class AppointmentsScreen extends StatelessWidget {
                       isDark: isDark,
                     ),
                   ],
-                  if (!isCancelled && status != 'done') ...[
+                  if (!isCancelled && status != 'done' && status != 'completed' && !isEnded) ...[
                     SizedBox(height: 24.h),
                     SizedBox(
                       width: double.infinity,
@@ -671,19 +780,27 @@ class AppointmentsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatusBadge(BuildContext context, String status) {
+  Widget _buildStatusBadge(BuildContext context, String status, bool isEnded) {
     Color bgColor;
     Color textColor;
+    String text = status;
 
-    if (status == 'done') {
+    if (isEnded) {
+      bgColor = Colors.grey.withOpacity(0.15);
+      textColor = Colors.grey.shade700;
+      text = 'Ended'.translate();
+    } else if (status == 'done' || status == 'completed') {
       bgColor = Colors.green.withOpacity(0.1);
       textColor = Colors.green.shade700;
+      text = 'Completed'.translate();
     } else if (status == 'cancelled') {
       bgColor = Colors.red.withOpacity(0.1);
       textColor = Colors.red.shade700;
+      text = 'Cancelled'.translate();
     } else {
       bgColor = AppColors.legalGold.withOpacity(0.15);
       textColor = const Color(0xFFB8860B);
+      text = 'Pending'.translate();
     }
 
     return Container(
@@ -693,7 +810,7 @@ class AppointmentsScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(20.r),
       ),
       child: Text(
-        status.toUpperCase(),
+        text.toUpperCase(),
         style: GoogleFonts.cairo(
           color: textColor,
           fontSize: 11.sp,

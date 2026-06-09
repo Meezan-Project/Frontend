@@ -40,6 +40,10 @@ class AuthGuard {
       return AppRoutes.login;
     }
 
+    if (requested == AppRoutes.secretaryHome && role != AppRole.secretary) {
+      return AppRoutes.login;
+    }
+
     return requested;
   }
 
@@ -51,6 +55,8 @@ class AuthGuard {
         return AppRoutes.lawyerHome;
       case AppRole.admin:
         return AppRoutes.adminHome;
+      case AppRole.secretary:
+        return AppRoutes.secretaryHome;
       case null:
         return AppRoutes.login;
     }

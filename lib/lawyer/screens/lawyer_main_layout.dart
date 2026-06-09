@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 // استيراد الشاشات الحقيقية المرتبطة بالفايربيز
 import 'package:mezaan/lawyer/screens/lawyer_dashboard_screen.dart';
-import 'package:mezaan/lawyer/screens/lawyer_real_schedule_screen.dart'; 
+import 'package:mezaan/lawyer/screens/lawyer_calendar_schedule_screen.dart'; 
 import 'package:mezaan/lawyer/widgets/lawyer_bottom_nav_bar.dart'; // استيراد الناف بار الخاص بك
 
 class LawyerMainLayout extends StatefulWidget {
@@ -18,7 +18,7 @@ class _LawyerMainLayoutState extends State<LawyerMainLayout> {
   // القائمة التي تحتوي على الشاشات الفعلية
   final List<Widget> _screens = [
     const Center(child: Text('Rescue Screen')),    // Index 0
-    const LawyerRealScheduleScreen(),             // Index 1: شاشة المواعيد الحقيقية
+    const LawyerCalendarScheduleScreen(),         // Index 1: شاشة المواعيد الحقيقية
     const Center(child: Text('Cases Screen')),     // Index 2
     const LawyerDashboardScreen(),                // Index 3: شاشة الداشبورد الحقيقية
   ];

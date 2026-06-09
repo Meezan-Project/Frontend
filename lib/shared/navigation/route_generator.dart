@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mezaan/admin/screens/admin_dashboard_screen.dart';
 import 'package:mezaan/lawyer/screens/lawyer_dashboard_screen.dart';
+import 'package:mezaan/lawyer/screens/secretary_dashboard_screen.dart';
 import 'package:mezaan/shared/auth/auth_guard.dart';
 import 'package:mezaan/shared/navigation/app_routes.dart';
 import 'package:mezaan/shared/screens/auth_screen.dart';
@@ -130,6 +131,11 @@ class RouteGenerator {
         return _buildModernRoute(
           page: const LawyerRequestScreen(),
           routeName: AppRoutes.lawyerRequest,
+        );
+      case AppRoutes.secretaryHome:
+        return _buildModernRoute(
+          page: const SecretaryDashboardScreen(),
+          routeName: AppRoutes.secretaryHome,
         );
       default:
         return _buildModernRoute(

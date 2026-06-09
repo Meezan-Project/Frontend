@@ -59,6 +59,8 @@ class _LaunchSplashScreenState extends State<LaunchSplashScreen>
         return AppRoutes.adminHome;
       case AppRole.lawyer:
         return AppRoutes.lawyerHome;
+      case AppRole.secretary:
+        return AppRoutes.secretaryHome;
       case AppRole.user:
         return AppRoutes.userHome;
     }
@@ -272,6 +274,9 @@ class _LaunchSplashScreenState extends State<LaunchSplashScreen>
     }
     if (rawRole == 'lawyer') {
       return AppRole.lawyer;
+    }
+    if (rawRole == 'secretary') {
+      return AppRole.secretary;
     }
     if (rawRole == 'user') {
       return AppRole.user;

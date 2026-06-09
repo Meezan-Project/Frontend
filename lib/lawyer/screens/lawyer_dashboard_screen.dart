@@ -23,6 +23,10 @@ import 'package:mezaan/lawyer/screens/lawyer_case_management_screen.dart';
 import 'package:mezaan/user/models/case_model.dart';
 import 'package:mezaan/user/screens/video_call_screen.dart';
 import 'package:mezaan/lawyer/screens/lawyer_chat_screen.dart';
+import 'package:mezaan/lawyer/screens/lawyer_calendar_schedule_screen.dart';
+import 'package:mezaan/lawyer/screens/freelancer_join_screen.dart';
+import 'package:mezaan/lawyer/screens/employee_office_view.dart';
+import 'package:mezaan/lawyer/screens/owner_office_management_screen.dart';
 import 'dart:async';
 
 class LawyerDashboardScreen extends StatefulWidget {
@@ -192,11 +196,56 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
       case 1:
         return const _CasesView();
       case 2:
-        return Center(child: Text('Office page coming soon'));
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) return const Center(child: CircularProgressIndicator());
+        return StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('lawyers')
+              .doc(user.uid)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (!snapshot.hasData || !snapshot.data!.exists) {
+              return const FreelancerJoinScreen();
+            }
+
+            final lawyerData = snapshot.data!.data() as Map<String, dynamic>? ?? {};
+            
+            String officeRole = 'freelancer';
+            String? officeId;
+
+            final workStatusRaw = (lawyerData['work_status'] ?? '').toString().trim().toLowerCase();
+            final isOwner = workStatusRaw.contains('owns') || workStatusRaw.contains('owner') || workStatusRaw == 'own office';
+            final isEmployee = workStatusRaw.contains('work') || workStatusRaw.contains('employee');
+
+            if (isOwner) {
+              officeRole = 'owner';
+              officeId = lawyerData['officeId'] ?? user.uid;
+            } else if (isEmployee) {
+              officeRole = 'employee';
+              officeId = lawyerData['officeId'] ?? lawyerData['employer_lawyer_id'];
+            } else {
+              officeId = lawyerData['officeId'];
+              officeRole = lawyerData['officeRole'] ?? 'freelancer';
+            }
+
+            if (officeId == null || officeRole == 'freelancer') {
+              return const FreelancerJoinScreen();
+            } else if (officeRole == 'owner') {
+              return OwnerOfficeManagementScreen(officeId: officeId);
+            } else if (officeRole == 'employee') {
+              return EmployeeOfficeView(officeId: officeId);
+            } else {
+              return const FreelancerJoinScreen();
+            }
+          },
+        );
       case 4:
         return const _MessagesView();
       case 5:
-        return const _ScheduleView();
+        return const LawyerCalendarScheduleScreen();
       case 3:
       default:
         return _buildDashboardView(payload);
@@ -617,13 +666,33 @@ class _LawyerDashboardScreenState extends State<LawyerDashboardScreen>
               bottomNavigationBar:
                   snapshot.connectionState != ConnectionState.done
                   ? null
-                  : LawyerBottomNavBar(
-                      currentIndex: _selectedIndex,
-                      onDestinationSelected: (index) {
-                        setState(() => _selectedIndex = index);
+                  : StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('lawyers')
+                          .doc(currentUser.uid)
+                          .collection('conversations')
+                          .snapshots(),
+                      builder: (context, convoSnapshot) {
+                        int totalUnread = 0;
+                        if (convoSnapshot.hasData) {
+                          for (var doc in convoSnapshot.data!.docs) {
+                            final data = doc.data() as Map<String, dynamic>?;
+                            if (data != null) {
+                              totalUnread += (data['unreadCount'] as num?)?.toInt() ?? 0;
+                            }
+                          }
+                        }
+
+                        return LawyerBottomNavBar(
+                          currentIndex: _selectedIndex,
+                          unreadCount: totalUnread,
+                          onDestinationSelected: (index) {
+                            setState(() => _selectedIndex = index);
+                          },
+                          onOpenDrawer: () =>
+                              _scaffoldKey.currentState?.openEndDrawer(),
+                        );
                       },
-                      onOpenDrawer: () =>
-                          _scaffoldKey.currentState?.openEndDrawer(),
                     ),
             );
           },
@@ -706,6 +775,98 @@ class _LawyerDashboardPayload {
 class _UpcomingScheduleSection extends StatelessWidget {
   const _UpcomingScheduleSection();
 
+  DateTime? _parseAppointmentDateTime(String day, String time) {
+    try {
+      final dayParts = day.split(',');
+      if (dayParts.length < 2) return null;
+      final datePart = dayParts[1].trim(); // "16 May 2026"
+      final date = DateTime.parse(_convertToIsoDate(datePart));
+      final timeRange = time.split('-');
+      final startTime = timeRange[0].trim(); // "06:25 PM"
+      final timeOfDay = _parseTimeOfDay(startTime);
+      if (timeOfDay == null) return null;
+      return DateTime(
+        date.year,
+        date.month,
+        date.day,
+        timeOfDay.hour,
+        timeOfDay.minute,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _convertToIsoDate(String datePart) {
+    try {
+      final parts = datePart.split(' ');
+      if (parts.length != 3) return '';
+      final day = parts[0].padLeft(2, '0');
+      final month = _monthToNumber(parts[1]);
+      final year = parts[2];
+      return "$year-$month-$day";
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String _monthToNumber(String month) {
+    switch (month.toLowerCase()) {
+      case 'jan':
+      case 'january':
+        return '01';
+      case 'feb':
+      case 'february':
+        return '02';
+      case 'mar':
+      case 'march':
+        return '03';
+      case 'apr':
+      case 'april':
+        return '04';
+      case 'may':
+        return '05';
+      case 'jun':
+      case 'june':
+        return '06';
+      case 'jul':
+      case 'july':
+        return '07';
+      case 'aug':
+      case 'august':
+        return '08';
+      case 'sep':
+      case 'september':
+        return '09';
+      case 'oct':
+      case 'october':
+        return '10';
+      case 'nov':
+      case 'november':
+        return '11';
+      case 'dec':
+      case 'december':
+        return '12';
+      default:
+        return '01';
+    }
+  }
+
+  TimeOfDay? _parseTimeOfDay(String time) {
+    try {
+      final match = RegExp(r'^(\d{1,2}):(\d{2})\s*([AP]M)').firstMatch(time);
+      if (match == null) return null;
+      int hour = int.parse(match.group(1)!);
+      final int minute = int.parse(match.group(2)!);
+      final String period = match.group(3)!;
+      if (period == 'PM' && hour != 12) hour += 12;
+      if (period == 'AM' && hour == 12) hour = 0;
+      return TimeOfDay(hour: hour, minute: minute);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
@@ -728,26 +889,41 @@ class _UpcomingScheduleSection extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        var appointments = snapshot.data?.docs.toList() ?? [];
+        final appointments = snapshot.data?.docs.toList() ?? [];
 
-        if (appointments.isEmpty) {
+        final now = DateTime.now();
+        final activeAppointments = appointments.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final status = data['bookingStatus'] ?? data['status'] ?? 'pending';
+          if (status == 'cancelled') return false;
+
+          final appointmentDay = data['day'] ?? data['dateLabel'] ?? '';
+          final appointmentTime = data['time'] ?? data['timeRange'] ?? '';
+          if (appointmentDay.isEmpty || appointmentTime.isEmpty) return false;
+          final dateTime = _parseAppointmentDateTime(appointmentDay, appointmentTime);
+          if (dateTime == null) return false;
+          return dateTime.isAfter(now);
+        }).toList();
+
+        if (activeAppointments.isEmpty) {
           return const _DataEmptyHint(message: 'No scheduled appointments.');
         }
 
-        // Sort locally by createdAt descending to get the most recent appointment
-        appointments.sort((a, b) {
+        // Sort locally by actual appointment time ascending to get the closest upcoming appointment
+        activeAppointments.sort((a, b) {
           final aData = a.data() as Map<String, dynamic>;
           final bData = b.data() as Map<String, dynamic>;
-          final aTime = aData['createdAt'] as Timestamp?;
-          final bTime = bData['createdAt'] as Timestamp?;
-          if (aTime == null && bTime == null) return 0;
-          if (aTime == null) return 1;
-          if (bTime == null) return -1;
-          return bTime.compareTo(aTime);
+          final aTimeStr = aData['time'] ?? aData['timeRange'] ?? '';
+          final aDayStr = aData['day'] ?? aData['dateLabel'] ?? '';
+          final bTimeStr = bData['time'] ?? bData['timeRange'] ?? '';
+          final bDayStr = bData['day'] ?? bData['dateLabel'] ?? '';
+          final aDate = _parseAppointmentDateTime(aDayStr, aTimeStr) ?? DateTime(2100);
+          final bDate = _parseAppointmentDateTime(bDayStr, bTimeStr) ?? DateTime(2100);
+          return aDate.compareTo(bDate);
         });
 
-        // Get the nearest / most recent
-        final doc = appointments.first;
+        // Get the nearest / closest upcoming
+        final doc = activeAppointments.first;
         final data = doc.data() as Map<String, dynamic>;
 
         final clientName =
@@ -1104,7 +1280,7 @@ class _LawyerDashboardRepository {
         hasSchedule;
 
     debugPrint('--- Lawyer Onboarding Check ---');
-    debugPrint('onboardingCompleted: [33m[1m$onboardingFlag[0m');
+    debugPrint('onboardingCompleted: \u001b[33m\u001b[1m$onboardingFlag\u001b[0m');
     debugPrint('work_status: $workStatus');
     debugPrint('professional_bio: $bio');
     debugPrint('years_of_experience: $yearsOfExperience');
@@ -1113,11 +1289,15 @@ class _LawyerDashboardRepository {
     debugPrint('hasCoreData: $hasCoreData');
 
     if (!onboardingFlag || !hasCoreData) {
-      debugPrint('Result: [31m[1mNOT COMPLETE (core data missing)[0m');
+      debugPrint('Result: \u001b[31m\u001b[1mNOT COMPLETE (core data missing)\u001b[0m');
       return false;
     }
 
-    if (workStatus == 'Works in an Office') {
+    final workStatusLower = (workStatus ?? '').trim().toLowerCase();
+    final isEmployee = workStatusLower.contains('work') || workStatusLower.contains('employee');
+    final isOwner = workStatusLower.contains('owns') || workStatusLower.contains('owner') || workStatusLower == 'own office';
+
+    if (isEmployee) {
       final employerName = _asString(data['employer_lawyer_name']);
       debugPrint('employer_lawyer_name: $employerName');
       final result = (employerName ?? '').isNotEmpty;
@@ -1127,7 +1307,7 @@ class _LawyerDashboardRepository {
       return result;
     }
 
-    if (workStatus == 'Owns an Office') {
+    if (isOwner) {
       final officeDetails = data['office_details'];
       if (officeDetails is! Map) {
         debugPrint(
@@ -1177,8 +1357,6 @@ class _LawyerDashboardRepository {
     }
 
     debugPrint('Result: \u001b[32mCOMPLETE (default)\u001b[0m');
-    return true;
-
     return true;
   }
 
@@ -1712,8 +1890,156 @@ class _ServiceMapCard extends StatelessWidget {
 class _CaseCard extends StatelessWidget {
   final UserCase case_;
   final String? clientId;
+  final bool isOwner;
+  final String? officeId;
 
-  const _CaseCard({required this.case_, this.clientId});
+  const _CaseCard({
+    required this.case_,
+    this.clientId,
+    this.isOwner = false,
+    this.officeId,
+  });
+
+  Future<List<Map<String, dynamic>>> _getOfficeLawyers(String officeId) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('offices')
+        .doc(officeId)
+        .collection('members')
+        .get();
+
+    return snapshot.docs
+        .map((doc) => doc.data())
+        .where((m) => m['role'] == 'employee' || m['role'] == 'owner')
+        .toList();
+  }
+
+  void _assignCase(BuildContext context, String officeId, String caseDocId, String currentLawyerId) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final lawyers = await _getOfficeLawyers(officeId);
+
+    String? selectedLawyerId = currentLawyerId;
+    if (lawyers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No lawyers found in this office.'.translate())),
+      );
+      return;
+    }
+
+    final bool hasCurrent = lawyers.any((l) => l['memberId'] == currentLawyerId);
+    if (!hasCurrent && lawyers.isNotEmpty) {
+      selectedLawyerId = lawyers.first['memberId'];
+    }
+
+    double initialCommission = 15.0;
+    if (lawyers.isNotEmpty) {
+      final defaultLawyer = lawyers.firstWhere(
+        (l) => l['memberId'] == selectedLawyerId,
+        orElse: () => lawyers.first,
+      );
+      initialCommission = (defaultLawyer['commissionRate'] as num?)?.toDouble() ?? 15.0;
+    }
+
+    final commController = TextEditingController(text: initialCommission.toString());
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+              title: Text(
+                'Assign Case'.translate(),
+                style: GoogleFonts.cairo(fontWeight: FontWeight.bold),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: selectedLawyerId,
+                    dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                    decoration: InputDecoration(
+                      labelText: 'Select Lawyer'.translate(),
+                      border: const OutlineInputBorder(),
+                    ),
+                    items: lawyers.map((lawyer) {
+                      final String name = lawyer['name'] ?? 'Unknown';
+                      final String role = lawyer['role'] == 'owner' ? 'Owner'.translate() : 'Employee'.translate();
+                      return DropdownMenuItem<String>(
+                        value: lawyer['memberId'],
+                        child: Text('$name ($role)'),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      selectedLawyerId = val;
+                      final selectedLawyer = lawyers.firstWhere((l) => l['memberId'] == val);
+                      final double newComm = (selectedLawyer['commissionRate'] as num?)?.toDouble() ?? 15.0;
+                      setDialogState(() {
+                        commController.text = newComm.toString();
+                      });
+                    },
+                  ),
+                  SizedBox(height: 16.h),
+                  TextFormField(
+                    controller: commController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Commission %'.translate(),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('Cancel'.translate()),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final chosen = lawyers.firstWhere((l) => l['memberId'] == selectedLawyerId);
+                    final double rate = double.tryParse(commController.text) ?? 15.0;
+                    Navigator.pop(context, {
+                      'member': chosen,
+                      'commissionRate': rate,
+                    });
+                  },
+                  child: Text('Assign'.translate()),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null) {
+      final Map<String, dynamic> chosenMember = result['member'];
+      final double chosenRate = result['commissionRate'];
+      try {
+        await FirebaseFirestore.instance.collection('cases').doc(caseDocId).update({
+          'lawyerId': chosenMember['memberId'],
+          'lawyerName': chosenMember['name'],
+          'officeId': officeId,
+          'isOfficeAssigned': true,
+          'commissionRate': chosenRate,
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Case assigned successfully.'.translate()),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to assign case.'.translate()),
+            backgroundColor: AppColors.sosRed,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1762,7 +2088,32 @@ class _CaseCard extends StatelessWidget {
                     color: AppColors.legalGold,
                   ),
                 ),
-                _buildStatusBadge(case_.status),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+                      decoration: BoxDecoration(
+                        color: case_.isOfficeAssigned
+                            ? Colors.blue.withOpacity(0.12)
+                            : Colors.purple.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8.r),
+                      ),
+                      child: Text(
+                        case_.isOfficeAssigned
+                            ? 'Assigned by Office'.translate()
+                            : 'Own Case'.translate(),
+                        style: GoogleFonts.cairo(
+                          fontSize: 10.sp,
+                          fontWeight: FontWeight.bold,
+                          color: case_.isOfficeAssigned ? Colors.blue : Colors.purple,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 8.w),
+                    _buildStatusBadge(case_.status),
+                  ],
+                ),
               ],
             ),
             SizedBox(height: 8.h),
@@ -1819,6 +2170,45 @@ class _CaseCard extends StatelessWidget {
                 );
               },
             ),
+            if (case_.isOfficeAssigned) ...[
+              SizedBox(height: 12.h),
+              Row(
+                children: [
+                  Icon(Icons.assignment_ind_rounded, size: 14.sp, color: AppColors.legalGold),
+                  SizedBox(width: 4.w),
+                  Text(
+                    'Assigned to'.translate() + ': ${case_.lawyerName} (${case_.commissionRate}%)',
+                    style: GoogleFonts.cairo(
+                      fontSize: 12.sp,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white70 : AppColors.textDark.withOpacity(0.8),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (isOwner && officeId != null) ...[
+              SizedBox(height: 12.h),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _assignCase(context, officeId!, case_.id, case_.lawyerId),
+                    icon: Icon(Icons.assignment_ind_rounded, size: 16.sp),
+                    label: Text(
+                      'Assign Lawyer'.translate(),
+                      style: GoogleFonts.cairo(fontSize: 12.sp, fontWeight: FontWeight.bold),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.legalGold,
+                      side: const BorderSide(color: AppColors.legalGold),
+                      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1864,7 +2254,7 @@ class _CaseCard extends StatelessWidget {
   }
 
   Widget _buildClientInfo(bool isDark) {
-    String clientName = case_.lawyerName;
+    String clientName = case_.clientName.isNotEmpty ? case_.clientName : case_.lawyerName;
     if (clientName.startsWith('Client: ')) {
       clientName = clientName.substring(8);
     } else if (clientName.isEmpty || clientName == 'Unknown Client') {
@@ -2033,138 +2423,6 @@ class _StatsCard extends StatelessWidget {
 }
 
 // View Pages
-class _ScheduleView extends StatelessWidget {
-  const _ScheduleView();
-
-  @override
-  Widget build(BuildContext context) {
-    final currentUser = FirebaseAuth.instance.currentUser;
-
-    if (currentUser == null) {
-      return Center(child: Text('User not logged in'.translate()));
-    }
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('appointments')
-          .where('lawyerId', isEqualTo: currentUser.uid)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(
-            child: _DataEmptyHint(
-              message: 'Error loading schedule.'.translate(),
-            ),
-          );
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final appointments = snapshot.data?.docs ?? [];
-
-        if (appointments.isEmpty) {
-          return Center(
-            child: _DataEmptyHint(
-              message: 'No scheduled appointments yet.'.translate(),
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
-          itemCount: appointments.length,
-          itemBuilder: (context, index) {
-            final data = appointments[index].data() as Map<String, dynamic>;
-            final clientName =
-                data['clientName'] as String? ?? 'Unknown Client';
-            final time = data['appointmentTime'] as String? ?? '--:--';
-            final day = data['day'] as String? ?? 'Date not set';
-
-            return _ScheduleItemWidget(
-              title: clientName,
-              subtitle: '$day | $time',
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _ScheduleItemWidget extends StatelessWidget {
-  final String title;
-  final String subtitle;
-
-  const _ScheduleItemWidget({required this.title, required this.subtitle});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? const Color(0xFF162235) : Colors.white;
-
-    return Container(
-      margin: EdgeInsets.only(bottom: 12.h),
-      padding: EdgeInsets.all(14.r),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(14.r),
-        border: Border.all(
-          color: isDark ? const Color(0xFF334766) : const Color(0xFFE5E7EB),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
-            blurRadius: 8,
-            offset: Offset(0, 2.h),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: EdgeInsets.all(8.r),
-            decoration: BoxDecoration(
-              color: AppColors.navyBlue.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8.r),
-            ),
-            child: Icon(
-              Icons.schedule_rounded,
-              color: AppColors.navyBlue,
-              size: 18.sp,
-            ),
-          ),
-          SizedBox(width: 12.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.cairo(
-                    fontSize: 13.sp,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : AppColors.navyBlue,
-                  ),
-                ),
-                SizedBox(height: 4.h),
-                Text(
-                  subtitle,
-                  style: GoogleFonts.cairo(
-                    fontSize: 11.sp,
-                    color: isDark ? Colors.white70 : Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _CasesView extends StatefulWidget {
   const _CasesView();
 
@@ -2181,160 +2439,177 @@ class _CasesViewState extends State<_CasesView> {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return const SizedBox.shrink();
 
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('cases')
-          .where('lawyerId', isEqualTo: currentUser.uid)
+          .collection('lawyers')
+          .doc(currentUser.uid)
           .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      builder: (context, lawyerSnap) {
+        if (lawyerSnap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError) {
-          print('Error details: ${snapshot.error}');
-          return Center(
-            child: _DataEmptyHint(message: 'Error: ${snapshot.error}'),
-          );
-        }
 
-        final docs = snapshot.data?.docs.toList() ?? [];
+        final lawyerData = lawyerSnap.data?.data() as Map<String, dynamic>? ?? {};
+        final workStatusRaw = (lawyerData['work_status'] ?? '').toString().trim().toLowerCase();
+        final isOwner = workStatusRaw.contains('owns') || workStatusRaw.contains('owner') || workStatusRaw == 'own office';
+        final String? officeId = lawyerData['officeId'];
 
-        // Sort in Dart to avoid missing Composite Index error in Firestore
-        docs.sort((a, b) {
-          final aData = a.data() as Map<String, dynamic>;
-          final bData = b.data() as Map<String, dynamic>;
-          final aTime = aData['createdAt'] as Timestamp?;
-          final bTime = bData['createdAt'] as Timestamp?;
-          if (aTime == null && bTime == null) return 0;
-          if (aTime == null) return 1;
-          if (bTime == null) return -1;
-          return bTime.compareTo(aTime);
-        });
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('cases')
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              print('Error details: ${snapshot.error}');
+              return Center(
+                child: _DataEmptyHint(message: 'Error: ${snapshot.error}'),
+              );
+            }
 
-        final allCasesData = docs.map((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          final caseData = UserCase(
-            id: doc.id,
-            lawyerId: data['lawyerId'] ?? '',
-            caseNumber: data['caseId'] ?? doc.id,
-            title: data['title'] ?? 'Untitled',
-            description: data['description'] ?? '',
-            category: data['category'] ?? 'Civil',
-            status: data['status'] ?? 'pending',
-            createdDate:
-                (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-            lawyerName: data['clientName'] ?? 'Unknown Client',
-            legalFees: (data['legalFees'] as num?)?.toDouble() ?? 0.0,
-            requiredDocuments: [],
-            sessions: [],
-            updates: [],
-          );
-          return {'case': caseData, 'clientId': data['clientId']};
-        }).toList();
+            final allDocs = snapshot.data?.docs.toList() ?? [];
 
-        final filteredCases = _filterStatus == 'all'
-            ? allCasesData
-            : allCasesData
-                  .where((c) => (c['case'] as UserCase).status == _filterStatus)
-                  .toList();
+            // Filter in-memory:
+            // If Owner: officeId == officeId OR lawyerId == ownerId (currentUser.uid)
+            // If not Owner: lawyerId == currentUser.uid
+            final docs = allDocs.where((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              if (isOwner && officeId != null) {
+                final String? caseOfficeId = data['officeId'];
+                final String? caseLawyerId = data['lawyerId'];
+                return caseOfficeId == officeId || caseLawyerId == currentUser.uid;
+              } else {
+                return data['lawyerId'] == currentUser.uid;
+              }
+            }).toList();
 
-        return ListView(
-          padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
-          children: [
-            Text(
-              'My Cases'.translate(),
-              style: GoogleFonts.cairo(
-                fontSize: 24.sp,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            SizedBox(height: 12.h),
-            if (docs.isEmpty)
-              Center(
-                child: Padding(
-                  padding: EdgeInsets.only(top: 40.h),
-                  child: _DataEmptyHint(
-                    message: 'No active cases.'.translate(),
+            // Sort in Dart to avoid missing Composite Index error in Firestore
+            docs.sort((a, b) {
+              final aData = a.data() as Map<String, dynamic>;
+              final bData = b.data() as Map<String, dynamic>;
+              final aTime = aData['createdAt'] as Timestamp?;
+              final bTime = bData['createdAt'] as Timestamp?;
+              if (aTime == null && bTime == null) return 0;
+              if (aTime == null) return 1;
+              if (bTime == null) return -1;
+              return bTime.compareTo(aTime);
+            });
+
+            final allCasesData = docs.map((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              final caseData = UserCase.fromFirestore(doc);
+              return {'case': caseData, 'clientId': data['clientId']};
+            }).toList();
+
+            final filteredCases = _filterStatus == 'all'
+                ? allCasesData
+                : allCasesData
+                      .where((c) => (c['case'] as UserCase).status == _filterStatus)
+                      .toList();
+
+            return ListView(
+              padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 28.h),
+              children: [
+                Text(
+                  'My Cases'.translate(),
+                  style: GoogleFonts.cairo(
+                    fontSize: 24.sp,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              )
-            else ...[
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _buildFilterChip(
-                      'all',
-                      'All'.translate(),
-                      allCasesData.length,
-                      isDark,
+                SizedBox(height: 12.h),
+                if (docs.isEmpty)
+                  Center(
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 40.h),
+                      child: _DataEmptyHint(
+                        message: 'No active cases.'.translate(),
+                      ),
                     ),
-                    SizedBox(width: 8.w),
-                    _buildFilterChip(
-                      'active',
-                      'Active'.translate(),
-                      allCasesData
-                          .where(
-                            (c) => (c['case'] as UserCase).status == 'active',
-                          )
-                          .length,
-                      isDark,
-                    ),
-                    SizedBox(width: 8.w),
-                    _buildFilterChip(
-                      'closed',
-                      'Closed'.translate(),
-                      allCasesData
-                          .where(
-                            (c) => (c['case'] as UserCase).status == 'closed',
-                          )
-                          .length,
-                      isDark,
-                    ),
-                    SizedBox(width: 8.w),
-                    _buildFilterChip(
-                      'pending',
-                      'Pending'.translate(),
-                      allCasesData
-                          .where(
-                            (c) => (c['case'] as UserCase).status == 'pending',
-                          )
-                          .length,
-                      isDark,
-                    ),
-                    SizedBox(width: 8.w),
-                    _buildFilterChip(
-                      'on_hold',
-                      'On Hold'.translate(),
-                      allCasesData
-                          .where(
-                            (c) => (c['case'] as UserCase).status == 'on_hold',
-                          )
-                          .length,
-                      isDark,
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(height: 20.h),
-              if (filteredCases.isEmpty)
-                Center(
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 40.h),
-                    child: _DataEmptyHint(
-                      message: 'No cases in this category'.translate(),
+                  )
+                else ...[
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildFilterChip(
+                          'all',
+                          'All'.translate(),
+                          allCasesData.length,
+                          isDark,
+                        ),
+                        SizedBox(width: 8.w),
+                        _buildFilterChip(
+                          'active',
+                          'Active'.translate(),
+                          allCasesData
+                              .where(
+                                (c) => (c['case'] as UserCase).status == 'active',
+                              )
+                              .length,
+                          isDark,
+                        ),
+                        SizedBox(width: 8.w),
+                        _buildFilterChip(
+                          'closed',
+                          'Closed'.translate(),
+                          allCasesData
+                              .where(
+                                (c) => (c['case'] as UserCase).status == 'closed',
+                              )
+                              .length,
+                          isDark,
+                        ),
+                        SizedBox(width: 8.w),
+                        _buildFilterChip(
+                          'pending',
+                          'Pending'.translate(),
+                          allCasesData
+                              .where(
+                                (c) => (c['case'] as UserCase).status == 'pending',
+                              )
+                              .length,
+                          isDark,
+                        ),
+                        SizedBox(width: 8.w),
+                        _buildFilterChip(
+                          'on_hold',
+                          'On Hold'.translate(),
+                          allCasesData
+                              .where(
+                                (c) => (c['case'] as UserCase).status == 'on_hold',
+                              )
+                              .length,
+                          isDark,
+                        ),
+                      ],
                     ),
                   ),
-                )
-              else
-                ...filteredCases.map((caseMap) {
-                  return _CaseCard(
-                    case_: caseMap['case'] as UserCase,
-                    clientId: caseMap['clientId'] as String?,
-                  );
-                }),
-            ],
-          ],
+                  SizedBox(height: 20.h),
+                  if (filteredCases.isEmpty)
+                    Center(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 40.h),
+                        child: _DataEmptyHint(
+                          message: 'No cases in this category'.translate(),
+                        ),
+                      ),
+                    )
+                  else
+                    ...filteredCases.map((caseMap) {
+                      return _CaseCard(
+                        case_: caseMap['case'] as UserCase,
+                        clientId: caseMap['clientId'] as String?,
+                        isOwner: isOwner,
+                        officeId: officeId,
+                      );
+                    }),
+                ],
+              ],
+            );
+          },
         );
       },
     );
@@ -2377,8 +2652,9 @@ class _MessagesView extends StatelessWidget {
 
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('chats')
-          .where('lawyerId', isEqualTo: currentUser.uid)
+          .collection('lawyers')
+          .doc(currentUser.uid)
+          .collection('conversations')
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -2396,8 +2672,8 @@ class _MessagesView extends StatelessWidget {
         docs.sort((a, b) {
           final aData = a.data() as Map<String, dynamic>;
           final bData = b.data() as Map<String, dynamic>;
-          final aTime = aData['lastMessageTime'] as Timestamp?;
-          final bTime = bData['lastMessageTime'] as Timestamp?;
+          final aTime = (aData['updatedAt'] ?? aData['lastMessageTime']) as Timestamp?;
+          final bTime = (bData['updatedAt'] ?? bData['lastMessageTime']) as Timestamp?;
           if (aTime == null && bTime == null) return 0;
           if (aTime == null) return 1;
           if (bTime == null) return -1;
@@ -2425,10 +2701,13 @@ class _MessagesView extends StatelessWidget {
             else
               ...docs.map((doc) {
                 final data = doc.data() as Map<String, dynamic>;
-                final clientName = data['clientName'] ?? 'Unknown Client';
+                final chatId = data['chatId'] ?? doc.id;
+                final clientId = data['clientId'] ?? data['userId'] ?? '';
+                final clientName = data['clientName'] ?? data['userName'] ?? 'Unknown Client';
                 final lastMessage = data['lastMessage'] ?? '';
-                final lastTime = data['lastMessageTime'] as Timestamp?;
-                final clientImage = data['clientProfileImage'] as String?;
+                final lastTime = (data['updatedAt'] ?? data['lastMessageTime']) as Timestamp?;
+                final clientImage = data['clientProfileImage'] ?? data['userAvatar'] as String?;
+                final unreadCount = (data['unreadCount'] as num?)?.toInt() ?? 0;
 
                 String timeText = '';
                 if (lastTime != null) {
@@ -2442,12 +2721,13 @@ class _MessagesView extends StatelessWidget {
                 }
 
                 return _MessageTile(
-                  chatId: doc.id,
+                  chatId: chatId,
                   clientName: clientName,
                   lastMessage: lastMessage,
                   timeText: timeText,
                   clientImage: clientImage,
-                  clientId: data['clientId'] ?? '',
+                  clientId: clientId,
+                  unreadCount: unreadCount,
                   isDark: isDark,
                 );
               }),
@@ -2465,6 +2745,7 @@ class _MessageTile extends StatelessWidget {
   final String timeText;
   final String? clientImage;
   final String clientId;
+  final int unreadCount;
   final bool isDark;
 
   const _MessageTile({
@@ -2474,105 +2755,170 @@ class _MessageTile extends StatelessWidget {
     required this.timeText,
     this.clientImage,
     required this.clientId,
+    required this.unreadCount,
     required this.isDark,
   });
 
   @override
   Widget build(BuildContext context) {
-    final cardColor = isDark ? const Color(0xFF1A2940) : Colors.white;
+    final cardColor = unreadCount > 0 
+        ? (isDark ? const Color(0xFF1E3A5F) : const Color(0xFFE8F4FE)) 
+        : (isDark ? const Color(0xFF1A2940) : Colors.white);
+        
+    final borderColor = unreadCount > 0
+        ? AppColors.legalGold.withOpacity(0.6)
+        : (isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5));
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => LawyerChatScreen(
-              chatId: chatId,
-              clientName: clientName,
-              clientId: clientId,
-              clientImage: clientImage,
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(clientId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        String resolvedName = clientName;
+        String? resolvedImage = clientImage;
+
+        if (snapshot.hasData && snapshot.data!.exists) {
+          final data = snapshot.data!.data() as Map<String, dynamic>?;
+          if (data != null) {
+            final fName = data['fullName'] ?? data['name'] ?? '';
+            if (fName.toString().trim().isNotEmpty) {
+              resolvedName = fName.toString().trim();
+            }
+            final img = (data['profilePhotoUrl'] ?? data['profile_photo'] ?? data['photoUrl'] ?? '').toString().trim();
+            if (img.isNotEmpty) {
+              resolvedImage = img;
+            }
+          }
+        }
+
+        final hasValidImage = resolvedImage != null && resolvedImage.startsWith('http');
+
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => LawyerChatScreen(
+                  chatId: chatId,
+                  clientName: resolvedName,
+                  clientId: clientId,
+                  clientImage: resolvedImage,
+                ),
+              ),
+            );
+          },
+          child: Container(
+            margin: EdgeInsets.only(bottom: 12.h),
+            padding: EdgeInsets.all(12.r),
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(16.r),
+              border: Border.all(color: borderColor),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
+                  blurRadius: 8,
+                  offset: Offset(0, 2.h),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 24.r,
+                  backgroundColor: AppColors.navyBlue.withOpacity(0.1),
+                  backgroundImage: hasValidImage ? NetworkImage(resolvedImage!) : null,
+                  child: !hasValidImage
+                      ? Text(
+                          resolvedName.isNotEmpty ? resolvedName[0].toUpperCase() : 'U',
+                          style: GoogleFonts.cairo(
+                            fontSize: 18.sp,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.navyBlue,
+                          ),
+                        )
+                      : null,
+                ),
+                SizedBox(width: 12.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              resolvedName,
+                              style: GoogleFonts.cairo(
+                                fontSize: 15.sp,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : AppColors.navyBlue,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          SizedBox(width: 8.w),
+                          Text(
+                            timeText,
+                            style: GoogleFonts.cairo(
+                              fontSize: 11.sp,
+                              color: unreadCount > 0 ? AppColors.legalGold : Colors.grey,
+                              fontWeight: unreadCount > 0 ? FontWeight.bold : FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 4.h),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              lastMessage.isNotEmpty
+                                  ? lastMessage
+                                  : 'Image or Attachment'.translate(),
+                              style: GoogleFonts.cairo(
+                                fontSize: 13.sp,
+                                color: unreadCount > 0 
+                                    ? (isDark ? Colors.white : Colors.black87) 
+                                    : (isDark ? Colors.grey[400] : Colors.grey[600]),
+                                fontWeight: unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (unreadCount > 0) ...[
+                            SizedBox(width: 8.w),
+                            Container(
+                              padding: EdgeInsets.all(6.r),
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                '$unreadCount',
+                                style: GoogleFonts.cairo(
+                                  color: Colors.white,
+                                  fontSize: 10.sp,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         );
       },
-      child: Container(
-        margin: EdgeInsets.only(bottom: 12.h),
-        padding: EdgeInsets.all(12.r),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(16.r),
-          border: Border.all(
-            color: isDark ? const Color(0xFF304563) : const Color(0xFFDCE6F5),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.1 : 0.04),
-              blurRadius: 8,
-              offset: Offset(0, 2.h),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 24.r,
-              backgroundColor: AppColors.navyBlue.withOpacity(0.1),
-              backgroundImage: (clientImage != null && clientImage!.isNotEmpty)
-                  ? NetworkImage(clientImage!)
-                  : null,
-              child: (clientImage == null || clientImage!.isEmpty)
-                  ? Icon(Icons.person, color: AppColors.navyBlue, size: 24.sp)
-                  : null,
-            ),
-            SizedBox(width: 12.w),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          clientName,
-                          style: GoogleFonts.cairo(
-                            fontSize: 15.sp,
-                            fontWeight: FontWeight.bold,
-                            color: isDark ? Colors.white : AppColors.navyBlue,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      SizedBox(width: 8.w),
-                      Text(
-                        timeText,
-                        style: GoogleFonts.cairo(
-                          fontSize: 11.sp,
-                          color: Colors.grey,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 4.h),
-                  Text(
-                    lastMessage.isNotEmpty
-                        ? lastMessage
-                        : 'Image or Attachment',
-                    style: GoogleFonts.cairo(
-                      fontSize: 13.sp,
-                      color: isDark ? Colors.grey[400] : Colors.grey[600],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -2649,6 +2995,13 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
 
     try {
       final user = FirebaseAuth.instance.currentUser;
+      String? officeId;
+      if (user != null) {
+        final doc = await FirebaseFirestore.instance.collection('lawyers').doc(user.uid).get();
+        if (doc.exists) {
+          officeId = doc.data()?['officeId'];
+        }
+      }
 
       // Prepare data map for Firestore
       final Map<String, dynamic> mapData = {
@@ -2658,6 +3011,7 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
         'clientId': _selectedClient!['uid'], // Button is disabled if null
         'lawyerId': user?.uid ?? 'unknown_lawyer',
         'lawyerName': widget.lawyerName,
+        if (officeId != null) 'officeId': officeId,
         'title': _titleController.text.trim(),
         'status': 'pending_payment',
         'category': _selectedCategory,
@@ -3012,8 +3366,9 @@ class _AddCaseSheetState extends State<_AddCaseSheet> {
 
                         if (_selectedCategory != dropdownValue) {
                           WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (mounted)
+                            if (mounted) {
                               setState(() => _selectedCategory = dropdownValue);
+                            }
                           });
                         }
 

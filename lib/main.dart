@@ -16,6 +16,8 @@ import 'firebase_options.dart';
 import 'package:video_player_media_kit/video_player_media_kit.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:mezaan/shared/services/notification_service.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -39,6 +41,7 @@ Future<void> main() async {
   ThemeController.instance;
   // Initialize auth state before running the app
   await authState.init();
+  await NotificationService().init();
   runApp(const MezaanApp());
 }
 

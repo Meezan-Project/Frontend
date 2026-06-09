@@ -64,6 +64,9 @@ class _LoginScreenState extends State<LoginScreen> {
       case AppRole.admin:
         LoadingNavigator.pushReplacementNamed(context, AppRoutes.adminHome);
         break;
+      case AppRole.secretary:
+        LoadingNavigator.pushReplacementNamed(context, AppRoutes.secretaryHome);
+        break;
       case AppRole.user:
       default:
         LoadingNavigator.pushReplacementNamed(context, AppRoutes.userHome);
@@ -510,6 +513,9 @@ class _LoginScreenState extends State<LoginScreen> {
     if (rawRole == 'lawyer') {
       return AppRole.lawyer;
     }
+    if (rawRole == 'secretary') {
+      return AppRole.secretary;
+    }
     if (rawRole == 'user') {
       return AppRole.user;
     }
@@ -572,6 +578,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final homeRoute = switch (role) {
         AppRole.admin => AppRoutes.adminHome,
         AppRole.lawyer => AppRoutes.lawyerHome,
+        AppRole.secretary => AppRoutes.secretaryHome,
         AppRole.user => AppRoutes.userHome,
       };
       LoadingNavigator.pushNamedAndRemoveUntil(

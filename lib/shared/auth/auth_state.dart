@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum AppRole { user, lawyer, admin }
+enum AppRole { user, lawyer, admin, secretary }
 
 class AuthState extends ChangeNotifier {
   bool _isLoggedIn = false;
@@ -115,9 +115,11 @@ class AuthState extends ChangeNotifier {
     if (normalized == 'approle.user') return AppRole.user;
     if (normalized == 'approle.lawyer') return AppRole.lawyer;
     if (normalized == 'approle.admin') return AppRole.admin;
+    if (normalized == 'approle.secretary') return AppRole.secretary;
     if (normalized == 'user') return AppRole.user;
     if (normalized == 'lawyer') return AppRole.lawyer;
     if (normalized == 'admin') return AppRole.admin;
+    if (normalized == 'secretary') return AppRole.secretary;
     return null;
   }
 }

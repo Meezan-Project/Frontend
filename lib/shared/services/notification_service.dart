@@ -10,6 +10,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 // TODO: Uncomment the line below and ensure firebase_options.dart is generated
+import 'package:intl/intl.dart';
+import 'package:mezaan/shared/localization/translate_extension.dart';
 // import 'package:mezaan/firebase_options.dart';
 
 // --- Part 2: Background Message Handler ---
@@ -140,15 +142,37 @@ class NotificationService {
     }
 
     // 5. Get initial FCM token and save to Firestore
-    final String? token = await _fcm.getToken();
-    if (token != null) {
-      await _saveTokenToFirestore(token);
+    try {
+      final String? token = await _fcm.getToken();
+      if (token != null) {
+        await _saveTokenToFirestore(token);
+      }
+    } catch (e) {
+      debugPrint('Error getting initial FCM token: $e');
     }
 
     // 6. Listen for token refreshes
     _fcm.onTokenRefresh.listen((newToken) {
       _saveTokenToFirestore(newToken);
     });
+
+    // 7. Listen to auth state changes to save token and schedule reminders on login
+    FirebaseAuth.instance.authStateChanges().listen((user) async {
+      if (user != null) {
+        try {
+          final String? token = await _fcm.getToken();
+          if (token != null) {
+            await _saveTokenToFirestore(token);
+          }
+        } catch (_) {}
+        await scheduleAllUpcomingReminders();
+      }
+    });
+
+    // Run scheduled reminders scanner immediately if already logged in
+    if (FirebaseAuth.instance.currentUser != null) {
+      scheduleAllUpcomingReminders();
+    }
   }
 
   void _handleMessageTap(Map<String, dynamic> data) {
@@ -221,10 +245,20 @@ class NotificationService {
     if (user == null) return;
 
     try {
+      // Save to users collection
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'fcmToken': token,
         'tokenUpdatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+
+      // Check if lawyer doc exists and update it too
+      final lawyerDoc = await FirebaseFirestore.instance.collection('lawyers').doc(user.uid).get();
+      if (lawyerDoc.exists) {
+        await FirebaseFirestore.instance.collection('lawyers').doc(user.uid).set({
+          'fcmToken': token,
+          'tokenUpdatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
     } catch (e) {
       debugPrint('Failed to save FCM token: $e');
     }
@@ -238,11 +272,21 @@ class NotificationService {
     Map<String, dynamic>? data,
   }) async {
     try {
+      // Try fetching token from users collection
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(targetUserId)
           .get();
-      final token = userDoc.data()?['fcmToken'];
+      String? token = userDoc.data()?['fcmToken'];
+
+      // If not found, try lawyers collection
+      if (token == null || token.isEmpty) {
+        final lawyerDoc = await FirebaseFirestore.instance
+            .collection('lawyers')
+            .doc(targetUserId)
+            .get();
+        token = lawyerDoc.data()?['fcmToken'];
+      }
 
       if (token == null || token.toString().isEmpty) return;
 
@@ -345,6 +389,194 @@ class NotificationService {
       debugPrint('Scheduled reminder for meeting $meetingId at $scheduledTime');
     } catch (e) {
       debugPrint('Failed to schedule meeting reminder: $e');
+    }
+  }
+
+  // --- Part 7: Schedule reminders for all upcoming meetings ---
+  Future<void> scheduleLocalReminder({
+    required String reminderId,
+    required String title,
+    required String body,
+    required DateTime eventTime,
+    required Duration offset,
+    required Map<String, dynamic> payload,
+  }) async {
+    final scheduledTime = eventTime.subtract(offset);
+    if (scheduledTime.isBefore(DateTime.now())) return;
+
+    try {
+      await _localNotifications.zonedSchedule(
+        reminderId.hashCode,
+        title,
+        body,
+        tz.TZDateTime.from(scheduledTime, tz.local),
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channel.id,
+            _channel.name,
+            channelDescription: _channel.description,
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: const DarwinNotificationDetails(),
+        ),
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        payload: jsonEncode(payload),
+      );
+      debugPrint('Scheduled reminder $reminderId at $scheduledTime');
+    } catch (e) {
+      debugPrint('Failed to schedule reminder $reminderId: $e');
+    }
+  }
+
+  Future<void> scheduleAllUpcomingReminders() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      // --- 1. APPOINTMENTS ---
+      final clientSnapshot = await FirebaseFirestore.instance
+          .collection('appointments')
+          .where('userId', isEqualTo: user.uid)
+          .get();
+          
+      final lawyerSnapshot = await FirebaseFirestore.instance
+          .collection('appointments')
+          .where('lawyerId', isEqualTo: user.uid)
+          .get();
+
+      final allAppts = [...clientSnapshot.docs, ...lawyerSnapshot.docs];
+      
+      for (final doc in allAppts) {
+        final data = doc.data();
+        final status = data['status'] ?? data['bookingStatus'] ?? '';
+        if (status == 'cancelled') continue;
+
+        final type = data['consultationType'] ?? data['type'] ?? 'online';
+        final dateLabel = data['day'] ?? data['dateLabel'] ?? '';
+        final timeRange = data['time'] ?? data['timeRange'] ?? '';
+        if (dateLabel.isEmpty || timeRange.isEmpty) continue;
+
+        // Parse date and time
+        final meetingTime = _parseDateTime(dateLabel, timeRange);
+        if (meetingTime == null) continue;
+
+        final isLawyer = data['lawyerId'] == user.uid;
+        final otherName = isLawyer 
+            ? (data['userName'] ?? 'Client'.translate()) 
+            : (data['lawyerName'] ?? 'Lawyer'.translate());
+
+        if (type == 'online') {
+          // Schedule online meeting reminder (30 minutes before)
+          await scheduleLocalReminder(
+            reminderId: 'online_${doc.id}',
+            title: 'Upcoming Video Consultation'.translate(),
+            body: isLawyer 
+                ? '${'Your meeting with client'.translate()} $otherName ${'starts in 30 minutes.'.translate()}'
+                : '${'Your meeting with lawyer'.translate()} $otherName ${'starts in 30 minutes.'.translate()}',
+            eventTime: meetingTime,
+            offset: const Duration(minutes: 30),
+            payload: {'type': 'video_call', 'referenceId': doc.id},
+          );
+        } else {
+          // Schedule office meeting reminder (1 hour before)
+          await scheduleLocalReminder(
+            reminderId: 'office_${doc.id}',
+            title: 'Upcoming Office Consultation'.translate(),
+            body: isLawyer 
+                ? '${'Your appointment with client'.translate()} $otherName ${'starts in 1 hour.'.translate()}'
+                : '${'Your appointment with lawyer'.translate()} $otherName ${'starts in 1 hour.'.translate()}',
+            eventTime: meetingTime,
+            offset: const Duration(hours: 1),
+            payload: {'type': 'appointment', 'referenceId': doc.id},
+          );
+        }
+      }
+
+      // --- 2. COURT SESSIONS (GALSAT) ---
+      final clientCases = await FirebaseFirestore.instance
+          .collection('cases')
+          .where('clientId', isEqualTo: user.uid)
+          .get();
+
+      final lawyerCases = await FirebaseFirestore.instance
+          .collection('cases')
+          .where('lawyerId', isEqualTo: user.uid)
+          .get();
+
+      final allCases = [...clientCases.docs, ...lawyerCases.docs];
+
+      for (final doc in allCases) {
+        final caseData = doc.data();
+        final caseTitle = caseData['title'] ?? 'Case'.translate();
+        final sessions = caseData['sessions'] as List<dynamic>? ?? [];
+
+        for (int i = 0; i < sessions.length; i++) {
+          final session = sessions[i] as Map<String, dynamic>;
+          final status = session['status'] ?? 'scheduled';
+          if (status == 'cancelled') continue;
+
+          final scheduledDate = (session['scheduledDate'] as Timestamp?)?.toDate();
+          if (scheduledDate == null) continue;
+
+          // Schedule court session reminder (2 hours before)
+          await scheduleLocalReminder(
+            reminderId: 'session_${doc.id}_$i',
+            title: 'Upcoming Court Session'.translate(),
+            body: '${'Court Session today for case'.translate()} "$caseTitle" ${'starts in 2 hours.'.translate()}',
+            eventTime: scheduledDate,
+            offset: const Duration(hours: 2),
+            payload: {'type': 'court_session', 'referenceId': doc.id},
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error scheduling upcoming reminders: $e');
+    }
+  }
+
+  DateTime? _parseDateTime(String dateLabel, String timeRange) {
+    try {
+      // dateLabel is like "Tuesday, 9 Jun 2026" or "10 Nov 2026"
+      String cleanDate = dateLabel;
+      if (dateLabel.contains(',')) {
+        cleanDate = dateLabel.split(',').last.trim(); // "9 Jun 2026"
+      }
+      
+      DateTime? parsedDate;
+      final formats = [
+        'd MMM yyyy',
+        'dd MMM yyyy',
+        'yyyy-MM-dd',
+        'dd/MM/yyyy',
+      ];
+      for (final format in formats) {
+        try {
+          parsedDate = DateFormat(format).parse(cleanDate);
+          break;
+        } catch (_) {}
+      }
+      if (parsedDate == null) return null;
+
+      // Parse timeRange like "10:00 AM - 11:00 AM" or "10:00 AM"
+      final cleanTime = timeRange.split('-')[0].trim(); // "10:00 AM"
+      final parts = cleanTime.split(' '); // ["10:00", "AM"]
+      final hms = parts[0].split(':'); // ["10", "00"]
+      int hour = int.parse(hms[0]);
+      final minute = hms.length > 1 ? int.parse(hms[1]) : 0;
+      final amPm = parts.length > 1 ? parts[1].toUpperCase() : 'AM';
+      
+      if (amPm == 'PM' && hour < 12) {
+        hour += 12;
+      } else if (amPm == 'AM' && hour == 12) {
+        hour = 0;
+      }
+      return DateTime(parsedDate.year, parsedDate.month, parsedDate.day, hour, minute);
+    } catch (e) {
+      debugPrint('Error parsing date time: $e');
+      return null;
     }
   }
 }

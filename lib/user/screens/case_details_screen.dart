@@ -10,6 +10,7 @@ import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/models/case_model.dart';
 import 'package:mezaan/user/screens/deposit_screen.dart';
+import 'package:mezaan/shared/services/notification_service.dart';
 
 // Date formatting helper function
 String formatDate(DateTime date, String format) {
@@ -1034,8 +1035,33 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                   _isPaymentPending = false;
                                 });
 
-                                // --- Create chat between user and lawyer after payment ---
+                                // Trigger notifications
+                                final initialPayAmount = _baseRequestedAmount;
                                 final caseData = widget.case_;
+
+                                // Notify Client
+                                if (caseData.clientId.isNotEmpty) {
+                                  NotificationService().createAndSendNotification(
+                                    targetUserId: caseData.clientId,
+                                    title: 'Initial Payment Processed'.translate(),
+                                    body: '${'You have successfully paid initial fees of'.translate()} $initialPayAmount ${'EGP for case'.translate()} ${caseData.caseNumber}.',
+                                    type: 'transaction',
+                                    referenceId: caseData.id,
+                                  ).catchError((e) => debugPrint('Error sending initial payment client notification: $e'));
+                                }
+
+                                // Notify Lawyer
+                                if (caseData.lawyerId.isNotEmpty) {
+                                  NotificationService().createAndSendNotification(
+                                    targetUserId: caseData.lawyerId,
+                                    title: 'Case Initial Payment Paid'.translate(),
+                                    body: '${'Client'.translate()} ${caseData.clientName} ${'has paid initial fees of'.translate()} $initialPayAmount ${'EGP for case'.translate()} ${caseData.caseNumber}.',
+                                    type: 'transaction',
+                                    referenceId: caseData.id,
+                                  ).catchError((e) => debugPrint('Error sending initial payment lawyer notification: $e'));
+                                }
+
+                                // --- Create chat between user and lawyer after payment ---
                                 final chatId = caseData
                                     .id; // Use case ID as chat ID for uniqueness
                                 final userId = caseData.clientId;
@@ -1378,6 +1404,31 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                                   isSuccess = true;
                                 });
 
+                                // Trigger notifications
+                                final caseData = widget.case_;
+                                
+                                // Notify Client
+                                if (caseData.clientId.isNotEmpty) {
+                                  NotificationService().createAndSendNotification(
+                                    targetUserId: caseData.clientId,
+                                    title: 'Case Funded'.translate(),
+                                    body: '${'You have successfully funded'.translate()} $enteredAmount ${'EGP to case'.translate()} ${caseData.caseNumber}.',
+                                    type: 'transaction',
+                                    referenceId: caseData.id,
+                                  ).catchError((e) => debugPrint('Error sending additional funding client notification: $e'));
+                                }
+                                
+                                // Notify Lawyer
+                                if (caseData.lawyerId.isNotEmpty) {
+                                  NotificationService().createAndSendNotification(
+                                    targetUserId: caseData.lawyerId,
+                                    title: 'Case Funded'.translate(),
+                                    body: '${'Client'.translate()} ${caseData.clientName} ${'has funded'.translate()} $enteredAmount ${'EGP to case'.translate()} ${caseData.caseNumber}.',
+                                    type: 'transaction',
+                                    referenceId: caseData.id,
+                                  ).catchError((e) => debugPrint('Error sending additional funding lawyer notification: $e'));
+                                }
+
                                 await Future.delayed(
                                   const Duration(milliseconds: 1500),
                                 );
@@ -1684,8 +1735,9 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
                               data?['photoUrl'] ??
                               data?['avatar'] ??
                               data?['image'];
-                          if (photoUrl != null && photoUrl.trim().isEmpty)
+                          if (photoUrl != null && photoUrl.trim().isEmpty) {
                             photoUrl = null;
+                          }
 
                           final ratingVal =
                               data?['rating'] ??

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
+import 'package:mezaan/shared/services/notification_service.dart';
 
 class LawyerChatScreen extends StatefulWidget {
   final String chatId;
@@ -28,6 +30,48 @@ class _LawyerChatScreenState extends State<LawyerChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final String? _currentUserId = FirebaseAuth.instance.currentUser?.uid;
+  StreamSubscription? _unreadSub;
+  StreamSubscription? _messagesSub;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_currentUserId != null) {
+      _unreadSub = FirebaseFirestore.instance
+          .collection('lawyers')
+          .doc(_currentUserId)
+          .collection('conversations')
+          .doc(widget.chatId)
+          .snapshots()
+          .listen((doc) {
+        if (doc.exists && (doc.data()?['unreadCount'] ?? 0) > 0) {
+          doc.reference.update({'unreadCount': 0}).catchError((_) {});
+        }
+      });
+
+      _messagesSub = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .collection('messages')
+          .where('senderId', isNotEqualTo: _currentUserId)
+          .where('isRead', isEqualTo: false)
+          .snapshots()
+          .listen((snapshot) {
+        for (var doc in snapshot.docs) {
+          doc.reference.update({'isRead': true}).catchError((_) {});
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _unreadSub?.cancel();
+    _messagesSub?.cancel();
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   void _sendMessage() async {
     final text = _messageController.text.trim();
@@ -58,7 +102,19 @@ class _LawyerChatScreenState extends State<LawyerChatScreen> {
       'lastMessageTime': timestamp,
     }, SetOptions(merge: true));
 
-    // Update the user's conversation node for the Messages list screen
+    // Update the lawyer's conversation node
+    await FirebaseFirestore.instance
+        .collection('lawyers')
+        .doc(_currentUserId)
+        .collection('conversations')
+        .doc(widget.chatId)
+        .set({
+      'lastMessage': text,
+      'updatedAt': timestamp,
+      'unreadCount': 0,
+    }, SetOptions(merge: true));
+
+    // Update the client's conversation node
     await FirebaseFirestore.instance
         .collection('users')
         .doc(widget.clientId)
@@ -67,7 +123,31 @@ class _LawyerChatScreenState extends State<LawyerChatScreen> {
         .set({
       'lastMessage': text,
       'updatedAt': timestamp,
+      'unreadCount': FieldValue.increment(1),
     }, SetOptions(merge: true));
+
+    // Fetch lawyer's name for notification
+    String lawyerName = 'Lawyer'.translate();
+    try {
+      final lawyerDoc = await FirebaseFirestore.instance
+          .collection('lawyers')
+          .doc(_currentUserId)
+          .get();
+      if (lawyerDoc.exists) {
+        lawyerName = lawyerDoc.data()?['name'] ?? lawyerDoc.data()?['fullName'] ?? 'Lawyer'.translate();
+      }
+    } catch (_) {}
+
+    // Send push and in-app notification to the client
+    NotificationService().createAndSendNotification(
+      targetUserId: widget.clientId,
+      title: lawyerName,
+      body: text,
+      type: 'chat',
+      referenceId: widget.chatId,
+    ).catchError((e) {
+      debugPrint('Failed to trigger chat notification: $e');
+    });
 
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
@@ -166,15 +246,21 @@ class _LawyerChatScreenState extends State<LawyerChatScreen> {
                     final isMe = data['senderId'] == _currentUserId;
                     final text = data['text'] ?? '';
                     final time = data['timestamp'] as Timestamp?;
+                    final isRead = data['isRead'] ?? false;
+                    final isSending = time == null;
 
                     String timeStr = '';
                     if (time != null) {
                       final dt = time.toDate();
-                      timeStr =
-                          '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+                      final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+                      final minute = dt.minute.toString().padLeft(2, '0');
+                      final amPm = dt.hour >= 12 ? 'PM' : 'AM';
+                      timeStr = '$hour:$minute $amPm';
+                    } else {
+                      timeStr = 'Sending...'.translate();
                     }
 
-                    return _buildMessageBubble(text, timeStr, isMe, isDark);
+                    return _buildMessageBubble(text, timeStr, isMe, isDark, isRead, isSending);
                   },
                 );
               },
@@ -186,14 +272,37 @@ class _LawyerChatScreenState extends State<LawyerChatScreen> {
     );
   }
 
+  Widget _buildStatusIcon(bool isRead, bool isSending, bool isDark) {
+    if (isSending) {
+      return Icon(
+        Icons.access_time_rounded,
+        size: 11.sp,
+        color: isDark ? Colors.white54 : Colors.black45,
+      );
+    }
+    
+    final color = isRead 
+        ? Colors.blueAccent 
+        : (isDark ? Colors.white54 : Colors.black45);
+        
+    return Icon(
+      Icons.done_all_rounded,
+      size: 14.sp,
+      color: color,
+    );
+  }
+
   Widget _buildMessageBubble(
-      String text, String time, bool isMe, bool isDark) {
+      String text, String time, bool isMe, bool isDark, bool isRead, bool isSending) {
     final align = isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start;
-    final bgColor = isMe
-        ? AppColors.navyBlue
-        : (isDark ? const Color(0xFF1E293B) : Colors.white);
-    final textColor =
-        isMe ? Colors.white : (isDark ? Colors.white : Colors.black87);
+    final bubbleBg = isMe
+        ? (isDark ? const Color(0xFF0F3A5F) : const Color(0xFFE3F2FD)) 
+        : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9));
+        
+    final textColor = isMe 
+        ? (isDark ? Colors.white : const Color(0xFF0D2345))
+        : (isDark ? Colors.white : Colors.black87);
+        
     final borderRadius = BorderRadius.only(
       topLeft: Radius.circular(16.r),
       topRight: Radius.circular(16.r),
@@ -202,40 +311,55 @@ class _LawyerChatScreenState extends State<LawyerChatScreen> {
     );
 
     return Padding(
-      padding: EdgeInsets.only(bottom: 12.h),
+      padding: EdgeInsets.only(bottom: 8.h),
       child: Column(
         crossAxisAlignment: align,
         children: [
           Container(
             constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.75),
-            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+            padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
             decoration: BoxDecoration(
-              color: bgColor,
+              color: bubbleBg,
               borderRadius: borderRadius,
               boxShadow: [
-                if (!isMe && !isDark)
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 5,
-                    offset: Offset(0, 2.h),
-                  ),
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.05 : 0.02),
+                  blurRadius: 3,
+                  offset: Offset(0, 1.h),
+                ),
               ],
             ),
-            child: Text(
-              text,
-              style: GoogleFonts.cairo(
-                color: textColor,
-                fontSize: 14.sp,
-              ),
-            ),
-          ),
-          SizedBox(height: 4.h),
-          Text(
-            time,
-            style: GoogleFonts.cairo(
-              color: Colors.grey,
-              fontSize: 10.sp,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  text,
+                  style: GoogleFonts.cairo(
+                    color: textColor,
+                    fontSize: 14.5.sp,
+                    height: 1.4,
+                  ),
+                ),
+                SizedBox(height: 4.h),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      time,
+                      style: GoogleFonts.cairo(
+                        color: isDark ? Colors.white54 : Colors.black45,
+                        fontSize: 10.sp,
+                      ),
+                    ),
+                    if (isMe) ...[
+                      SizedBox(width: 4.w),
+                      _buildStatusIcon(isRead, isSending, isDark),
+                    ],
+                  ],
+                ),
+              ],
             ),
           ),
         ],

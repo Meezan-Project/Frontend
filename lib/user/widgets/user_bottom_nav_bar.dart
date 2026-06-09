@@ -10,12 +10,14 @@ class UserBottomNavBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onDestinationSelected;
   final VoidCallback? onCenterButtonTap;
+  final int unreadCount;
 
   const UserBottomNavBar({
     super.key,
     required this.currentIndex,
     required this.onDestinationSelected,
     this.onCenterButtonTap,
+    this.unreadCount = 0,
   });
 
   @override
@@ -96,6 +98,27 @@ class UserBottomNavBar extends StatelessWidget {
         ? const Color(0xFF9FB0CA)
         : const Color(0xFF98A3B3);
 
+    Widget iconWidget = Icon(
+      isSelected ? activeIcon : icon,
+      color: isSelected ? selectedColor : unselectedColor,
+      size: 25.sp,
+    );
+
+    if (index == 3 && unreadCount > 0) {
+      iconWidget = Badge(
+        backgroundColor: Colors.red,
+        label: Text(
+          '$unreadCount',
+          style: GoogleFonts.cairo(
+            color: Colors.white,
+            fontSize: 9.sp,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        child: iconWidget,
+      );
+    }
+
     return GestureDetector(
       onTap: () => onDestinationSelected(index),
       behavior: HitTestBehavior.opaque,
@@ -115,11 +138,7 @@ class UserBottomNavBar extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              isSelected ? activeIcon : icon,
-              color: isSelected ? selectedColor : unselectedColor,
-              size: 25.sp,
-            ),
+            iconWidget,
             AnimatedSize(
               duration: const Duration(milliseconds: 240),
               curve: Curves.easeOutCubic,
