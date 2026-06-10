@@ -26,6 +26,7 @@ import 'package:mezaan/user/screens/appointments_screen.dart';
 import 'package:mezaan/user/screens/search_screen.dart';
 import 'package:mezaan/user/screens/lawyer_profile_screen.dart';
 import 'package:mezaan/user/screens/video_call_screen.dart';
+import 'package:mezaan/user/widgets/subscription_badge_widget.dart';
 // import 'package:mezaan/user/screens/user_evidence_screen.dart';
 import 'package:mezaan/user/widgets/user_bottom_nav_bar.dart';
 import 'package:mezaan/user/widgets/user_profile_side_panel.dart';
@@ -1308,12 +1309,22 @@ class _LawyerCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  lawyer.name,
-                  style: GoogleFonts.cairo(
-                    fontSize: 16.sp,
-                    fontWeight: FontWeight.w800,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        lawyer.name,
+                        style: GoogleFonts.cairo(
+                          fontSize: 16.sp,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    SizedBox(width: 8.w),
+                    SubscriptionBadgeWidget(tier: lawyer.subscriptionTier),
+                  ],
                 ),
                 SizedBox(height: 4.h),
                 Text(
@@ -1595,6 +1606,14 @@ class _UserDashboardRepository {
               fetchedImg = 'https://i.pravatar.cc/150?u=${doc.id}';
             }
 
+            final tierRaw = data['subscriptionTier']?.toString() ?? 'basic';
+            final expiryRaw = data['subscriptionExpiryDate'] is Timestamp
+                ? (data['subscriptionExpiryDate'] as Timestamp).toDate()
+                : null;
+            final activeTier = (expiryRaw != null && expiryRaw.isBefore(DateTime.now()))
+                ? 'basic'
+                : tierRaw;
+
             return _LawyerProfile(
               id: doc.id,
               name: fullName,
@@ -1608,13 +1627,24 @@ class _UserDashboardRepository {
                   : 'Available later',
               isOnline: data['isOnline'] == true,
               imageUrl: fetchedImg,
+              subscriptionTier: activeTier,
             );
           })
           .whereType<_LawyerProfile>()
           .toList();
 
-      // Sort lawyers based on Rating (Highest first)
+      // Sort lawyers based on Subscription Priority, then Rating (Highest first)
       loaded.sort((a, b) {
+        final weights = {
+          'partner': 3,
+          'elite': 2,
+          'basic': 1,
+        };
+        final wA = weights[a.subscriptionTier.trim().toLowerCase()] ?? 1;
+        final wB = weights[b.subscriptionTier.trim().toLowerCase()] ?? 1;
+        if (wA != wB) {
+          return wB.compareTo(wA);
+        }
         final ratingA = double.tryParse(a.rating) ?? 0.0;
         final ratingB = double.tryParse(b.rating) ?? 0.0;
         return ratingB.compareTo(ratingA); // Descending order
@@ -1915,6 +1945,7 @@ class _LawyerProfile {
   final String onlineStatus;
   final bool isOnline;
   final String imageUrl;
+  final String subscriptionTier;
 
   const _LawyerProfile({
     required this.id,
@@ -1925,6 +1956,7 @@ class _LawyerProfile {
     required this.onlineStatus,
     required this.isOnline,
     required this.imageUrl,
+    this.subscriptionTier = 'basic',
   });
 }
 

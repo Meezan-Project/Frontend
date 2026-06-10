@@ -9,6 +9,7 @@ import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/user/screens/booking_confirmation_screen.dart';
 import 'package:mezaan/user/widgets/review_submission_sheet.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:mezaan/user/widgets/subscription_badge_widget.dart';
 
 // --- Lawyer Model ---
 class LawyerModel {
@@ -31,6 +32,8 @@ class LawyerModel {
   final Map<String, dynamic>? schedule;
   final double? onlineFee;
   final double? inOfficeFee;
+  final String subscriptionTier;
+  final DateTime? subscriptionExpiryDate;
 
   const LawyerModel({
     required this.id,
@@ -52,6 +55,8 @@ class LawyerModel {
     this.schedule = const {},
     this.onlineFee,
     this.inOfficeFee,
+    this.subscriptionTier = 'basic',
+    this.subscriptionExpiryDate,
   });
 
   factory LawyerModel.fromFirestore(DocumentSnapshot doc) {
@@ -172,6 +177,10 @@ class LawyerModel {
         'in_office_fee',
         'inOfficeFee',
       ], baseFee),
+      subscriptionTier: data['subscriptionTier']?.toString() ?? 'basic',
+      subscriptionExpiryDate: data['subscriptionExpiryDate'] is Timestamp
+          ? (data['subscriptionExpiryDate'] as Timestamp).toDate()
+          : null,
     );
   }
 }
@@ -569,13 +578,23 @@ class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      _currentLawyer!.name,
-                      style: GoogleFonts.cairo(
-                        fontSize: 22.sp,
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : AppColors.navyBlue,
-                      ),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8.w,
+                      children: [
+                        Text(
+                          _currentLawyer!.name,
+                          style: GoogleFonts.cairo(
+                            fontSize: 22.sp,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : AppColors.navyBlue,
+                          ),
+                        ),
+                        SubscriptionBadgeWidget(
+                          tier: _currentLawyer!.subscriptionTier,
+                          isProfile: true,
+                        ),
+                      ],
                     ),
                     SizedBox(height: 4.h),
                     Text(

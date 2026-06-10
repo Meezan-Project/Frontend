@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/screens/lawyer_profile_screen.dart';
+import 'package:mezaan/user/widgets/subscription_badge_widget.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -98,6 +99,25 @@ class _SearchScreenState extends State<SearchScreen> {
              matchList(data['country']) ||
              matchList(data['govern']);
     }).toList();
+
+    filtered.sort((a, b) {
+      final dataA = a.data() as Map<String, dynamic>? ?? {};
+      final dataB = b.data() as Map<String, dynamic>? ?? {};
+      final tierA = dataA['subscriptionTier']?.toString().toLowerCase() ?? 'basic';
+      final tierB = dataB['subscriptionTier']?.toString().toLowerCase() ?? 'basic';
+      
+      final weights = {'partner': 3, 'elite': 2, 'basic': 1};
+      final wA = weights[tierA] ?? 1;
+      final wB = weights[tierB] ?? 1;
+      
+      if (wA != wB) {
+        return wB.compareTo(wA);
+      }
+      
+      final nameA = (dataA['name'] ?? dataA['fullName'] ?? '').toString().toLowerCase();
+      final nameB = (dataB['name'] ?? dataB['fullName'] ?? '').toString().toLowerCase();
+      return nameA.compareTo(nameB);
+    });
 
     final Set<String> sugg = {};
     for (final doc in filtered) {
@@ -349,15 +369,23 @@ class _SearchScreenState extends State<SearchScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                          lawyer.name,
-                        style: GoogleFonts.cairo(
-                          color: AppColors.navyBlue,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16.sp,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              lawyer.name,
+                              style: GoogleFonts.cairo(
+                                color: AppColors.navyBlue,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16.sp,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          SizedBox(width: 8.w),
+                          SubscriptionBadgeWidget(tier: lawyer.subscriptionTier),
+                        ],
                       ),
                       if (lawyer.workStatus.isNotEmpty) ...[
                         SizedBox(height: 2.h),

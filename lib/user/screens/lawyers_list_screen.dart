@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/user/screens/lawyer_profile_screen.dart';
+import 'package:mezaan/user/widgets/subscription_badge_widget.dart';
 
 class LawyersListScreen extends StatefulWidget {
   final String categoryName;
@@ -124,6 +125,10 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                     'in_office_fee',
                   ]) ??
                   baseFee,
+              subscriptionTier: data['subscriptionTier']?.toString() ?? 'basic',
+              subscriptionExpiryDate: data['subscriptionExpiryDate'] is Timestamp
+                  ? (data['subscriptionExpiryDate'] as Timestamp).toDate()
+                  : null,
             );
           })
           .whereType<LawyerModel>()
@@ -183,6 +188,18 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
     }
 
     result.sort((a, b) {
+      final tierWeight = {
+        'partner': 3,
+        'elite': 2,
+        'basic': 1,
+      };
+      final weightA = tierWeight[a.subscriptionTier] ?? 1;
+      final weightB = tierWeight[b.subscriptionTier] ?? 1;
+
+      if (weightA != weightB) {
+        return weightB.compareTo(weightA); // Higher tier priority first
+      }
+
       switch (_selectedSortIndex) {
         case 0: // No sorting
           return 0;
@@ -886,13 +903,23 @@ class _LawyersListScreenState extends State<LawyersListScreen> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         // Lawyer Name (full, no ellipsis)
-                                        Text(
-                                          lawyer.name,
-                                          style: GoogleFonts.cairo(
-                                            fontSize: 17.sp,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.navyBlue,
-                                          ),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                lawyer.name,
+                                                style: GoogleFonts.cairo(
+                                                  fontSize: 17.sp,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: AppColors.navyBlue,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            SizedBox(width: 8.w),
+                                            SubscriptionBadgeWidget(tier: lawyer.subscriptionTier),
+                                          ],
                                         ),
                                         SizedBox(height: 2.h),
                                         // Work Status

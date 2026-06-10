@@ -5,6 +5,7 @@ import 'package:mezaan/shared/localization/translate_extension.dart';
 import 'package:mezaan/shared/theme/app_colors.dart';
 import 'package:mezaan/lawyer/screens/lawyer_change_password_screen.dart';
 import 'package:mezaan/lawyer/screens/lawyer_edit_profile_screen.dart';
+import 'package:mezaan/lawyer/screens/subscription_plans_screen.dart';
 
 class LawyerSideDrawer extends StatelessWidget {
   final String lawyerName;
@@ -106,6 +107,19 @@ class LawyerSideDrawer extends StatelessWidget {
                     trailing: hasConflict
                         ? Icon(Icons.warning_amber_rounded, color: Colors.amber.shade700, size: 20.sp)
                         : null,
+                  ),
+                  _DrawerItem(
+                    icon: Icons.workspace_premium_rounded,
+                    title: 'Upgrade Account'.translate(),
+                    onTap: () {
+                      Navigator.pop(context); // Close drawer
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const SubscriptionPlansScreen(),
+                        ),
+                      );
+                    },
                   ),
                   SizedBox(height: 8.h),
 
